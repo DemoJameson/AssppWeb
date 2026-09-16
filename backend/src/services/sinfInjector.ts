@@ -20,6 +20,11 @@ interface IpaMetadata {
   info: { bundleExecutable: string } | null;
   /** The app's parsed Info.plist, as declared by the package itself. */
   infoPlist: Record<string, unknown> | null;
+  /**
+   * The parsed `iTunesMetadata.plist` at the archive root, when a previous
+   * injection wrote one. It carries what Apple said about the download.
+   */
+  storeMetadata: Record<string, unknown> | null;
   /** Images sitting at the top of the app bundle, any of which may be the icon. */
   iconCandidates: IconCandidate[];
 }
@@ -65,6 +70,13 @@ export interface PackageMetadata {
   minimumOsVersion?: string;
   primaryGenreName?: string;
   releaseDate?: string;
+  /**
+   * Where Apple serves the app's icon. The download response carries it and the
+   * injector writes it into the package, so it is available even for packages
+   * that keep no icon of their own — a tvOS build ships its icon inside
+   * Assets.car, which is not something worth parsing.
+   */
+  artworkURL?: string;
 }
 
 export interface InjectResult {
@@ -154,17 +166,22 @@ export async function inject(
 }
 
 /**
- * Reads a package's icon without touching it — no injection, no rewrite. This is
- * what fills in the icon of a task that was compiled before icons were
- * extracted: the image is already inside the package, so recovering it costs far
- * less than downloading the app again.
+ * Reads what an already compiled package can still tell us, without touching it:
+ * the metadata Apple handed out with the download — which is where the icon URL
+ * lives — and, when the bundle carries one, the icon itself. This is what fills
+ * in a task that was compiled before any of this existed: recovering it costs a
+ * few reads instead of downloading the app again.
  */
-export async function extractPackageIcon(
+export async function readPackageInfo(
   ipaPath: string,
-): Promise<PackageIcon | undefined> {
-  const { bundleName, infoPlist, iconCandidates } =
+): Promise<{ metadata: PackageMetadata; icon?: PackageIcon }> {
+  const { bundleName, infoPlist, storeMetadata, iconCandidates } =
     await readIpaMetadata(ipaPath);
-  return readPackageIcon(ipaPath, bundleName, infoPlist, iconCandidates);
+
+  return {
+    metadata: packageMetadata(storeMetadata, infoPlist),
+    icon: await readPackageIcon(ipaPath, bundleName, infoPlist, iconCandidates),
+  };
 }
 
 /** First non-empty value among the given keys of a parsed plist. */
@@ -215,7 +232,30 @@ function packageMetadata(
       firstString(store, ["minimumOsVersion"]),
     primaryGenreName: firstString(store, ["primaryGenreName", "genre"]),
     releaseDate: firstString(store, ["releaseDate"]),
+    artworkURL: sharperIconURL(
+      firstString(store, ["softwareIcon57x57URL", "artworkURL"]),
+    ),
   };
+}
+
+/**
+ * mzstatic thumbnails carry the size they were requested at in the path
+ * (`…/AppIcon…png/114x114bb.jpg`), and Apple sized this one for a 57pt slot —
+ * soft in the 80px package view on a retina screen. The CDN renders any size on
+ * demand, so ask for one with room to spare. A URL that does not look like one
+ * of these is left alone rather than risked.
+ */
+const THUMBNAIL_SIZE_RE = /\/(\d+)x(\d+)(bb\.(?:png|jpe?g))$/i;
+const PREFERRED_ICON_SIZE = 512;
+
+function sharperIconURL(url?: string): string | undefined {
+  if (!url) return undefined;
+
+  const match = THUMBNAIL_SIZE_RE.exec(url);
+  if (!match || Number(match[1]) >= PREFERRED_ICON_SIZE) return url;
+
+  const size = `${PREFERRED_ICON_SIZE}x${PREFERRED_ICON_SIZE}${match[3]}`;
+  return `${url.slice(0, match.index + 1)}${size}`;
 }
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -232,10 +272,19 @@ async function readIpaMetadata(ipaPath: string): Promise<IpaMetadata> {
     let bundleName: string | null = null;
     let manifestData: Buffer | null = null;
     let infoPlistData: Buffer | null = null;
+    let storeMetadataData: Buffer | null = null;
     const iconCandidates: IconCandidate[] = [];
 
     for await (const entry of zip) {
       const filename = entry.filename;
+
+      // The store metadata this package was built with, written by a previous
+      // injection. Reading it back is how an already compiled package reports
+      // what Apple said about the app, icon included.
+      if (!storeMetadataData && filename === "iTunesMetadata.plist") {
+        const stream = await entry.openReadStream();
+        storeMetadataData = await streamToBuffer(stream);
+      }
 
       // Collect the images that could be the app icon. Choosing among them
       // needs the Info.plist, so this only gathers what the archive lists.
@@ -304,7 +353,16 @@ async function readIpaMetadata(ipaPath: string): Promise<IpaMetadata> {
       }
     }
 
-    return { bundleName, manifest, info, infoPlist, iconCandidates };
+    return {
+      bundleName,
+      manifest,
+      info,
+      infoPlist,
+      storeMetadata: storeMetadataData
+        ? parsePlistBuffer(storeMetadataData)
+        : null,
+      iconCandidates,
+    };
   } finally {
     await zip.close();
   }

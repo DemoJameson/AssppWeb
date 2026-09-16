@@ -345,12 +345,22 @@ scales. The frontend prefers `software.artworkUrl` and only falls back to the
 extracted icon (`taskIconUrl` in `utils/icon.ts`), so a storefront download is
 unchanged.
 
-The stored icon is a **cached answer**, so `repairTaskIcons` re-derives it for
-every finished package at startup (in the background, never awaited): packages
-that predate extraction get theirs read back, an icon stored in a format
-browsers cannot decode is rewritten, and one the current rules would not choose
-is removed. That is what carries a selection fix to packages already on disk —
-much cheaper than another download.
+The store metadata also carries the icon URL Apple handed out with the download
+(`softwareIcon57x57URL`), which the injector already writes into the package as
+`iTunesMetadata.plist`. `PackageMetadata.artworkURL` reads it back out, so a
+package with no icon of its own still has one to show — a tvOS build keeps its
+icon inside `Assets.car` and has **no** loose image anywhere, which is the case
+that needed this. mzstatic hands the URL out sized for a 57pt slot and renders
+any size on demand, so the size component in the path is raised to 512; a URL
+that does not look like one of these is left alone rather than risked.
+
+The stored values are **cached answers**, so `repairFinishedPackages` re-derives
+both the icon and the metadata of every finished package at startup (in the
+background, never awaited): packages that predate extraction get theirs read
+back, an icon stored in a format browsers cannot decode is rewritten, one the
+current rules would not choose is removed, and metadata that was missing is
+filled. That is what carries a rule fix to packages already on disk — much
+cheaper than another download.
 
 ## Bag Proxy (Backend)
 

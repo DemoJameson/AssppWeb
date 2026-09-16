@@ -122,6 +122,7 @@ describe("applyPackageMetadata", () => {
     minimumOsVersion: "17.0",
     primaryGenreName: "Utilities",
     releaseDate: "2026-01-02T03:04:05Z",
+    artworkURL: "https://cdn.apple.com/icon.jpg",
   };
 
   it("fills in everything a download by bare app id could not know", () => {
@@ -181,5 +182,27 @@ describe("applyPackageMetadata", () => {
 
     expect(target.artistName).toBe("");
     expect(target.minimumOsVersion).toBe("");
+  });
+
+  it("fills in the icon URL Apple handed out with the download", () => {
+    // The only icon a package with no loose image can offer — a tvOS build
+    // keeps its icon inside Assets.car, which is not worth parsing.
+    const target = software();
+
+    expect(applyPackageMetadata(target, fromPackage)).toBe(true);
+    expect(target.artworkUrl).toBe("https://cdn.apple.com/icon.jpg");
+  });
+
+  it("keeps the icon the storefront already reported", () => {
+    const target = software({ artworkUrl: "https://cdn.apple.com/store.jpg" });
+
+    expect(applyPackageMetadata(target, fromPackage)).toBe(true);
+    expect(target.artworkUrl).toBe("https://cdn.apple.com/store.jpg");
+  });
+
+  it("reports whether it changed anything", () => {
+    // The startup repair relies on this to know what to persist.
+    expect(applyPackageMetadata(software({}), {})).toBe(false);
+    expect(applyPackageMetadata(software({}), fromPackage)).toBe(true);
   });
 });

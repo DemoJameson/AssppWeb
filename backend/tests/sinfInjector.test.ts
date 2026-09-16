@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   inject,
-  extractPackageIcon,
+  readPackageInfo,
 } from "../src/services/sinfInjector.js";
 import AdmZip from "adm-zip";
 import fs from "fs";
@@ -388,7 +388,7 @@ describe("sinfInjector icon extraction", () => {
     });
     await inject([{ id: 1, sinf }], ipaPath);
 
-    const icon = await extractPackageIcon(ipaPath);
+    const { icon } = await readPackageInfo(ipaPath);
 
     expect(icon?.filename).toBe("AppIcon60x60@2x.png");
     expect(icon?.data.subarray(TINY_PNG.length).toString()).toBe(
@@ -403,9 +403,70 @@ describe("sinfInjector icon extraction", () => {
     expect(sinfEntries).toHaveLength(1);
   });
 
+  it("should read the icon URL Apple handed out with the download", async () => {
+    // A package with no icon of its own — a tvOS build keeps it inside
+    // Assets.car — still has this, and it is the only icon it can offer.
+    const ipaPath = createMockIPA("ArtworkApp");
+    await inject(
+      [{ id: 1, sinf }],
+      ipaPath,
+      Buffer.from(
+        plist.build({
+          bundleDisplayName: "Artwork Display",
+          softwareIcon57x57URL: "https://cdn.apple.com/icon.jpg",
+        }),
+      ).toString("base64"),
+    );
+
+    const { icon, metadata } = await readPackageInfo(ipaPath);
+
+    expect(icon).toBeUndefined();
+    expect(metadata.artworkURL).toBe("https://cdn.apple.com/icon.jpg");
+    expect(metadata.name).toBe("Artwork Display");
+  });
+
   it("should report no icon for a package that has none", async () => {
     const ipaPath = createMockIPA("NoIconBackfillApp");
 
-    expect(await extractPackageIcon(ipaPath)).toBeUndefined();
+    expect((await readPackageInfo(ipaPath)).icon).toBeUndefined();
+  });
+
+  it("should ask mzstatic for an icon large enough to render sharply", async () => {
+    // Apple hands this one out sized for a 57pt slot; the CDN renders whatever
+    // size the path asks for.
+    const ipaPath = createMockIPA("SharpIconApp");
+    await inject(
+      [{ id: 1, sinf }],
+      ipaPath,
+      Buffer.from(
+        plist.build({
+          softwareIcon57x57URL:
+            "https://is1-ssl.mzstatic.com/image/thumb/AppIcon.png/114x114bb.jpg",
+        }),
+      ).toString("base64"),
+    );
+
+    const { metadata } = await readPackageInfo(ipaPath);
+
+    expect(metadata.artworkURL).toBe(
+      "https://is1-ssl.mzstatic.com/image/thumb/AppIcon.png/512x512bb.jpg",
+    );
+  });
+
+  it("should leave an icon URL it does not recognise alone", async () => {
+    const ipaPath = createMockIPA("OpaqueIconApp");
+    await inject(
+      [{ id: 1, sinf }],
+      ipaPath,
+      Buffer.from(
+        plist.build({
+          softwareIcon57x57URL: "https://cdn.apple.com/icon.jpg",
+        }),
+      ).toString("base64"),
+    );
+
+    const { metadata } = await readPackageInfo(ipaPath);
+
+    expect(metadata.artworkURL).toBe("https://cdn.apple.com/icon.jpg");
   });
 });

@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { config, DOWNLOAD_TIMEOUT_MS } from "../config.js";
 import {
   inject,
-  extractPackageIcon,
+  readPackageInfo,
   type PackageMetadata,
   type PackageIcon,
 } from "./sinfInjector.js";
@@ -59,30 +59,59 @@ export function appPathSegment(software: Software): string {
  * (see `placeholderSoftware` in the frontend's ManualDownload page); that label
  * counts as "no name yet" so the package can supply the real one.
  */
+/** Fields of `Software` that a package can supply when the request did not. */
+type FillableField =
+  | "bundleID"
+  | "version"
+  | "artistName"
+  | "minimumOsVersion"
+  | "primaryGenreName"
+  | "releaseDate"
+  | "artworkUrl";
+
+/**
+ * @returns whether anything was filled in.
+ */
 export function applyPackageMetadata(
   software: Software,
   metadata: PackageMetadata,
-): void {
-  if (metadata.name && (!software.name || software.name === `App ${software.id}`)) {
+): boolean {
+  let changed = false;
+
+  // The manual download page labels an app it could not look up `App <id>`
+  // (see `placeholderSoftware` in the frontend's ManualDownload page); that
+  // label counts as "no name yet" so the package can supply the real one.
+  if (
+    metadata.name &&
+    (!software.name || software.name === `App ${software.id}`)
+  ) {
     software.name = metadata.name;
+    changed = true;
   }
 
-  software.bundleID = fillMissing(software.bundleID, metadata.bundleID);
-  software.version = fillMissing(software.version, metadata.version);
-  software.artistName = fillMissing(software.artistName, metadata.artistName);
-  software.minimumOsVersion = fillMissing(
-    software.minimumOsVersion,
-    metadata.minimumOsVersion,
-  );
-  software.primaryGenreName = fillMissing(
-    software.primaryGenreName,
-    metadata.primaryGenreName,
-  );
-  software.releaseDate = fillMissing(software.releaseDate, metadata.releaseDate);
+  const fill = (field: FillableField, value?: string) => {
+    if (fillIn(software, field, value)) changed = true;
+  };
+
+  fill("bundleID", metadata.bundleID);
+  fill("version", metadata.version);
+  fill("artistName", metadata.artistName);
+  fill("minimumOsVersion", metadata.minimumOsVersion);
+  fill("primaryGenreName", metadata.primaryGenreName);
+  fill("releaseDate", metadata.releaseDate);
+  fill("artworkUrl", metadata.artworkURL);
+
+  return changed;
 }
 
-function fillMissing(current: string, fallback?: string): string {
-  return current || fallback || "";
+function fillIn(
+  software: Software,
+  field: FillableField,
+  value?: string,
+): boolean {
+  if (!value || software[field]) return false;
+  software[field] = value;
+  return true;
 }
 
 // --- App icon extracted from the compiled package ---
@@ -335,10 +364,10 @@ function initOnStartup() {
   // Clean up orphaned IPA files (files without a task)
   cleanOrphanedPackages();
 
-  // Recover or repair icons for packages compiled before icons were handled.
-  // Deliberately not awaited: it is file work over packages that may be hundreds
-  // of megabytes, and it must not hold up the server.
-  void repairTaskIcons().catch(() => {});
+  // Bring already compiled packages up to what the current code reads out of
+  // them. Deliberately not awaited: it is file work over packages that may be
+  // hundreds of megabytes, and it must not hold up the server.
+  void repairFinishedPackages().catch(() => {});
 
   // Run time-based cleanup once on startup, then schedule daily
   runTimeCleanup();
@@ -346,21 +375,22 @@ function initOnStartup() {
 }
 
 /**
- * Makes the stored icon of every finished package match what that package
- * actually contains, under the rules the extractor applies today.
+ * Brings what a finished package reports back to what that package actually
+ * contains, under the rules the extractor applies today.
  *
- * Re-deriving rather than only filling gaps is deliberate: the stored file is a
- * cached answer, so a rule fix has to reach packages that are already on disk —
- * and a package with no icon of its own has any stale one removed, because a
- * wrong icon is worse than none when the storefront's is available instead. The
- * alternative to all of this is asking the user to download the app again.
+ * Re-deriving rather than only filling gaps is deliberate: the stored values are
+ * cached answers, so a rule fix has to reach packages that are already on disk,
+ * and the alternative is asking the user to download the app again. Two things
+ * are refreshed: the icon, and the store metadata the package carries — the icon
+ * URL among it, which is the only icon a package with no loose image can offer
+ * (a tvOS build keeps its icon inside `Assets.car`).
  *
  * Runs in the background: it reads archives that can be hundreds of megabytes,
  * and it must not hold up the server. The frontend picks the result up as soon
  * as it next lists the downloads, since `hasIcon` is answered from the file
  * system on every request.
  */
-async function repairTaskIcons(): Promise<void> {
+async function repairFinishedPackages(): Promise<void> {
   const finished = Array.from(tasks.values()).filter(
     (task) => task.status === "completed" && task.filePath,
   );
@@ -370,17 +400,20 @@ async function repairTaskIcons(): Promise<void> {
     const filePath = task.filePath;
     if (!filePath || !fs.existsSync(filePath)) continue;
 
-    let icon: PackageIcon | undefined;
+    let info: Awaited<ReturnType<typeof readPackageInfo>>;
     try {
-      icon = await extractPackageIcon(filePath);
+      info = await readPackageInfo(filePath);
     } catch (err) {
       console.warn(
-        `[downloadManager] Could not read the icon of ${task.id}: ${err instanceof Error ? err.message : err}`,
+        `[downloadManager] Could not read the package of ${task.id}: ${err instanceof Error ? err.message : err}`,
       );
       continue;
     }
 
+    if (applyPackageMetadata(task.software, info.metadata)) changed++;
+
     const stored = iconPathFor(task);
+    const { icon } = info;
 
     if (icon) {
       if (stored && iconsMatch(stored, icon.data)) continue;
@@ -397,8 +430,9 @@ async function repairTaskIcons(): Promise<void> {
 
   if (changed > 0) {
     console.log(
-      `[downloadManager] Refreshed the icon of ${changed} finished package(s)`,
+      `[downloadManager] Refreshed ${changed} finished package(s) from their contents`,
     );
+    persistTasks();
   }
 }
 
