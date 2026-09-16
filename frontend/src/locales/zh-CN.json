@@ -438,7 +438,16 @@
       "missingVersion": "缺少所需的版本信息",
       "invalidSinf": "无效的 sinf 项目",
       "noSinf": "响应中未找到 sinf",
-      "tooManyRedirects": "重定向次数过多"
+      "tooManyRedirects": "重定向次数过多",
+      "invalidEndpoint": "服务端下发的下载地址无效",
+      "updateMismatch": "更新接口返回的下载与请求的应用不匹配"
+    },
+    "versions": {
+      "passwordExpired": "密码令牌已过期",
+      "licenseRequired": "需要许可证 - 请先获取该应用",
+      "failed": "获取版本信息失败: {{failureType}}",
+      "missingIdentifiers": "响应中缺少版本标识符",
+      "missingMetadata": "响应中没有版本信息"
     },
     "purchase": {
       "paidNotSupported": "不支持购买付费应用",

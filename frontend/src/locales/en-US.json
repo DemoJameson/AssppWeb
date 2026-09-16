@@ -438,7 +438,16 @@
       "missingVersion": "Missing required version information",
       "invalidSinf": "Invalid sinf item",
       "noSinf": "No sinf found in response",
-      "tooManyRedirects": "Too many redirects"
+      "tooManyRedirects": "Too many redirects",
+      "invalidEndpoint": "Invalid download endpoint advertised by the server",
+      "updateMismatch": "The update endpoint returned a download for a different app or version"
+    },
+    "versions": {
+      "passwordExpired": "Password token is expired",
+      "licenseRequired": "License required - acquire the app first",
+      "failed": "Failed to load version information: {{failureType}}",
+      "missingIdentifiers": "The response contained no version identifiers",
+      "missingMetadata": "The response contained no version information"
     },
     "purchase": {
       "paidNotSupported": "Purchasing paid apps is not supported",

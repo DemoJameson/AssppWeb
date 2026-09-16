@@ -10,6 +10,7 @@ import {
   RETRYABLE_FAILURE_TYPE,
   volumeStoreEndpoint,
   redownloadEndpoint,
+  downloadDispatchEndpoint,
 } from "../../src/apple/config";
 
 describe("apple/config", () => {
@@ -148,6 +149,62 @@ describe("apple/config", () => {
 
     it("exposes the retryable failure type used for fallback", () => {
       expect(RETRYABLE_FAILURE_TYPE).toBe("5002");
+    });
+  });
+
+  describe("downloadDispatchEndpoint", () => {
+    it("accepts the exact host and path pair the bag advertises", () => {
+      const ep = downloadDispatchEndpoint(
+        "https://downloaddispatch.itunes.apple.com/r/redownload",
+        "/r/redownload",
+        "aabbccddeeff",
+      );
+      expect(ep).toEqual({
+        host: "downloaddispatch.itunes.apple.com",
+        path: "/r/redownload?guid=aabbccddeeff",
+        externalVersionIdKey: "appExtVrsId",
+      });
+    });
+
+    it("accepts the updateProduct path for the same host", () => {
+      const ep = downloadDispatchEndpoint(
+        "https://downloaddispatch.itunes.apple.com/up/updateProduct",
+        "/up/updateProduct",
+        "aabbccddeeff",
+      );
+      expect(ep?.path).toBe("/up/updateProduct?guid=aabbccddeeff");
+    });
+
+    it("rejects a host that is not the dispatch host", () => {
+      expect(
+        downloadDispatchEndpoint(
+          "https://downloaddispatch.evil.example/r/redownload",
+          "/r/redownload",
+          "aabbccddeeff",
+        ),
+      ).toBeNull();
+    });
+
+    it("rejects a path the caller did not ask for", () => {
+      expect(
+        downloadDispatchEndpoint(
+          "https://downloaddispatch.itunes.apple.com/WebObjects/DownloadDispatch.woa/wa/ent/download",
+          "/r/redownload",
+          "aabbccddeeff",
+        ),
+      ).toBeNull();
+    });
+
+    it("rejects anything appended to the advertised URL", () => {
+      for (const url of [
+        "https://downloaddispatch.itunes.apple.com/r/redownload?guid=x",
+        "https://downloaddispatch.itunes.apple.com/r/redownload#frag",
+        "https://user@downloaddispatch.itunes.apple.com/r/redownload",
+        "http://downloaddispatch.itunes.apple.com/r/redownload",
+        "not a url",
+      ]) {
+        expect(downloadDispatchEndpoint(url, "/r/redownload", "aabbccddeeff")).toBeNull();
+      }
     });
   });
 });

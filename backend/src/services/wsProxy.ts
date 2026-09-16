@@ -2,13 +2,22 @@ import { Server as HttpServer } from "http";
 import { server as wisp } from "@mercuryworkshop/wisp-js/server";
 import { accessPasswordHash, verifyAccessToken } from "../config.js";
 
-// Allow only Apple hosts required by bag/auth/purchase/version/download flows.
+// Allow only Apple hosts required by bag/auth/purchase/version/download flows,
+// plus the SAP signing endpoints the bag advertises (sign-sap-setup and
+// sign-sap-setup-cert) and the catalogue lookup used to pin a version id before
+// the redownload fallback. Leaving the SAP hosts out kills the setup exchange
+// inside the TLS handshake, which the browser surfaces as
+// "Request failed with error code 35: SSL connect error", while the proxy log
+// shows "refusing to create a stream to s.mzstatic.com:443".
 wisp.options.hostname_whitelist = [
   /^auth\.itunes\.apple\.com$/,
   /^buy\.itunes\.apple\.com$/,
   /^init\.itunes\.apple\.com$/,
   /^p\d+-buy\.itunes\.apple\.com$/,
   /^downloaddispatch\.itunes\.apple\.com$/,
+  /^fpinit\.itunes\.apple\.com$/,
+  /^s\.mzstatic\.com$/,
+  /^uclient-api\.itunes\.apple\.com$/,
 ];
 wisp.options.port_whitelist = [443];
 wisp.options.allow_direct_ip = false;

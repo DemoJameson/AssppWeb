@@ -1,195 +1,170 @@
-import type { Account, Software, DownloadOutput, Sinf } from "../types";
-import { appleRequest } from "./request";
-import { buildPlist, parsePlist } from "./plist";
-import { extractAndMergeCookies } from "./cookies";
+import type { Account, Software, DownloadOutput, Sinf, Cookie } from "../types";
+import { buildPlist } from "./plist";
 import {
-  RETRYABLE_FAILURE_TYPE,
-  redownloadEndpoint,
-  volumeStoreEndpoint,
+  FAILURE_DEVICE_VERIFICATION_FAILED,
+  FAILURE_LICENSE_ALREADY_EXISTS,
+  FAILURE_LICENSE_NOT_FOUND,
+  FAILURE_PASSWORD_TOKEN_EXPIRED,
+  FAILURE_SIGN_IN_REQUIRED,
 } from "./config";
+import {
+  DownloadError,
+  bodySnippet,
+  createDownloadSession,
+  customerMessageOf,
+  failureTypeOf,
+  itemsOf,
+  requestDownloadProduct,
+  type DownloadReply,
+  type DownloadSession,
+} from "./downloadProduct";
 import i18n from "../i18n";
 
-export class DownloadError extends Error {
-  constructor(
-    message: string,
-    public readonly code?: string,
-  ) {
-    super(message);
-    this.name = "DownloadError";
-  }
-}
+export { DownloadError };
 
 export async function getDownloadInfo(
   account: Account,
   app: Software,
   externalVersionId?: string,
 ): Promise<{ output: DownloadOutput; updatedCookies: typeof account.cookies }> {
-  const deviceId = account.deviceIdentifier;
+  const session = createDownloadSession(account, app);
 
-  let endpoint = volumeStoreEndpoint(account.pod, deviceId);
-  let requestHost = endpoint.host;
-  let requestPath = endpoint.path;
-  let triedRedownload = false;
-  let cookies = [...account.cookies];
-  let redirectAttempt = 0;
+  const reply = await requestDownloadProduct(session, externalVersionId ?? "");
 
-  while (redirectAttempt <= 3) {
-    const payload: Record<string, any> = {
-      creditDisplay: "",
-      guid: deviceId,
-      salableAdamId: app.id,
-    };
+  return interpretReply(session, reply);
+}
 
-    if (externalVersionId) {
-      payload[endpoint.externalVersionIdKey] = externalVersionId;
-    }
+/**
+ * Failure handling of the resolved reply, mirroring ipatool's `Download`.
+ * Order matters: a session-level failure type is reported before Apple's own
+ * message, which in turn is preferred over the raw failure type.
+ *
+ * `5002` is grouped with the password-token failures here (ipatool's
+ * `Download` does the same) — it is a real answer from the endpoint, not a
+ * signal to try another host.
+ */
+function assertDownloadReply(reply: DownloadReply): void {
+  const failureType = failureTypeOf(reply);
+  const customerMessage = customerMessageOf(reply);
+  const items = itemsOf(reply);
 
-    const plistBody = buildPlist(payload);
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/x-apple-plist",
-      "iCloud-DSID": account.directoryServicesIdentifier,
-      "X-Dsid": account.directoryServicesIdentifier,
-    };
-
-    const response = await appleRequest({
-      method: "POST",
-      host: requestHost,
-      path: requestPath,
-      headers,
-      body: plistBody,
-      cookies,
-    });
-
-    cookies = extractAndMergeCookies(response.rawHeaders, cookies);
-
-    if (response.status === 302) {
-      const location = response.headers["location"];
-      if (!location) {
-        throw new DownloadError(i18n.t("errors.download.redirectLocation"));
-      }
-      const url = new URL(location);
-      requestHost = url.hostname;
-      requestPath = url.pathname + url.search;
-      redirectAttempt++;
-      continue;
-    }
-
-    const dict = parsePlist(response.body) as Record<string, any>;
-
-    if (dict.failureType) {
-      const failureType = String(dict.failureType);
-
-      // volumeStore intermittently returns 5002; retry once via the
-      // redownload dispatch endpoint, which serves the same payload.
-      if (failureType === RETRYABLE_FAILURE_TYPE && !triedRedownload) {
-        triedRedownload = true;
-        endpoint = redownloadEndpoint(deviceId);
-        requestHost = endpoint.host;
-        requestPath = endpoint.path;
-        redirectAttempt = 0;
-        continue;
-      }
-
-      const customerMessage = dict.customerMessage as string | undefined;
-      switch (failureType) {
-        case "2034":
-        case "2042":
-          throw new DownloadError(
-            i18n.t("errors.download.passwordExpired"),
-            failureType,
-          );
-        case "9610":
-          throw new DownloadError(
-            i18n.t("errors.download.licenseRequired"),
-            "9610",
-          );
-        default: {
-          if (customerMessage === "Your password has changed.") {
-            throw new DownloadError(
-              i18n.t("errors.download.passwordExpired"),
-              failureType,
-            );
-          }
-          // If apple provides a specific string, we fall back to it, otherwise we use the localized default.
-          throw new DownloadError(
-            customerMessage ??
-              i18n.t("errors.download.downloadFailed", { failureType }),
-            failureType,
-          );
-        }
-      }
-    }
-
-    const songList = dict.songList as Record<string, any>[] | undefined;
-    if (!songList || songList.length === 0) {
-      throw new DownloadError(i18n.t("errors.download.noItems"));
-    }
-
-    const item = songList[0];
-    const url = item.URL as string;
-    if (!url) {
-      throw new DownloadError(i18n.t("errors.download.missingUrl"));
-    }
-
-    const metadata = item.metadata as Record<string, any>;
-    if (!metadata) {
-      throw new DownloadError(i18n.t("errors.download.missingMetadata"));
-    }
-
-    const version = metadata.bundleShortVersionString as string;
-    const bundleVersion = metadata.bundleVersion as string;
-    if (!version || !bundleVersion) {
-      throw new DownloadError(i18n.t("errors.download.missingVersion"));
-    }
-
-    const sinfs: Sinf[] = [];
-    const sinfData = item.sinfs as Record<string, any>[] | undefined;
-    if (sinfData) {
-      for (const sinfItem of sinfData) {
-        const id = sinfItem.id as number;
-        const sinf = sinfItem.sinf;
-        if (id !== undefined && sinf) {
-          let sinfBase64: string;
-          if (sinf instanceof Uint8Array || sinf instanceof ArrayBuffer) {
-            const bytes =
-              sinf instanceof ArrayBuffer ? new Uint8Array(sinf) : sinf;
-            sinfBase64 = base64FromBytes(bytes);
-          } else if (typeof sinf === "string") {
-            sinfBase64 = sinf;
-          } else {
-            throw new DownloadError(i18n.t("errors.download.invalidSinf"));
-          }
-          sinfs.push({ id, sinf: sinfBase64 });
-        }
-      }
-    }
-
-    if (sinfs.length === 0) {
-      throw new DownloadError(i18n.t("errors.download.noSinf"));
-    }
-
-    // Build iTunesMetadata plist
-    const metadataDict: Record<string, any> = { ...metadata };
-    metadataDict["apple-id"] = account.email;
-    metadataDict["userName"] = account.email;
-    delete metadataDict.passwordToken;
-    delete metadataDict["passwordToken"];
-    const iTunesMetadata = base64FromString(buildPlist(metadataDict));
-
-    return {
-      output: {
-        downloadURL: url,
-        sinfs,
-        bundleShortVersionString: version,
-        bundleVersion,
-        iTunesMetadata,
-      },
-      updatedCookies: cookies,
-    };
+  if (
+    failureType === FAILURE_PASSWORD_TOKEN_EXPIRED ||
+    failureType === FAILURE_SIGN_IN_REQUIRED ||
+    failureType === FAILURE_DEVICE_VERIFICATION_FAILED ||
+    failureType === FAILURE_LICENSE_ALREADY_EXISTS
+  ) {
+    throw new DownloadError(i18n.t("errors.download.passwordExpired"), failureType);
   }
 
-  throw new DownloadError(i18n.t("errors.download.tooManyRedirects"));
+  if (failureType === FAILURE_LICENSE_NOT_FOUND) {
+    throw new DownloadError(i18n.t("errors.download.licenseRequired"), failureType);
+  }
+
+  if (customerMessage !== "" && (failureType !== "" || items.length === 0)) {
+    throw new DownloadError(customerMessage, failureType || undefined);
+  }
+
+  if (failureType !== "") {
+    throw new DownloadError(
+      i18n.t("errors.download.downloadFailed", { failureType }),
+      failureType,
+    );
+  }
+
+  if (items.length === 0) {
+    throw new DownloadError(unexpectedReply(reply));
+  }
+}
+
+async function interpretReply(
+  session: DownloadSession,
+  reply: DownloadReply,
+): Promise<{ output: DownloadOutput; updatedCookies: Cookie[] }> {
+  assertDownloadReply(reply);
+
+  const item = itemsOf(reply)[0];
+
+  const url = item.URL as string | undefined;
+  if (!url) {
+    throw new DownloadError(i18n.t("errors.download.missingUrl"));
+  }
+
+  const metadata = item.metadata as Record<string, any> | undefined;
+  if (!metadata) {
+    throw new DownloadError(i18n.t("errors.download.missingMetadata"));
+  }
+
+  const version = metadata.bundleShortVersionString as string;
+  const bundleVersion = metadata.bundleVersion as string;
+  if (!version || !bundleVersion) {
+    throw new DownloadError(i18n.t("errors.download.missingVersion"));
+  }
+
+  const sinfs: Sinf[] = [];
+  const sinfData = item.sinfs as Record<string, any>[] | undefined;
+  if (sinfData) {
+    for (const sinfItem of sinfData) {
+      const id = sinfItem.id as number;
+      const sinf = sinfItem.sinf;
+      if (id !== undefined && sinf) {
+        let sinfBase64: string;
+        if (sinf instanceof Uint8Array || sinf instanceof ArrayBuffer) {
+          const bytes = sinf instanceof ArrayBuffer ? new Uint8Array(sinf) : sinf;
+          sinfBase64 = base64FromBytes(bytes);
+        } else if (typeof sinf === "string") {
+          sinfBase64 = sinf;
+        } else {
+          throw new DownloadError(i18n.t("errors.download.invalidSinf"));
+        }
+        sinfs.push({ id, sinf: sinfBase64 });
+      }
+    }
+  }
+
+  if (sinfs.length === 0) {
+    throw new DownloadError(i18n.t("errors.download.noSinf"));
+  }
+
+  // Build iTunesMetadata plist
+  const metadataDict: Record<string, any> = { ...metadata };
+  metadataDict["apple-id"] = session.account.email;
+  metadataDict["userName"] = session.account.email;
+  // The account's password token must never travel inside the IPA.
+  delete metadataDict.passwordToken;
+  const iTunesMetadata = base64FromString(buildPlist(metadataDict));
+
+  return {
+    output: {
+      downloadURL: url,
+      sinfs,
+      bundleShortVersionString: version,
+      bundleVersion,
+      iTunesMetadata,
+    },
+    updatedCookies: session.cookies,
+  };
+}
+
+/**
+ * The reply is the only thing that identifies what happened, so name the
+ * endpoint, status and content type alongside Apple's answer, and log the whole
+ * response for the console.
+ */
+function unexpectedReply(reply: DownloadReply): string {
+  console.error("[download] unexpected Apple reply", {
+    endpoint: reply.endpoint,
+    status: reply.status,
+    headers: reply.headers,
+    body: reply.body,
+  });
+
+  const where = reply.endpoint.slice(0, 90);
+  const type = reply.headers["content-type"] ?? "no content-type";
+
+  return `${i18n.t(
+    "errors.download.noItems",
+  )} [${where}] [HTTP ${reply.status}] [${type}] ${bodySnippet(reply.body, 120)}`;
 }
 
 function base64FromString(value: string): string {

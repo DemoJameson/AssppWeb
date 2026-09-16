@@ -87,6 +87,33 @@ describe("apple/bag", () => {
     expect(result.authURL).toBe(defaultAuthURL);
   });
 
+  it("surfaces the download fallback hosts the bag advertises", async () => {
+    const xml = buildPlist({
+      urlBag: {
+        authenticateAccount:
+          "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate",
+        redownloadProduct: "https://downloaddispatch.itunes.apple.com/r/redownload",
+        updateProduct: "https://downloaddispatch.itunes.apple.com/up/updateProduct",
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () => xml,
+      }),
+    );
+
+    const result = await fetchBag("aabbccddeeff");
+
+    expect(result.redownloadEndpoint).toBe(
+      "https://downloaddispatch.itunes.apple.com/r/redownload",
+    );
+    expect(result.updateEndpoint).toBe(
+      "https://downloaddispatch.itunes.apple.com/up/updateProduct",
+    );
+  });
+
   describe("normalizeAuthURL", () => {
     it("appends /fast/ to a bare native auth endpoint", () => {
       expect(

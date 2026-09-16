@@ -168,11 +168,92 @@ The Wisp server validates target hosts via `hostname_whitelist` in `backend/src/
 - `buy.itunes.apple.com` — purchase endpoint
 - `init.itunes.apple.com` — bag endpoint
 - `/^p\d+-buy\.itunes\.apple\.com$/` — pod-based hosts
-- `downloaddispatch.itunes.apple.com` — redownload dispatch endpoint (failureType 5002 fallback)
+- `downloaddispatch.itunes.apple.com` — download fallbacks: redownload (`/r/redownload`) and updateProduct (`/up/updateProduct`)
+- `fpinit.itunes.apple.com` — SAP setup exchange endpoint (`sign-sap-setup`)
+- `s.mzstatic.com` — SAP certificate endpoint (`sign-sap-setup-cert`)
+- `uclient-api.itunes.apple.com` — storefront catalogue lookup, used to pin the external version id before the redownload fallback (ipatool does the same)
 - Port restricted to `443` only
 - Direct IP targets blocked (`allow_direct_ip = false`)
 - Loopback IP targets blocked (`allow_loopback_ips = false`)
 - Private/reserved resolved IPs allowed (`allow_private_ips = true`) for Docker/OrbStack DNS translation while hostname allowlist remains the primary control
+
+## Download Endpoint Chain (Frontend)
+
+`frontend/src/apple/download.ts` mirrors ipatool's `sendDownloadProduct`
+(`pkg/appstore/appstore_download_product.go`). No single endpoint serves every
+account/app pair, so the flow walks three of them and only two reply shapes move
+it on:
+
+1. **volumeStore** — `p{ped}-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/volumeStoreDownloadProduct?guid=`.
+   Primary. Names the version `externalVersionId`.
+2. **redownload** — the bag's `redownloadProduct` URL. Names the version `appExtVrsId`.
+3. **updateProduct** — the bag's `updateProduct` URL. Same version key as redownload.
+
+Fallback triggers, exactly as in ipatool:
+
+- volumeStore → redownload when the reply is **empty** (HTTP 200, no
+  `failureType`, no `customerMessage`, no `songList` — the purchase receipt Apple
+  returns for an app the account does not own yet) or **unavailable** (HTTP 200,
+  no `failureType`, no items, `customerMessage` ending in "No Longer Available").
+- redownload → updateProduct when the request fails with an **empty HTTP 500**, or
+  when redownload answers with the same availability message. Only reached with a
+  pinned version id, since updateProduct needs one.
+- A reply carrying a `failureType` is a real answer and is never retried on
+  another host. `5002` is grouped with the password-token failures (`2034`,
+  `2042`, `1008`) and reported as a session problem; `9610` means the license is
+  missing.
+
+Both dispatch URLs come from the bag and are validated against an exact
+host/path pair (`downloadDispatchEndpoint` in `config.ts`) before use.
+
+The version id for the redownload hop is pinned from
+`uclient-api.itunes.apple.com` before the first attempt, because the reply that
+would normally carry it — the volumeStore document — is what came back empty. A
+lookup failure is fatal, matching ipatool: an unpinned redownload can answer with
+a tvOS build for a universal app.
+
+The payload both endpoints receive is `creditDisplay`, `guid`, `salableAdamId`
+(integer), `serialNumber: "0"`, plus the endpoint's version key when pinned. The
+original POST is replayed at any redirect location (the volumeStore pod
+hand-off expects the same body; Go's client would downgrade 302 to a bodyless
+GET).
+
+### Version flows share the exchange
+
+`frontend/src/apple/downloadProduct.ts` holds the exchange itself
+(`requestDownloadProduct`), because ipatool drives three operations through its
+`sendDownloadProduct`. On this side:
+
+- `download.ts` — ipatool's `Download`
+- `versionFinder.ts` — ipatool's `ListVersions` (`listVersions`)
+- `versionLookup.ts` — ipatool's `GetVersionMetadata` (`getVersionMetadata`)
+
+So the endpoint fallbacks above apply to the version pickers too. Each caller
+applies its own failure mapping, exactly as ipatool does:
+
+- `Download`: `5002` joins the session failures (`2034`, `2042`, `1008`).
+- `ListVersions` / `GetVersionMetadata`: only `2034`/`2042` are session
+  failures; `5002` is reported as a plain failure.
+
+`listVersions` returns identifiers **newest first** (Apple sends them oldest
+first) because the pickers render the array in order, and exposes Apple's
+`softwareVersionExternalIdentifier` as `latestExternalVersionId` (optional — this
+app offers "latest" as an explicit choice instead of reading it off the reply).
+
+One deliberate deviation in `getVersionMetadata`: ipatool reads the display
+version and release date out of the IPA itself (range requests against the CDN)
+because Apple's reply can carry stale values. Fetching app assets from the
+browser would mean widening the Wisp host allowlist and duplicating what the
+backend downloads, so the reply's metadata is used instead; the version-history
+UI treats a failure there as non-fatal.
+
+### License acquisition treats "already owned" as success
+
+`purchase.ts` (ipatool's `Purchase`) treats `failureType 5002`, `2019`, and an
+HTTP 500 carrying no `failureType` as success: all three mean the order is
+already fulfilled, and ipatool's CLI ignores its `ErrLicenseAlreadyExists` as a
+terminal success state. `2059` retries once with the Apple Arcade
+`pricingParameters` (`GAME`), matching ipatool.
 
 ## Bag Proxy (Backend)
 

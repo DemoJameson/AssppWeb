@@ -15,6 +15,16 @@ export class PurchaseError extends Error {
   }
 }
 
+/**
+ * failureType values meaning "this account already owns the app". Reaching that
+ * state is the whole point of acquiring a license, so they count as success:
+ * ipatool's CLI ignores its `ErrLicenseAlreadyExists` as a terminal success
+ * state, and Apple pairs `5002` with the uninformative "An unknown error has
+ * occurred" message. `2019` is PRICE_MISMATCH, which Apple returns for an item
+ * that is already purchased.
+ */
+const ALREADY_OWNED_FAILURE_TYPES = new Set(["5002", "2019"]);
+
 export async function purchaseApp(
   account: Account,
   app: Software,
@@ -87,6 +97,12 @@ async function purchaseWithParams(
   if (dict.failureType) {
     const failureType = String(dict.failureType);
     const customerMessage = dict.customerMessage as string | undefined;
+
+    // The license already being on the account means the call succeeded.
+    if (ALREADY_OWNED_FAILURE_TYPES.has(failureType)) {
+      return { updatedCookies };
+    }
+
     switch (failureType) {
       case "2059":
         throw new PurchaseError(i18n.t("errors.purchase.unavailable"), "2059");
@@ -136,6 +152,13 @@ async function purchaseWithParams(
         );
       }
     }
+  }
+
+  // ipatool maps an HTTP 500 on buyProduct to "license already exists" too: with
+  // no failureType in the body, Apple is reporting that the order is already
+  // fulfilled rather than that the request was malformed.
+  if (response.status === 500) {
+    return { updatedCookies };
   }
 
   const jingleDocType = dict.jingleDocType as string | undefined;

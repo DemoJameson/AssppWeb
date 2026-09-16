@@ -151,11 +151,30 @@ export function storeAPIHost(pod?: string): string {
   return "p25-buy.itunes.apple.com";
 }
 
-// The volumeStore endpoint intermittently rejects requests with failureType
-// 5002. The legacy redownload dispatch endpoint serves the same payload and is
-// used as a fallback. The two endpoints name the external version id
-// differently in the request payload.
+// The volumeStore endpoint answers with failureType 5002 for apps the account
+// already owns. The legacy redownload dispatch endpoint serves those, and is
+// used as a fallback by the version flows. The two endpoints name the external
+// version id differently in the request payload.
 export const RETRYABLE_FAILURE_TYPE = "5002";
+
+/** Host serving both download fallbacks advertised by the bag. */
+export const DOWNLOAD_DISPATCH_HOST = "downloaddispatch.itunes.apple.com";
+/** Bag key `redownloadProduct`, used when volumeStore serves no download item. */
+export const REDOWNLOAD_PRODUCT_PATH = "/r/redownload";
+/** Bag key `updateProduct`, used when redownload itself cannot serve the app. */
+export const UPDATE_PRODUCT_PATH = "/up/updateProduct";
+
+export const VOLUME_STORE_VERSION_KEY = "externalVersionId";
+/** redownload and updateProduct both name the version `appExtVrsId`. */
+export const DOWNLOAD_DISPATCH_VERSION_KEY = "appExtVrsId";
+
+// Failure types handled by the download flow. Mirrors ipatool's
+// pkg/appstore/constants.go.
+export const FAILURE_DEVICE_VERIFICATION_FAILED = "1008";
+export const FAILURE_PASSWORD_TOKEN_EXPIRED = "2034";
+export const FAILURE_SIGN_IN_REQUIRED = "2042";
+export const FAILURE_LICENSE_NOT_FOUND = "9610";
+export const FAILURE_LICENSE_ALREADY_EXISTS = "5002";
 
 export interface StoreDownloadEndpoint {
   host: string;
@@ -170,15 +189,48 @@ export function volumeStoreEndpoint(
   return {
     host: storeAPIHost(pod),
     path: `/WebObjects/MZFinance.woa/wa/volumeStoreDownloadProduct?guid=${deviceId}`,
-    externalVersionIdKey: "externalVersionId",
+    externalVersionIdKey: VOLUME_STORE_VERSION_KEY,
   };
 }
 
 export function redownloadEndpoint(deviceId: string): StoreDownloadEndpoint {
   return {
-    host: "downloaddispatch.itunes.apple.com",
-    path: `/r/redownload?guid=${deviceId}`,
-    externalVersionIdKey: "appExtVrsId",
+    host: DOWNLOAD_DISPATCH_HOST,
+    path: `${REDOWNLOAD_PRODUCT_PATH}?guid=${deviceId}`,
+    externalVersionIdKey: DOWNLOAD_DISPATCH_VERSION_KEY,
+  };
+}
+
+/**
+ * Builds an endpoint from a URL the bag advertises. ipatool's
+ * `newDownloadEndpoint` accepts only an exact host/path pair with nothing else
+ * appended (no query, fragment or credentials) and treats anything else as a
+ * hard error rather than a download attempt, so the same check applies here.
+ * Returns null when the URL does not match.
+ */
+export function downloadDispatchEndpoint(
+  bagURL: string,
+  expectedPath: string,
+  deviceId: string,
+): StoreDownloadEndpoint | null {
+  let url: URL;
+  try {
+    url = new URL(bagURL);
+  } catch {
+    return null;
+  }
+
+  if (url.protocol !== "https:") return null;
+  if (url.host !== DOWNLOAD_DISPATCH_HOST) return null;
+  if (url.pathname !== expectedPath) return null;
+  if (url.search !== "" || url.hash !== "" || url.username || url.password) {
+    return null;
+  }
+
+  return {
+    host: url.hostname,
+    path: `${expectedPath}?guid=${deviceId}`,
+    externalVersionIdKey: DOWNLOAD_DISPATCH_VERSION_KEY,
   };
 }
 

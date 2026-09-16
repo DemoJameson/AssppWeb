@@ -6,6 +6,13 @@ export interface BagOutput {
   authURL: string;
   /** Present when the bag advertises the SAP signing protocol. */
   sapEndpoints?: SapEndpoints;
+  /**
+   * Download fallback hosts. The download flow consults these instead of
+   * hardcoding the dispatch host (ipatool reads `urlBag.redownloadProduct` and
+   * `urlBag.updateProduct`).
+   */
+  redownloadEndpoint?: string;
+  updateEndpoint?: string;
 }
 
 export const defaultAuthURL =
@@ -75,14 +82,23 @@ export async function fetchBag(deviceId: string): Promise<BagOutput> {
       }
     }
 
+    const downloadEndpoints = {
+      redownloadEndpoint: bagValue("redownloadProduct"),
+      updateEndpoint: bagValue("updateProduct"),
+    };
+
     if (!authURL) {
       console.warn(
         "[Bag] authenticateAccount URL not found in bag, using default auth endpoint",
       );
-      return { authURL: defaultAuthURL, sapEndpoints };
+      return { authURL: defaultAuthURL, sapEndpoints, ...downloadEndpoints };
     }
 
-    return { authURL: normalizeAuthURL(authURL), sapEndpoints };
+    return {
+      authURL: normalizeAuthURL(authURL),
+      sapEndpoints,
+      ...downloadEndpoints,
+    };
   } catch (error) {
     console.warn(
       `[Bag] Failed to fetch/parse bag, using default auth endpoint: ${
