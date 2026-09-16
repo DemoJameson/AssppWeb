@@ -1,8 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import AppIcon from "../common/AppIcon";
-import CountrySelect from "../common/CountrySelect";
 import PlatformSelect from "../common/PlatformSelect";
 
 import { useAccounts } from "../../hooks/useAccounts";
@@ -11,9 +10,8 @@ import { useSettingsStore } from "../../store/settings";
 import { useToastStore } from "../../store/toast";
 import { lookupApp } from "../../api/search";
 import { listVersions } from "../../apple/versionFinder";
-import { firstAccountCountry } from "../../utils/account";
+import { accountSelectLabel, accountStoreCountry } from "../../utils/account";
 import { getErrorMessage } from "../../utils/error";
-import { countryCodeMap, storeIdToCountry } from "../../apple/config";
 import type { Platform, Software } from "../../types";
 
 export default function AddDownload() {
@@ -29,8 +27,6 @@ export default function AddDownload() {
   } = useDownloadAction();
 
   const [bundleId, setBundleId] = useState("");
-  const [country, setCountry] = useState(defaultCountry);
-  const [countryTouched, setCountryTouched] = useState(false);
   const [platform, setPlatform] = useState<Platform>(defaultPlatform);
   const [selectedAccount, setSelectedAccount] = useState("");
   const [app, setApp] = useState<Software | null>(null);
@@ -43,47 +39,23 @@ export default function AddDownload() {
 
   const isLoading = loadingAction !== null;
 
-  const availableCountryCodes = Array.from(
-    new Set(
-      accounts
-        .map((a) => storeIdToCountry(a.store))
-        .filter(Boolean) as string[],
-    ),
-  ).sort((a, b) =>
-    t(`countries.${a}`, a).localeCompare(t(`countries.${b}`, b)),
-  );
-
-  const allCountryCodes = Object.keys(countryCodeMap).sort((a, b) =>
-    t(`countries.${a}`, a).localeCompare(t(`countries.${b}`, b)),
-  );
-
-  const filteredAccounts = useMemo(() => {
-    return accounts.filter((a) => storeIdToCountry(a.store) === country);
-  }, [accounts, country]);
-
   useEffect(() => {
-    if (filteredAccounts.length > 0) {
+    if (accounts.length > 0) {
       if (
         !selectedAccount ||
-        !filteredAccounts.find((a) => a.email === selectedAccount)
+        !accounts.find((a) => a.email === selectedAccount)
       ) {
-        setSelectedAccount(filteredAccounts[0].email);
+        setSelectedAccount(accounts[0].email);
       }
     } else if (selectedAccount !== "") {
       setSelectedAccount("");
     }
-  }, [filteredAccounts, selectedAccount]);
+  }, [accounts, selectedAccount]);
 
   const account = accounts.find((a) => a.email === selectedAccount);
-  const autoCountry = firstAccountCountry(accounts);
-
-  useEffect(() => {
-    if (countryTouched) return;
-    const nextCountry = autoCountry ?? defaultCountry;
-    if (nextCountry && nextCountry !== country) {
-      setCountry(nextCountry);
-    }
-  }, [autoCountry, country, countryTouched, defaultCountry]);
+  const country = account
+    ? (accountStoreCountry(account) ?? defaultCountry)
+    : defaultCountry;
 
   async function handleLookup(e: React.FormEvent) {
     e.preventDefault();
@@ -158,7 +130,7 @@ export default function AddDownload() {
             >
               {t("downloads.add.bundleId")}
             </label>
-            <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[1fr_10rem_auto] sm:items-start">
+            <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[1fr_auto] sm:items-start">
               <input
                 id="add-bundle-id"
                 type="text"
@@ -167,13 +139,6 @@ export default function AddDownload() {
                 placeholder={t("downloads.add.placeholder")}
                 className="min-h-11 w-full min-w-0 rounded-xl border-0 bg-gray-100 px-4 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
                 disabled={isLoading}
-              />
-              <PlatformSelect
-                value={platform}
-                onChange={setPlatform}
-
-                disabled={isLoading}
-                className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
               />
               <button
                 type="submit"
@@ -187,27 +152,22 @@ export default function AddDownload() {
             </div>
           </div>
           <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
-            <CountrySelect
-              value={country}
-              onChange={(v) => {
-                setCountry(v);
-                setCountryTouched(true);
-              }}
-              availableCountryCodes={availableCountryCodes}
-              allCountryCodes={allCountryCodes}
+            <PlatformSelect
+              value={platform}
+              onChange={setPlatform}
               disabled={isLoading}
-              className="min-h-11 w-full min-w-0 max-w-full truncate disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500 dark:disabled:bg-gray-800/50 dark:disabled:text-gray-400"
+              className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
             />
             <select
               value={selectedAccount}
               onChange={(e) => setSelectedAccount(e.target.value)}
               className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
-              disabled={isLoading || filteredAccounts.length === 0}
+              disabled={isLoading || accounts.length === 0}
             >
-              {filteredAccounts.length > 0 ? (
-                filteredAccounts.map((a) => (
+              {accounts.length > 0 ? (
+                accounts.map((a) => (
                   <option key={a.email} value={a.email}>
-                    {a.firstName} {a.lastName} ({a.email})
+                    {accountSelectLabel(a, t)}
                   </option>
                 ))
               ) : (

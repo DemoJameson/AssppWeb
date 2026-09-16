@@ -1,15 +1,16 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import AppIcon from "../common/AppIcon";
-import CountrySelect from "../common/CountrySelect";
 import PlatformSelect from "../common/PlatformSelect";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useSettingsStore } from "../../store/settings";
+import { useToastStore } from "../../store/toast";
 import { lookupAppById } from "../../api/search";
-import { firstAccountCountry } from "../../utils/account";
-import { countryCodeMap, storeIdToCountry } from "../../apple/config";
+import { listVersions } from "../../apple/versionFinder";
+import { accountSelectLabel, accountStoreCountry } from "../../utils/account";
+import { getErrorMessage } from "../../utils/error";
 import type { Platform, Software } from "../../types";
 
 /** Apple's app and version ids are both numeric. */
@@ -50,66 +51,74 @@ function placeholderSoftware(id: string, platform: Platform): Software {
  * as the regular new-download page.
  */
 export default function ManualDownload() {
-  const { accounts } = useAccounts();
+  const { accounts, updateAccount } = useAccounts();
   const { defaultCountry, defaultPlatform } = useSettingsStore();
   const { t } = useTranslation();
   const { startDownload, toastDownloadError } = useDownloadAction();
+  const addToast = useToastStore((s) => s.addToast);
 
   const [appId, setAppId] = useState("");
   const [versionId, setVersionId] = useState("");
-  const [country, setCountry] = useState(defaultCountry);
-  const [countryTouched, setCountryTouched] = useState(false);
   const [platform, setPlatform] = useState<Platform>(defaultPlatform);
   const [selectedAccount, setSelectedAccount] = useState("");
   const [queued, setQueued] = useState<Software | null>(null);
   const [loading, setLoading] = useState(false);
+  const [versions, setVersions] = useState<string[]>([]);
+  const [loadingVersions, setLoadingVersions] = useState(false);
 
   const appIdValid = NUMERIC_ID_RE.test(appId.trim());
   const versionIdValid =
     versionId.trim() === "" || NUMERIC_ID_RE.test(versionId.trim());
 
-  const availableCountryCodes = Array.from(
-    new Set(
-      accounts
-        .map((a) => storeIdToCountry(a.store))
-        .filter(Boolean) as string[],
-    ),
-  ).sort((a, b) =>
-    t(`countries.${a}`, a).localeCompare(t(`countries.${b}`, b)),
-  );
-
-  const allCountryCodes = Object.keys(countryCodeMap).sort((a, b) =>
-    t(`countries.${a}`, a).localeCompare(t(`countries.${b}`, b)),
-  );
-
-  const filteredAccounts = useMemo(
-    () => accounts.filter((a) => storeIdToCountry(a.store) === country),
-    [accounts, country],
-  );
-
   useEffect(() => {
-    if (filteredAccounts.length > 0) {
+    if (accounts.length > 0) {
       if (
         !selectedAccount ||
-        !filteredAccounts.find((a) => a.email === selectedAccount)
+        !accounts.find((a) => a.email === selectedAccount)
       ) {
-        setSelectedAccount(filteredAccounts[0].email);
+        setSelectedAccount(accounts[0].email);
       }
     } else if (selectedAccount !== "") {
       setSelectedAccount("");
     }
-  }, [filteredAccounts, selectedAccount]);
+  }, [accounts, selectedAccount]);
 
   const account = accounts.find((a) => a.email === selectedAccount);
-  const autoCountry = firstAccountCountry(accounts);
+  const country = account
+    ? (accountStoreCountry(account) ?? defaultCountry)
+    : defaultCountry;
 
-  useEffect(() => {
-    if (countryTouched) return;
-    const nextCountry = autoCountry ?? defaultCountry;
-    if (nextCountry && nextCountry !== country) {
-      setCountry(nextCountry);
+  /**
+   * Loads the version list for the entered app id and fills the version id
+   * field with the newest one. The catalogue lookup is best effort — the
+   * version exchange only needs the numeric id, so a miss must not block it
+   * (same as the download flow).
+   */
+  async function handleLoadVersions() {
+    if (!account || !appIdValid || loadingVersions) return;
+
+    const id = appId.trim();
+    setLoadingVersions(true);
+    try {
+      const resolved = await lookupAppById(id, country, platform).catch(
+        () => null,
+      );
+      const target = resolved
+        ? { ...resolved, platform }
+        : placeholderSoftware(id, platform);
+      const result = await listVersions(account, target);
+      setVersions(result.versions);
+      setVersionId(result.versions[0] || "");
+      await updateAccount({ ...account, cookies: result.updatedCookies });
+    } catch (err) {
+      addToast(
+        getErrorMessage(err, t("downloads.manual.versionsFailed")),
+        "error",
+      );
+    } finally {
+      setLoadingVersions(false);
     }
-  }, [autoCountry, country, countryTouched, defaultCountry]);
+  }
 
   async function handleDownload(e: React.FormEvent) {
     e.preventDefault();
@@ -142,7 +151,7 @@ export default function ManualDownload() {
           onSubmit={handleDownload}
           className="min-w-0 space-y-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-5"
         >
-          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_10rem_auto] sm:items-start">
+          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-start">
             <div className="min-w-0">
               <label
                 htmlFor="manual-app-id"
@@ -173,34 +182,57 @@ export default function ManualDownload() {
               >
                 {t("downloads.manual.versionId")}
               </label>
-              <input
-                id="manual-version-id"
-                type="text"
-                inputMode="numeric"
-                value={versionId}
-                onChange={(e) => setVersionId(e.target.value)}
-                placeholder={t("downloads.manual.versionIdPlaceholder")}
-                className="min-h-11 w-full min-w-0 rounded-xl border-0 bg-gray-100 px-4 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
-                disabled={loading}
-              />
-              {versionId.trim() !== "" && !versionIdValid && (
-                <p className="mt-1 min-w-0 break-words text-xs text-red-600 [overflow-wrap:anywhere] dark:text-red-400">
-                  {t("downloads.manual.invalidVersionId")}
-                </p>
+              {versions.length > 0 ? (
+                <select
+                  id="manual-version-id"
+                  value={versionId}
+                  onChange={(e) => setVersionId(e.target.value)}
+                  className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
+                  disabled={loading || loadingVersions}
+                >
+                  {versions.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  id="manual-version-id"
+                  type="text"
+                  inputMode="numeric"
+                  value={versionId}
+                  onChange={(e) => setVersionId(e.target.value)}
+                  placeholder={t("downloads.manual.versionIdPlaceholder")}
+                  className="min-h-11 w-full min-w-0 rounded-xl border-0 bg-gray-100 px-4 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
+                  disabled={loading}
+                />
               )}
+              {versions.length === 0 &&
+                versionId.trim() !== "" &&
+                !versionIdValid && (
+                  <p className="mt-1 min-w-0 break-words text-xs text-red-600 [overflow-wrap:anywhere] dark:text-red-400">
+                    {t("downloads.manual.invalidVersionId")}
+                  </p>
+                )}
             </div>
             <div className="min-w-0">
               <label
                 className="invisible block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
               >
-                {t("downloads.platform.label")}
+
+                {t("downloads.manual.download")}
               </label>
-              <PlatformSelect
-                value={platform}
-                onChange={setPlatform}
-                disabled={loading}
-                className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
-              />
+              <button
+                type="button"
+                onClick={handleLoadVersions}
+                disabled={loadingVersions || loading || !account || !appIdValid}
+                className="min-h-11 w-full min-w-0 whitespace-normal break-words rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+              >
+                {loadingVersions
+                  ? t("downloads.manual.loadingVersions")
+                  : t("downloads.manual.loadVersions")}
+              </button>
             </div>
             <div className="min-w-0">
               <label
@@ -221,27 +253,22 @@ export default function ManualDownload() {
           </div>
 
           <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
-            <CountrySelect
-              value={country}
-              onChange={(v) => {
-                setCountry(v);
-                setCountryTouched(true);
-              }}
-              availableCountryCodes={availableCountryCodes}
-              allCountryCodes={allCountryCodes}
+            <PlatformSelect
+              value={platform}
+              onChange={setPlatform}
               disabled={loading}
-              className="min-h-11 w-full min-w-0 max-w-full truncate disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500 dark:disabled:bg-gray-800/50 dark:disabled:text-gray-400"
+              className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
             />
             <select
               value={selectedAccount}
               onChange={(e) => setSelectedAccount(e.target.value)}
               className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
-              disabled={loading || filteredAccounts.length === 0}
+              disabled={loading || accounts.length === 0}
             >
-              {filteredAccounts.length > 0 ? (
-                filteredAccounts.map((a) => (
+              {accounts.length > 0 ? (
+                accounts.map((a) => (
                   <option key={a.email} value={a.email}>
-                    {a.firstName} {a.lastName} ({a.email})
+                    {accountSelectLabel(a, t)}
                   </option>
                 ))
               ) : (

@@ -23,6 +23,16 @@ export function firstAccountCountry(accounts: Account[]): string | undefined {
   return undefined;
 }
 
+export function accountSelectLabel(
+  account: Account,
+  t: (key: string, fallback?: string) => string,
+): string {
+  const cc = accountStoreCountry(account);
+  const countryLabel = cc ? t(`countries.${cc}`, cc) : "";
+  const name = `${account.firstName} ${account.lastName} (${account.email})`;
+  return countryLabel ? `${countryLabel} - ${name}` : name;
+}
+
 export async function accountHash(account: Account): Promise<string> {
   const source =
     account.directoryServicesIdentifier || account.appleId || account.email;

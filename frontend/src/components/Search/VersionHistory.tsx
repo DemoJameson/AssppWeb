@@ -11,6 +11,7 @@ import { getVersionMetadata } from "../../apple/versionLookup";
 import { lookupAppById } from "../../api/search";
 import { parsePlatform } from "../../apple/platform";
 import { getErrorMessage } from "../../utils/error";
+import { accountSelectLabel } from "../../utils/account";
 import { useToastStore } from "../../store/toast";
 import type { Software, VersionMetadata, Platform } from "../../types";
 
@@ -166,7 +167,7 @@ export default function VersionHistory() {
                 >
                   {filteredAccounts.map((a) => (
                     <option key={a.email} value={a.email}>
-                      {a.firstName} {a.lastName} ({a.email})
+                      {accountSelectLabel(a, t)}
                     </option>
                   ))}
                 </select>

@@ -16,6 +16,7 @@ import { useToastStore } from '../../store/toast';
 import { lookupAppById } from "../../api/search";
 import { parsePlatform, PLATFORM_LABELS } from "../../apple/platform";
 import { storeIdToCountry } from "../../apple/config";
+import { accountSelectLabel } from "../../utils/account";
 import type { Platform, Software } from "../../types";
 
 export default function ProductDetail() {
@@ -211,7 +212,7 @@ export default function ProductDetail() {
               >
                 {filteredAccounts.map((a) => (
                   <option key={a.email} value={a.email}>
-                    {a.firstName} {a.lastName} ({a.email})
+                    {accountSelectLabel(a, t)}
                   </option>
                 ))}
               </select>

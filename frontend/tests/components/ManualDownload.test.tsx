@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   startDownload: vi.fn(),
   toastDownloadError: vi.fn(),
   lookupAppById: vi.fn(),
+  listVersions: vi.fn(),
+  updateAccount: vi.fn(),
+  addToast: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -20,6 +23,7 @@ vi.mock('react-i18next', () => ({
 vi.mock('../../src/hooks/useAccounts', () => ({
   useAccounts: () => ({
     accounts: mocks.accounts,
+    updateAccount: mocks.updateAccount,
   }),
 }));
 
@@ -30,9 +34,18 @@ vi.mock('../../src/hooks/useDownloadAction', () => ({
   }),
 }));
 
+vi.mock('../../src/store/toast', () => ({
+  useToastStore: (selector: (state: { addToast: unknown }) => unknown) =>
+    selector({ addToast: mocks.addToast }),
+}));
+
 vi.mock('../../src/api/search', () => ({
   lookupAppById: mocks.lookupAppById,
   lookupApp: vi.fn(),
+}));
+
+vi.mock('../../src/apple/versionFinder', () => ({
+  listVersions: mocks.listVersions,
 }));
 
 // The settings store is read without a selector, mirroring AddDownload.
@@ -91,6 +104,8 @@ const appIdInput = () => screen.getByLabelText('downloads.manual.appId');
 const versionIdInput = () => screen.getByLabelText('downloads.manual.versionId');
 const downloadButton = () =>
   screen.getByRole('button', { name: 'downloads.manual.download' });
+const loadVersionsButton = () =>
+  screen.getByRole('button', { name: 'downloads.manual.loadVersions' });
 
 describe('ManualDownload', () => {
   beforeEach(() => {
@@ -100,24 +115,33 @@ describe('ManualDownload', () => {
     mocks.toastDownloadError.mockReset();
     mocks.lookupAppById.mockReset();
     mocks.lookupAppById.mockResolvedValue(resolvedApp);
+    mocks.listVersions.mockReset();
+    mocks.listVersions.mockResolvedValue({
+      versions: ['890964826', '890657720'],
+      updatedCookies: [],
+    });
+    mocks.updateAccount.mockReset();
+    mocks.updateAccount.mockResolvedValue(undefined);
+    mocks.addToast.mockReset();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
   });
 
-  it('offers the account and region selectors and both id fields', async () => {
+  it('offers the platform and account selectors and both id fields', async () => {
     renderPage();
 
-    expect(screen.getByRole('combobox', { name: 'regions.all' })).toBeTruthy();
+    expect(
+      screen.getByRole('combobox', { name: 'downloads.platform.label' }),
+    ).toBeTruthy();
     expect(appIdInput()).toBeTruthy();
     expect(versionIdInput()).toBeTruthy();
 
-    // The account list is filtered by region, so the only match is selected.
     await waitFor(() => {
       expect(
         screen.getByRole('option', {
-          name: 'Example Developer (developer@example.test)',
+          name: 'countries.US - Example Developer (developer@example.test)',
         }),
       ).toBeTruthy();
     });
@@ -210,5 +234,82 @@ describe('ManualDownload', () => {
     });
 
     expect(mocks.toastDownloadError.mock.calls[0][2]).toBe(failure);
+  });
+
+  it('loads versions and switches the version id field to a select prefilled with the newest id', async () => {
+    renderPage();
+
+    fireEvent.change(appIdInput(), { target: { value: '1492142120' } });
+    fireEvent.click(loadVersionsButton());
+
+    await waitFor(() => {
+      expect(mocks.listVersions).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mocks.lookupAppById).toHaveBeenCalledWith('1492142120', 'US', 'ios');
+    const select = screen.getByLabelText(
+      'downloads.manual.versionId',
+    ) as HTMLSelectElement;
+    expect(select.tagName).toBe('SELECT');
+    expect(select.value).toBe('890964826');
+    expect(screen.getByRole('option', { name: '890657720' })).toBeTruthy();
+    expect(mocks.updateAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it('downloads the version picked from the loaded list', async () => {
+    renderPage();
+
+    fireEvent.change(appIdInput(), { target: { value: '1492142120' } });
+    fireEvent.click(loadVersionsButton());
+    await waitFor(() => {
+      expect(mocks.listVersions).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.change(versionIdInput(), { target: { value: '890657720' } });
+    fireEvent.click(downloadButton());
+
+    await waitFor(() => {
+      expect(mocks.startDownload).toHaveBeenCalledTimes(1);
+    });
+    expect(mocks.startDownload.mock.calls[0][2]).toBe('890657720');
+  });
+
+  it('shows an error toast when loading versions fails', async () => {
+    mocks.listVersions.mockRejectedValue(new Error('boom'));
+    renderPage();
+
+    fireEvent.change(appIdInput(), { target: { value: '1492142120' } });
+    fireEvent.click(loadVersionsButton());
+
+    await waitFor(() => {
+      expect(mocks.addToast).toHaveBeenCalledWith('boom', 'error');
+    });
+    expect(
+      (screen.getByLabelText('downloads.manual.versionId') as HTMLInputElement)
+        .tagName,
+    ).toBe('INPUT');
+  });
+
+  it('loads versions from the bare id when the catalogue does not know it', async () => {
+    mocks.lookupAppById.mockResolvedValue(null);
+    renderPage();
+
+    fireEvent.change(appIdInput(), { target: { value: '1492142120' } });
+    fireEvent.click(loadVersionsButton());
+
+    await waitFor(() => {
+      expect(mocks.listVersions).toHaveBeenCalledTimes(1);
+    });
+
+    const calledApp = mocks.listVersions.mock.calls[0][1] as Software;
+    expect(calledApp.id).toBe(1492142120);
+    expect(calledApp.bundleID).toBe('');
+    expect(calledApp.platform).toBe('ios');
+
+    const select = screen.getByLabelText(
+      'downloads.manual.versionId',
+    ) as HTMLSelectElement;
+    expect(select.tagName).toBe('SELECT');
+    expect(select.value).toBe('890964826');
   });
 });
