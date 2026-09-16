@@ -56,10 +56,17 @@ export function useDownloadAction() {
       versionId,
     );
     await updateAccount({ ...account, cookies: updatedCookies });
+
+    // The app id is the identity here (ipatool's `App.ID`); the bundle id is
+    // whatever the storefront or the download item reports. When neither knows
+    // it — a manual download by bare app id — it is left empty and the backend
+    // reads it out of the compiled package.
+    const bundleID = app.bundleID || output.bundleID || "";
+
     const hash = await accountHash(account);
 
     await apiPost("/api/downloads", {
-      software: { ...app, version: output.bundleShortVersionString },
+      software: { ...app, bundleID, version: output.bundleShortVersionString },
       accountHash: hash,
       downloadURL: output.downloadURL,
       sinfs: output.sinfs,

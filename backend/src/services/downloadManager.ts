@@ -32,6 +32,19 @@ function safePathSegment(value: string, label: string): string {
   return cleaned;
 }
 
+/**
+ * Directory segment identifying the app of a task: its bundle id when known,
+ * otherwise the numeric app id. ipatool keys a download off the app id and
+ * simply omits the fields it does not know, so a download started from a bare
+ * app id still gets a valid, collision-free layout.
+ */
+export function appPathSegment(software: Software): string {
+  return safePathSegment(
+    software.bundleID || String(software.id),
+    "bundleID",
+  );
+}
+
 // --- Security: download URL allowlist ---
 const ALLOWED_DOWNLOAD_HOSTS_RE = /\.apple\.com$/i;
 
@@ -393,9 +406,14 @@ export function createTask(
   // Validate download URL
   validateDownloadURL(downloadURL);
 
-  // Validate path segments
+  // Validate path segments. The app id is the one field a download cannot do
+  // without: it is what Apple is asked for, and it names the directory when the
+  // bundle id is unknown.
+  if (!Number.isInteger(software.id) || software.id <= 0) {
+    throw new Error("Invalid app id");
+  }
   safePathSegment(accountHash, "accountHash");
-  safePathSegment(software.bundleID, "bundleID");
+  appPathSegment(software);
   safePathSegment(software.version, "version");
 
   const task: DownloadTask = {
@@ -435,13 +453,13 @@ async function startDownload(task: DownloadTask) {
 
   // Sanitize path segments
   const safeAccountHash = safePathSegment(task.accountHash, "accountHash");
-  const safeBundleID = safePathSegment(task.software.bundleID, "bundleID");
+  const safeAppSegment = appPathSegment(task.software);
   const safeVersion = safePathSegment(task.software.version, "version");
 
   const dir = path.join(
     PACKAGES_DIR,
     safeAccountHash,
-    safeBundleID,
+    safeAppSegment,
     safeVersion,
   );
 
@@ -488,7 +506,14 @@ async function startDownload(task: DownloadTask) {
       task.progress = 100;
       notifyProgress(task);
 
-      await inject(task.sinfs, filePath, task.iTunesMetadata);
+      const { bundleID } = await inject(task.sinfs, filePath, task.iTunesMetadata);
+
+      // A download started from a bare app id learns the bundle identifier from
+      // the package it just compiled, which is what the install manifest and
+      // the package detail view report.
+      if (!task.software.bundleID && bundleID) {
+        task.software.bundleID = bundleID;
+      }
     }
 
     task.status = "completed";

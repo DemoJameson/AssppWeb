@@ -1,5 +1,14 @@
 export interface Software {
+  /**
+   * The App Store app id (ipatool's `App.ID`). It is what identifies the app to
+   * Apple, and the only field a download strictly requires.
+   */
   id: number;
+  /**
+   * May be empty: a download created from a bare app id (the manual download
+   * page) does not know it up front. The layout then keys off `id`, and the
+   * bundle identifier is read out of the finished package.
+   */
   bundleID: string;
   name: string;
   version: string;

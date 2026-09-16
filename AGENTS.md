@@ -255,6 +255,29 @@ already fulfilled, and ipatool's CLI ignores its `ErrLicenseAlreadyExists` as a
 terminal success state. `2059` retries once with the Apple Arcade
 `pricingParameters` (`GAME`), matching ipatool.
 
+### Manual download (app-id first)
+
+`/downloads/manual` creates a download from a bare numeric app id plus an
+optional version id, for when the bundle id is unknown or the app cannot be
+found by name. The page's "software ID" **is** ipatool's `App.ID`. The catalogue
+lookup it performs first is best effort: when it misses, the task is built from
+the id alone.
+
+The app id is therefore the identity of a task and the bundle id is derived, in
+this order:
+
+1. the storefront lookup on the manual page,
+2. `softwareVersionBundleId` in the download response (`DownloadOutput.bundleID`),
+3. the compiled package's `CFBundleIdentifier`, read by the injector — `inject()`
+   returns it and the task stores it, so the package detail view and the install
+   manifest report the real value.
+
+Until step 3 lands, the on-disk layout uses the app id as the directory segment
+(`appPathSegment`), which is also ipatool's rule of omitting the fields it does
+not know. `POST /api/downloads` rejects a request without a positive app id, and
+the install manifest refuses to build without a bundle identifier rather than
+handing iOS one it will reject.
+
 ## Bag Proxy (Backend)
 
 The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using Node.js native HTTPS. It sends Configurator-compatible request headers (`User-Agent`, `Accept: application/xml`). The bag response is public data (Apple service URLs) — no credentials are involved. See `backend/src/routes/bag.ts`.

@@ -134,12 +134,17 @@ async function interpretReply(
   delete metadataDict.passwordToken;
   const iTunesMetadata = base64FromString(buildPlist(metadataDict));
 
+  // Apple names the item's bundle id here as well, which is what a manual
+  // download (no storefront lookup) relies on for its install manifest.
+  const bundleID = metadata.softwareVersionBundleId;
+
   return {
     output: {
       downloadURL: url,
       sinfs,
       bundleShortVersionString: version,
       bundleVersion,
+      bundleID: typeof bundleID === "string" && bundleID !== "" ? bundleID : undefined,
       iTunesMetadata,
     },
     updatedCookies: session.cookies,

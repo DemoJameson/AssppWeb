@@ -53,6 +53,11 @@ export interface DownloadOutput {
   sinfs: Sinf[];
   bundleShortVersionString: string;
   bundleVersion: string;
+  /**
+   * Apple's bundle identifier for the item. Lets a download created without
+   * storefront metadata (manual download) still produce a usable manifest.
+   */
+  bundleID?: string;
   iTunesMetadata?: string;
 }
 

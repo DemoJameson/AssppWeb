@@ -89,6 +89,15 @@ router.post("/downloads", async (req: Request, res: Response) => {
     return;
   }
 
+  // The app id is the one piece of software metadata a download cannot work
+  // without: Apple is asked for it and it names the package directory.
+  if (!Number.isInteger(software.id) || software.id <= 0) {
+    res.status(400).json({
+      error: "Invalid software.id: a positive app id is required",
+    });
+    return;
+  }
+
   // Validate download URL before creating task
   try {
     validateDownloadURL(downloadURL);

@@ -179,4 +179,19 @@ describe("sinfInjector", () => {
       "manifest sinf",
     );
   });
+
+  it("should report the bundle identifier the package declares", async () => {
+    // The package is the source of truth for the bundle id, which is what lets
+    // a download started from a bare app id still produce a valid manifest.
+    const ipaPath = createMockIPA("IdentifierApp", {
+      executableName: "IdentifierApp",
+    });
+
+    const result = await inject(
+      [{ id: 1, sinf: Buffer.from("sinf").toString("base64") }],
+      ipaPath,
+    );
+
+    expect(result.bundleID).toBe("com.example.identifierapp");
+  });
 });

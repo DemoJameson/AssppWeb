@@ -178,6 +178,22 @@
     "item": {
       "viewPackage": "查看安裝包"
     },
+    "manual": {
+      "button": "手動下載",
+      "hint": "直接依軟體 ID 下載",
+      "title": "手動下載",
+      "appId": "軟體 ID（數字）",
+      "appIdPlaceholder": "例如 1492142120",
+      "versionId": "版本 ID（選填）",
+      "versionIdPlaceholder": "留空即下載最新版本",
+      "download": "下載",
+      "processing": "處理中...",
+      "invalidAppId": "請輸入純數字的軟體 ID",
+      "invalidVersionId": "版本 ID 必須是數字",
+      "notFoundNote": "查無此 ID 的中介資料，將直接以 ID 建立下載任務。",
+      "resolvedId": "ID: {{id}}",
+      "noAccountsForRegion": "未找到該地區帳號"
+    },
     "add": {
       "title": "新增下載",
       "emptyTitle": "準備新增",
@@ -438,7 +454,16 @@
       "missingVersion": "缺少所需的版本資訊",
       "invalidSinf": "無效的 sinf 項目",
       "noSinf": "回應中找不到 sinf",
-      "tooManyRedirects": "重新導向次數過多"
+      "tooManyRedirects": "重新導向次數過多",
+      "invalidEndpoint": "伺服器下發的下載位址無效",
+      "updateMismatch": "更新介面回傳的下載與請求的 App 不符"
+    },
+    "versions": {
+      "passwordExpired": "密碼權杖已過期",
+      "licenseRequired": "需要授權 - 請先取得該 App",
+      "failed": "取得版本資訊失敗: {{failureType}}",
+      "missingIdentifiers": "回應中缺少版本識別碼",
+      "missingMetadata": "回應中沒有版本資訊"
     },
     "purchase": {
       "paidNotSupported": "不支援購買付費應用程式",

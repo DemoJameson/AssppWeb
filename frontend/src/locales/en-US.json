@@ -178,6 +178,22 @@
     "item": {
       "viewPackage": "View Package"
     },
+    "manual": {
+      "button": "Manual Download",
+      "hint": "Download directly by app ID",
+      "title": "Manual Download",
+      "appId": "App ID (numeric)",
+      "appIdPlaceholder": "e.g. 1492142120",
+      "versionId": "Version ID (optional)",
+      "versionIdPlaceholder": "Leave empty for the latest version",
+      "download": "Download",
+      "processing": "Processing...",
+      "invalidAppId": "Enter a numeric app ID",
+      "invalidVersionId": "The version ID must be numeric",
+      "notFoundNote": "No metadata for this ID; the download task will be created from the ID alone.",
+      "resolvedId": "ID: {{id}}",
+      "noAccountsForRegion": "No accounts found for this region"
+    },
     "add": {
       "title": "New Download",
       "emptyTitle": "Ready to Create",

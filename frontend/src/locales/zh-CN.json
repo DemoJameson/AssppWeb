@@ -178,6 +178,22 @@
     "item": {
       "viewPackage": "查看安装包"
     },
+    "manual": {
+      "button": "手动下载",
+      "hint": "直接按软件 ID 下载",
+      "title": "手动下载",
+      "appId": "软件 ID（数字）",
+      "appIdPlaceholder": "例如 1492142120",
+      "versionId": "版本 ID（可选）",
+      "versionIdPlaceholder": "留空即下载最新版本",
+      "download": "下载",
+      "processing": "处理中...",
+      "invalidAppId": "请输入纯数字的软件 ID",
+      "invalidVersionId": "版本 ID 必须是数字",
+      "notFoundNote": "未查到该 ID 的元数据，将直接按 ID 创建下载任务。",
+      "resolvedId": "ID: {{id}}",
+      "noAccountsForRegion": "未找到该地区账号"
+    },
     "add": {
       "title": "新建下载",
       "emptyTitle": "准备新建",

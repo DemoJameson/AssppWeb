@@ -3,6 +3,7 @@ import { promisify } from "util";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import AdmZip from "adm-zip";
 import { open as openZip } from "yauzl-promise";
 import type { Readable } from "stream";
 import bplistParser from "bplist-parser";
@@ -16,14 +17,26 @@ interface IpaMetadata {
   bundleName: string;
   manifest: { sinfPaths: string[] } | null;
   info: { bundleExecutable: string } | null;
+  /** `CFBundleIdentifier` as declared by the package itself. */
+  bundleIdentifier?: string;
+}
+
+export interface InjectResult {
+  /**
+   * The bundle identifier the package declares. The IPA is the source of truth
+   * for it, which is what lets a download created from a bare app id still end
+   * up with a usable install manifest.
+   */
+  bundleID?: string;
 }
 
 export async function inject(
   sinfs: Sinf[],
   ipaPath: string,
   iTunesMetadata?: string,
-): Promise<void> {
-  const { bundleName, manifest, info } = await readIpaMetadata(ipaPath);
+): Promise<InjectResult> {
+  const { bundleName, manifest, info, bundleIdentifier } =
+    await readIpaMetadata(ipaPath);
 
   // Collect all files to inject
   const filesToInject: { entryPath: string; data: Buffer }[] = [];
@@ -72,6 +85,8 @@ export async function inject(
   if (filesToInject.length > 0) {
     await addFilesToZip(ipaPath, filesToInject);
   }
+
+  return { bundleID: bundleIdentifier };
 }
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -142,6 +157,7 @@ async function readIpaMetadata(ipaPath: string): Promise<IpaMetadata> {
 
     // Parse info plist
     let info: { bundleExecutable: string } | null = null;
+    let bundleIdentifier: string | undefined;
     if (infoPlistData) {
       const parsed = parsePlistBuffer(infoPlistData);
       if (parsed) {
@@ -149,10 +165,15 @@ async function readIpaMetadata(ipaPath: string): Promise<IpaMetadata> {
         if (typeof executable === "string") {
           info = { bundleExecutable: executable };
         }
+
+        const identifier = parsed["CFBundleIdentifier"];
+        if (typeof identifier === "string" && identifier !== "") {
+          bundleIdentifier = identifier;
+        }
       }
     }
 
-    return { bundleName, manifest, info };
+    return { bundleName, manifest, info, bundleIdentifier };
   } finally {
     await zip.close();
   }
@@ -162,6 +183,11 @@ async function addFilesToZip(
   ipaPath: string,
   files: { entryPath: string; data: Buffer }[],
 ): Promise<void> {
+  if (!(await hasZipCommand())) {
+    rewriteWithAdmZip(ipaPath, files);
+    return;
+  }
+
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "sinf-"));
   const resolvedTmpDir = path.resolve(tmpDir);
   try {
@@ -188,6 +214,66 @@ async function addFilesToZip(
   } finally {
     await fs.promises.rm(tmpDir, { recursive: true, force: true });
   }
+}
+
+/** `zip` ships in the container image; a bare Windows host has to opt in. */
+let zipCommandAvailable: Promise<boolean> | null = null;
+
+function hasZipCommand(): Promise<boolean> {
+  if (!zipCommandAvailable) {
+    zipCommandAvailable = execFile("zip", ["-v"]).then(
+      () => true,
+      () => false,
+    );
+  }
+  return zipCommandAvailable;
+}
+
+/**
+ * Upper bound for the in-process writer: adm-zip rewrites the whole archive in
+ * memory, which is exactly why upstream moved to the `zip` command for large
+ * packages. Refuse rather than risk an OOM on a huge IPA.
+ */
+const MAX_IN_PROCESS_ARCHIVE_BYTES = 512 * 1024 * 1024;
+
+/**
+ * Rewrites the archive with the bundled zip writer. Only used when no `zip`
+ * command exists, so that a download fails for a real reason instead of
+ * "spawn zip ENOENT".
+ */
+function rewriteWithAdmZip(
+  ipaPath: string,
+  files: { entryPath: string; data: Buffer }[],
+): void {
+  const { size } = fs.statSync(ipaPath);
+  if (size > MAX_IN_PROCESS_ARCHIVE_BYTES) {
+    throw new Error(
+      `Package is ${Math.round(size / 1024 / 1024)} MB and no \`zip\` command is available; install zip or run the container image for packages this large`,
+    );
+  }
+
+  console.warn(
+    "[sinfInjector] `zip` not found on PATH; rewriting the IPA with the built-in zip writer",
+  );
+
+  const archive = new AdmZip(ipaPath);
+  for (const file of files) {
+    const normalized = path.posix.normalize(file.entryPath);
+    if (path.posix.isAbsolute(normalized) || normalized.startsWith("../")) {
+      throw new Error(`Path traversal detected in entry: ${file.entryPath}`);
+    }
+
+    if (archive.getEntry(file.entryPath)) {
+      archive.updateFile(file.entryPath, file.data);
+    } else {
+      archive.addFile(file.entryPath, file.data);
+    }
+  }
+
+  // adm-zip appends `.zip` to a target name that lacks the extension.
+  const rewritten = `${ipaPath}.tmp.zip`;
+  archive.writeZip(rewritten);
+  fs.renameSync(rewritten, ipaPath);
 }
 
 function parsePlistBuffer(data: Buffer): Record<string, unknown> | null {

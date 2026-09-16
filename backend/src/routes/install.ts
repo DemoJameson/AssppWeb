@@ -51,6 +51,13 @@ function joinUrl(baseUrl: string, path: string): string {
   return `${base}/${suffix}`;
 }
 
+// The install manifest identifies the app by bundle identifier; iOS rejects a
+// package whose manifest disagrees with it. Tasks created from a bare app id
+// learn it from the compiled package, so this only trips if that failed.
+function canBuildManifest(task: { software: { bundleID: string } }): boolean {
+  return Boolean(task.software.bundleID);
+}
+
 // Manifest plist for iTMS installation
 router.get("/install/:id/manifest.plist", (req: Request, res: Response) => {
   const id = getIdParam(req);
@@ -60,6 +67,11 @@ router.get("/install/:id/manifest.plist", (req: Request, res: Response) => {
 
   if (!task || !task.filePath) {
     res.status(404).json({ error: "Package not found" });
+    return;
+  }
+
+  if (!canBuildManifest(task)) {
+    res.status(500).json({ error: "Bundle identifier unavailable" });
     return;
   }
 
@@ -87,6 +99,11 @@ router.get("/install/:id/url", (req: Request, res: Response) => {
 
   if (!task || !task.filePath) {
     res.status(404).json({ error: "Package not found" });
+    return;
+  }
+
+  if (!canBuildManifest(task)) {
+    res.status(500).json({ error: "Bundle identifier unavailable" });
     return;
   }
 

@@ -46,6 +46,22 @@ describe("Downloads Route", () => {
     expect(res.body).toHaveProperty("error");
   });
 
+  it("POST /api/downloads should reject a request without an app id", async () => {
+    // The app id is what Apple is asked for and what names the package
+    // directory when the bundle id is unknown, so it cannot be defaulted.
+    const res = await request(app)
+      .post("/api/downloads")
+      .send({
+        software: { bundleID: "com.example.utility", name: "Example" },
+        accountHash: "abcdef1234567890",
+        downloadURL: "https://example.apple.com/app.ipa",
+        sinfs: [{ id: 0, sinf: "AAAA" }],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("app id");
+  });
+
   it("GET /api/downloads/:id should return 400 without accountHash", async () => {
     const res = await request(app).get("/api/downloads/nonexistent-id");
     expect(res.status).toBe(400);

@@ -178,6 +178,22 @@
     "item": {
       "viewPackage": "パッケージを表示"
     },
+    "manual": {
+      "button": "手動ダウンロード",
+      "hint": "アプリ ID を指定してダウンロード",
+      "title": "手動ダウンロード",
+      "appId": "アプリ ID（数字）",
+      "appIdPlaceholder": "例: 1492142120",
+      "versionId": "バージョン ID（任意）",
+      "versionIdPlaceholder": "空欄なら最新バージョン",
+      "download": "ダウンロード",
+      "processing": "処理中...",
+      "invalidAppId": "数字のみのアプリ ID を入力してください",
+      "invalidVersionId": "バージョン ID は数字で入力してください",
+      "notFoundNote": "この ID のメタデータが見つかりません。ID のみでダウンロードタスクを作成します。",
+      "resolvedId": "ID: {{id}}",
+      "noAccountsForRegion": "この地域のアカウントが見つかりません"
+    },
     "add": {
       "title": "新規ダウンロード",
       "emptyTitle": "作成準備完了",
@@ -438,7 +454,16 @@
       "missingVersion": "必要なバージョン情報がありません",
       "invalidSinf": "無効な sinf 項目です",
       "noSinf": "レスポンスに sinf が見つかりません",
-      "tooManyRedirects": "リダイレクトが多すぎます"
+      "tooManyRedirects": "リダイレクトが多すぎます",
+      "invalidEndpoint": "サーバーが通知したダウンロード先が不正です",
+      "updateMismatch": "更新エンドポイントが、要求したアプリまたはバージョンと一致しないダウンロードを返しました"
+    },
+    "versions": {
+      "passwordExpired": "パスワードトークンが期限切れです",
+      "licenseRequired": "ライセンスが必要です - 先にアプリを取得してください",
+      "failed": "バージョン情報の取得に失敗しました: {{failureType}}",
+      "missingIdentifiers": "応答にバージョン識別子が含まれていません",
+      "missingMetadata": "応答にバージョン情報が含まれていません"
     },
     "purchase": {
       "paidNotSupported": "有料アプリの購入はサポートされていません",
