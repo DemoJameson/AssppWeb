@@ -65,6 +65,7 @@
       "download": "ダウンロード",
       "versionHistory": "バージョン履歴",
       "details": "詳細情報",
+      "softwareId": "ソフトウェア ID",
       "bundleId": "Bundle ID",
       "version": "バージョン",
       "size": "サイズ",
@@ -182,9 +183,9 @@
       "button": "手動ダウンロード",
       "hint": "アプリ ID を指定してダウンロード",
       "title": "手動ダウンロード",
-      "appId": "アプリ ID（数字）",
+      "appId": "アプリ ID",
       "appIdPlaceholder": "例: 1492142120",
-      "versionId": "バージョン ID（任意）",
+      "versionId": "バージョン ID",
       "versionIdPlaceholder": "空欄なら最新バージョン",
       "download": "ダウンロード",
       "processing": "処理中...",
@@ -221,6 +222,8 @@
       "deleteConfirm": "このダウンロードを削除しますか？",
       "bundleId": "Bundle ID",
       "version": "バージョン",
+      "softwareId": "ソフトウェア ID",
+      "versionId": "バージョン ID",
       "account": "アカウント",
       "created": "作成日時",
       "install": "デバイスにインストール",
@@ -235,7 +238,7 @@
       "downloadFailed": "IPA をダウンロードできませんでした。",
       "information": "パッケージ情報",
       "size": "サイズ",
-      "minOs": "必要な iOS",
+      "minOs": "最小OS",
       "category": "カテゴリ",
       "released": "リリース日",
       "developer": "開発元",
@@ -253,6 +256,9 @@
       "latestVersion": "最新 ({{id}})",
       "update": "今すぐアップデート",
       "updateFailed": "アップデートの開始に失敗しました。"
+    },
+    "platform": {
+      "label": "プラットフォーム"
     }
   },
   "settings": {
@@ -265,9 +271,9 @@
     "defaults": {
       "title": "デフォルト設定",
       "country": "デフォルトの国 / 地域",
-      "entity": "デフォルトのデバイスタイプ",
       "countryChanged": "デフォルトの国 / 地域を更新しました",
-      "entityChanged": "デフォルトのデバイスタイプを更新しました"
+      "platform": "デフォルトのプラットフォーム",
+      "platformChanged": "デフォルトのプラットフォームを更新しました"
     },
     "server": {
       "title": "サーバー",

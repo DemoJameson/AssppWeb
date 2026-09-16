@@ -3,9 +3,11 @@ import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import Modal from "../common/Modal";
 import { useAccountsStore } from "../../store/accounts";
+import { useSettingsStore } from "../../store/settings";
 import { useToastStore } from "../../store/toast";
 import { apiGet } from "../../api/client";
 import { encryptData, decryptData } from "../../utils/crypto";
+import { PLATFORMS, PLATFORM_LABELS } from "../../apple/platform";
 import { countryCodeMap } from "../../apple/config";
 import type { Account } from "../../types";
 
@@ -23,22 +25,17 @@ interface ServerInfo {
   downloadThreads?: number;
 }
 
-const entityTypes = [
-  { value: "software", label: "iPhone" },
-  { value: "iPadSoftware", label: "iPad" },
-];
-
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { accounts, addAccount, updateAccount } = useAccountsStore();
+  const {
+    defaultCountry,
+    setDefaultCountry,
+    defaultPlatform,
+    setDefaultPlatform,
+  } = useSettingsStore();
   const addToast = useToastStore((s) => s.addToast);
 
-  const [country, setCountry] = useState(
-    () => localStorage.getItem("asspp-default-country") || "US",
-  );
-  const [entity, setEntity] = useState(
-    () => localStorage.getItem("asspp-default-entity") || "software",
-  );
   const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null);
 
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -53,14 +50,6 @@ export default function SettingsPage() {
   const [conflictModalOpen, setConflictModalOpen] = useState(false);
   const [pendingAccounts, setPendingAccounts] = useState<Account[]>([]);
   const [conflictStats, setConflictStats] = useState({ conflict: 0, new: 0 });
-
-  useEffect(() => {
-    localStorage.setItem("asspp-default-country", country);
-  }, [country]);
-
-  useEffect(() => {
-    localStorage.setItem("asspp-default-entity", entity);
-  }, [entity]);
 
   useEffect(() => {
     apiGet<ServerInfo>("/api/settings")
@@ -222,9 +211,9 @@ export default function SettingsPage() {
               </label>
               <select
                 id="country"
-                value={country}
+                value={defaultCountry}
                 onChange={(e) => {
-                  setCountry(e.target.value);
+                  setDefaultCountry(e.target.value);
                   addToast(t("settings.defaults.countryChanged"), "success");
                 }}
                 className="block min-w-0 max-w-full w-full truncate rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
@@ -238,23 +227,23 @@ export default function SettingsPage() {
             </div>
             <div>
               <label
-                htmlFor="entity"
+                htmlFor="platform"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
               >
-                {t("settings.defaults.entity")}
+                {t("settings.defaults.platform")}
               </label>
               <select
-                id="entity"
-                value={entity}
+                id="platform"
+                value={defaultPlatform}
                 onChange={(e) => {
-                  setEntity(e.target.value);
-                  addToast(t("settings.defaults.entityChanged"), "success");
+                  setDefaultPlatform(e.target.value as typeof defaultPlatform);
+                  addToast(t("settings.defaults.platformChanged"), "success");
                 }}
                 className="block min-w-0 max-w-full w-full truncate rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
               >
-                {entityTypes.map((et) => (
-                  <option key={et.value} value={et.value}>
-                    {et.label}
+                {PLATFORMS.map((platform) => (
+                  <option key={platform} value={platform}>
+                    {PLATFORM_LABELS[platform]}
                   </option>
                 ))}
               </select>

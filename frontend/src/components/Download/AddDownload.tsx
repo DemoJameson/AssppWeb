@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import AppIcon from "../common/AppIcon";
 import CountrySelect from "../common/CountrySelect";
+import PlatformSelect from "../common/PlatformSelect";
+
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useSettingsStore } from "../../store/settings";
@@ -12,11 +14,11 @@ import { listVersions } from "../../apple/versionFinder";
 import { firstAccountCountry } from "../../utils/account";
 import { getErrorMessage } from "../../utils/error";
 import { countryCodeMap, storeIdToCountry } from "../../apple/config";
-import type { Software } from "../../types";
+import type { Platform, Software } from "../../types";
 
 export default function AddDownload() {
   const { accounts, updateAccount } = useAccounts();
-  const { defaultCountry } = useSettingsStore();
+  const { defaultCountry, defaultPlatform } = useSettingsStore();
   const { t } = useTranslation();
   const addToast = useToastStore((s) => s.addToast);
   const {
@@ -29,6 +31,7 @@ export default function AddDownload() {
   const [bundleId, setBundleId] = useState("");
   const [country, setCountry] = useState(defaultCountry);
   const [countryTouched, setCountryTouched] = useState(false);
+  const [platform, setPlatform] = useState<Platform>(defaultPlatform);
   const [selectedAccount, setSelectedAccount] = useState("");
   const [app, setApp] = useState<Software | null>(null);
   const [versions, setVersions] = useState<string[]>([]);
@@ -87,12 +90,13 @@ export default function AddDownload() {
     if (!bundleId.trim()) return;
     setLoadingAction("lookup");
     try {
-      const result = await lookupApp(bundleId.trim(), country);
+      const result = await lookupApp(bundleId.trim(), country, platform);
       if (!result) {
         addToast(t("downloads.add.notFound"), "error");
         return;
       }
-      setApp(result);
+      // The catalogue knows the app; the platform is what the user chose.
+      setApp({ ...result, platform });
       setStep("ready");
     } catch (e) {
       addToast(getErrorMessage(e, t("downloads.add.lookupFailed")), "error");
@@ -148,22 +152,33 @@ export default function AddDownload() {
           className="min-w-0 space-y-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-5"
         >
           <div className="min-w-0">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label
+              htmlFor="add-bundle-id"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+            >
               {t("downloads.add.bundleId")}
             </label>
-            <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+            <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[1fr_10rem_auto] sm:items-start">
               <input
+                id="add-bundle-id"
                 type="text"
                 value={bundleId}
                 onChange={(e) => setBundleId(e.target.value)}
                 placeholder={t("downloads.add.placeholder")}
-                className="min-h-11 w-full min-w-0 flex-1 rounded-xl border-0 bg-gray-100 px-4 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
+                className="min-h-11 w-full min-w-0 rounded-xl border-0 bg-gray-100 px-4 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
                 disabled={isLoading}
+              />
+              <PlatformSelect
+                value={platform}
+                onChange={setPlatform}
+
+                disabled={isLoading}
+                className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
               />
               <button
                 type="submit"
                 disabled={isLoading || !bundleId.trim()}
-                className="min-h-11 min-w-0 whitespace-normal break-words rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
+                className="min-h-11 w-full min-w-0 whitespace-normal break-words rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
               >
                 {loadingAction === "lookup"
                   ? t("downloads.add.lookingUp")

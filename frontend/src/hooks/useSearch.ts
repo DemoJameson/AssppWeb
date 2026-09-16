@@ -1,18 +1,22 @@
 import { create } from "zustand";
-import type { Software } from "../types";
+import type { Platform, Software } from "../types";
 import { searchApps, lookupApp } from "../api/search";
 
 interface SearchState {
   term: string;
   country: string;
-  entity: string;
+  platform: Platform;
   results: Software[];
   loading: boolean;
   error: string | null;
   setSearchParam: (
-    param: Partial<Pick<SearchState, "term" | "country" | "entity">>,
+    param: Partial<Pick<SearchState, "term" | "country" | "platform">>,
   ) => void;
-  search: (term: string, country: string, entity: string) => Promise<void>;
+  search: (
+    term: string,
+    country: string,
+    platform: Platform,
+  ) => Promise<void>;
   lookup: (bundleId: string, country: string) => Promise<void>;
   clear: () => void; // 新增：清空搜索状态的方法
 }
@@ -20,15 +24,15 @@ interface SearchState {
 export const useSearch = create<SearchState>((set) => ({
   term: "",
   country: "",
-  entity: "",
+  platform: "ios",
   results: [],
   loading: false,
   error: null,
   setSearchParam: (param) => set((state) => ({ ...state, ...param })),
-  search: async (term, country, entity) => {
-    set({ loading: true, error: null, term, country, entity });
+  search: async (term, country, platform) => {
+    set({ loading: true, error: null, term, country, platform });
     try {
-      const apps = await searchApps(term, country, entity);
+      const apps = await searchApps(term, country, platform);
       set({ results: apps });
     } catch (e) {
       set({

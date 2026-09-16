@@ -65,6 +65,7 @@
       "download": "Download",
       "versionHistory": "Version History",
       "details": "Details",
+      "softwareId": "Software ID",
       "bundleId": "Bundle ID",
       "version": "Version",
       "size": "Size",
@@ -182,9 +183,9 @@
       "button": "Manual Download",
       "hint": "Download directly by app ID",
       "title": "Manual Download",
-      "appId": "App ID (numeric)",
+      "appId": "App ID",
       "appIdPlaceholder": "e.g. 1492142120",
-      "versionId": "Version ID (optional)",
+      "versionId": "Version ID",
       "versionIdPlaceholder": "Leave empty for the latest version",
       "download": "Download",
       "processing": "Processing...",
@@ -221,6 +222,8 @@
       "deleteConfirm": "Delete this download?",
       "bundleId": "Bundle ID",
       "version": "Version",
+      "softwareId": "Software ID",
+      "versionId": "Version ID",
       "account": "Account",
       "created": "Created",
       "install": "Install on Device",
@@ -235,7 +238,7 @@
       "downloadFailed": "Could not download the IPA.",
       "information": "Package Information",
       "size": "Size",
-      "minOs": "Minimum iOS",
+      "minOs": "Minimum OS",
       "category": "Category",
       "released": "Released",
       "developer": "Developer",
@@ -253,6 +256,9 @@
       "latestVersion": "Latest ({{id}})",
       "update": "Update Now",
       "updateFailed": "Failed to start update."
+    },
+    "platform": {
+      "label": "Platform"
     }
   },
   "settings": {
@@ -265,9 +271,9 @@
     "defaults": {
       "title": "Defaults",
       "country": "Default Country / Region",
-      "entity": "Default Entity Type",
       "countryChanged": "Default country/region updated",
-      "entityChanged": "Default device type updated"
+      "platform": "Default Platform",
+      "platformChanged": "Default platform updated"
     },
     "server": {
       "title": "Server",

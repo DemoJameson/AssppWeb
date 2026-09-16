@@ -38,9 +38,9 @@ vi.mock('../../src/api/search', () => ({
 // The settings store is read without a selector, mirroring AddDownload.
 vi.mock('../../src/store/settings', () => ({
   useSettingsStore: (
-    selector?: (state: { defaultCountry: string }) => unknown,
+    selector?: (state: { defaultCountry: string; defaultPlatform: string }) => unknown,
   ) => {
-    const state = { defaultCountry: 'US' };
+    const state = { defaultCountry: 'US', defaultPlatform: 'ios' };
     return selector ? selector(state) : state;
   },
 }));
@@ -76,6 +76,7 @@ const resolvedApp: Software = {
   releaseDate: '2026-08-01T00:00:00Z',
   formattedPrice: 'Free',
   primaryGenreName: 'Utilities',
+  platform: 'ios',
 };
 
 function renderPage() {
@@ -156,7 +157,7 @@ describe('ManualDownload', () => {
       expect(mocks.startDownload).toHaveBeenCalledTimes(1);
     });
 
-    expect(mocks.lookupAppById).toHaveBeenCalledWith('1492142120', 'US');
+    expect(mocks.lookupAppById).toHaveBeenCalledWith('1492142120', 'US', 'ios');
     const [calledAccount, calledApp, calledVersion] =
       mocks.startDownload.mock.calls[0];
     expect(calledAccount).toEqual(account);
@@ -192,6 +193,7 @@ describe('ManualDownload', () => {
     const calledApp = mocks.startDownload.mock.calls[0][1] as Software;
     expect(calledApp.id).toBe(1492142120);
     expect(calledApp.bundleID).toBe('');
+    expect(calledApp.platform).toBe('ios');
     expect(screen.getByText('downloads.manual.notFoundNote')).toBeTruthy();
   });
 

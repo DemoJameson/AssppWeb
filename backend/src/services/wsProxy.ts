@@ -18,6 +18,11 @@ wisp.options.hostname_whitelist = [
   /^fpinit\.itunes\.apple\.com$/,
   /^s\.mzstatic\.com$/,
   /^uclient-api\.itunes\.apple\.com$/,
+  // Storefront product pages used by the visionOS and macOS version lookups
+  // (apps.apple.com/{cc}/app/id{id}?platform=vision|mac). Public content — no
+  // credentials — but the browser cannot fetch them directly (CORS), so they
+  // ride the wisp tunnel like every other Apple request.
+  /^apps\.apple\.com$/,
 ];
 wisp.options.port_whitelist = [443];
 wisp.options.allow_direct_ip = false;

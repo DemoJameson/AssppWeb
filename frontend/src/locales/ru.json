@@ -65,6 +65,7 @@
       "download": "Загрузить",
       "versionHistory": "История версий",
       "details": "Детали",
+      "softwareId": "ID ПО",
       "bundleId": "Bundle ID",
       "version": "Версия",
       "size": "Размер",
@@ -179,9 +180,9 @@
       "button": "Ручная загрузка",
       "hint": "Скачать напрямую по ID приложения",
       "title": "Ручная загрузка",
-      "appId": "ID приложения (число)",
+      "appId": "ID приложения",
       "appIdPlaceholder": "например 1492142120",
-      "versionId": "ID версии (необязательно)",
+      "versionId": "ID версии",
       "versionIdPlaceholder": "Пусто — последняя версия",
       "download": "Скачать",
       "processing": "Обработка...",
@@ -218,6 +219,8 @@
       "deleteConfirm": "Удалить эту загрузку?",
       "bundleId": "Bundle ID",
       "version": "Версия",
+      "softwareId": "ID ПО",
+      "versionId": "ID версии",
       "account": "Аккаунт",
       "created": "Создано",
       "install": "Установить на устройство",
@@ -232,7 +235,7 @@
       "downloadFailed": "Не удалось скачать IPA.",
       "information": "Информация о пакете",
       "size": "Размер",
-      "minOs": "Минимальная версия iOS",
+      "minOs": "Мин. ОС",
       "category": "Категория",
       "released": "Дата выпуска",
       "developer": "Разработчик",
@@ -250,6 +253,9 @@
       "latestVersion": "Последняя ({{id}})",
       "update": "Обновить сейчас",
       "updateFailed": "Не удалось начать обновление."
+    },
+    "platform": {
+      "label": "Платформа"
     }
   },
   "settings": {
@@ -262,9 +268,9 @@
     "defaults": {
       "title": "По умолчанию",
       "country": "Регион / Страна",
-      "entity": "Тип устройства",
       "countryChanged": "Страна / регион по умолчанию обновлены",
-      "entityChanged": "Тип устройства по умолчанию обновлен"
+      "platform": "Платформа по умолчанию",
+      "platformChanged": "Платформа по умолчанию обновлена"
     },
     "server": {
       "title": "Сервер",

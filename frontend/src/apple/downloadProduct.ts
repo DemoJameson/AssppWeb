@@ -6,12 +6,15 @@
 // inside the download flow. Callers supply a pin (or an empty string) and then
 // apply their own failure mapping to the reply.
 
-import type { Account, Software, Cookie } from "../types";
+import type { Account, Software, Cookie, Platform } from "../types";
 import { appleRequest, type AppleRequestOptions, type AppleResponse } from "./request";
 import { buildPlist, parsePlist } from "./plist";
 import { extractAndMergeCookies } from "./cookies";
 import { fetchBag } from "./bag";
-import { lookupLatestExternalVersionId } from "./platformVersion";
+import {
+  lookupLatestExternalVersionId,
+  lookupLatestMacOSVersionId,
+} from "./platformVersion";
 import {
   REDOWNLOAD_PRODUCT_PATH,
   UPDATE_PRODUCT_PATH,
@@ -100,6 +103,15 @@ export async function requestDownloadProduct(
   const guid = account.deviceIdentifier;
 
   let externalVersionId = pinnedVersionId;
+
+  // The volumeStore reply follows the account's device class (iOS by default),
+  // not the requested platform: an unpinned request for a tvOS or visionOS
+  // build comes back as the iOS ipa. Pin the platform's version first so the
+  // request names the build we actually want. macOS apps ship under their own
+  // adam ids and need no pin; iOS/iPad keep the historical path.
+  if (!externalVersionId && needsPlatformPin(session.app.platform)) {
+    externalVersionId = await pinnedLatestVersionId(session);
+  }
 
   const volumeStoreReply = await sendDownloadRequest(
     session,
@@ -365,6 +377,18 @@ function isEmptyRedownloadError(error: unknown): boolean {
 }
 
 /**
+ * Whether the download exchange must pin a platform-specific version before
+ * the first request. tvOS and visionOS builds share an adam id with the iOS
+ * app, so an unpinned volumeStore request returns the iOS ipa. macOS apps can
+ * share an adam id with the iOS app too, and the legacy MDM lookup returns an
+ * iOS offer even with platform=osx, so the Mac storefront page selects the
+ * native Mac offer. iOS/iPad are the default device class and need no pin.
+ */
+function needsPlatformPin(platform?: Platform): boolean {
+  return platform === "tvos" || platform === "visionos" || platform === "macos";
+}
+
+/**
  * Resolves the newest external version id that redownload and updateProduct
  * need. A failure is fatal here, as in ipatool: an unpinned redownload can
  * return a tvOS build for a universal app, and the rest of the flow has no way
@@ -372,7 +396,24 @@ function isEmptyRedownloadError(error: unknown): boolean {
  */
 async function pinnedLatestVersionId(session: DownloadSession): Promise<string> {
   const country = storeIdToCountry(session.account.store) ?? "us";
-  const versionId = await lookupLatestExternalVersionId(session.app.id, country);
+  const platform = session.app.platform;
+
+  let versionId: string | undefined;
+  if (platform === "macos") {
+    versionId = await lookupLatestMacOSVersionId(
+      session.app.id,
+      country,
+      session.app.bundleID || undefined,
+      session.cookies,
+    );
+  } else {
+    versionId = await lookupLatestExternalVersionId(
+      session.app.id,
+      country,
+      platform,
+      session.cookies,
+    );
+  }
 
   if (!versionId) {
     throw new DownloadError(i18n.t("errors.download.missingVersion"));

@@ -172,6 +172,7 @@ The Wisp server validates target hosts via `hostname_whitelist` in `backend/src/
 - `fpinit.itunes.apple.com` — SAP setup exchange endpoint (`sign-sap-setup`)
 - `s.mzstatic.com` — SAP certificate endpoint (`sign-sap-setup-cert`)
 - `uclient-api.itunes.apple.com` — storefront catalogue lookup, used to pin the external version id before the redownload fallback (ipatool does the same)
+- `apps.apple.com` — storefront product pages for the visionOS and macOS version lookups (`/{cc}/app/id{id}?platform=vision|mac`); public content, no credentials, but CORS-blocked so it rides the wisp tunnel
 - Port restricted to `443` only
 - Direct IP targets blocked (`allow_direct_ip = false`)
 - Loopback IP targets blocked (`allow_loopback_ips = false`)
@@ -211,6 +212,41 @@ The version id for the redownload hop is pinned from
 would normally carry it — the volumeStore document — is what came back empty. A
 lookup failure is fatal, matching ipatool: an unpinned redownload can answer with
 a tvOS build for a universal app.
+
+### Platform Version Pinning (Frontend)
+
+`frontend/src/apple/platformVersion.ts` mirrors ipatool's
+`lookupLatestExternalVersionID` and `lookupLatestMacOSExternalVersionID`. Three
+transports, one per platform family:
+
+- **iOS / iPad / tvOS** — the MDM catalogue at `uclient-api.itunes.apple.com`
+  with `p=mdm-lockup` and a per-platform `platform` parameter
+  (`enterprisestore` / `atv9`).
+- **visionOS** — Apple's MDM catalogue does not carry visionOS offers, so the
+  storefront product page at `apps.apple.com/{cc}/app/id{id}?platform=vision`
+  is used instead. The `<script id="serialized-server-data">` JSON is parsed
+  and walked for a `purchaseConfiguration` with
+  `metricsPlatformDisplayStyle: "vision"`, `"vision"` in `appPlatforms`, and
+  `buyParams.salableAdamId` matching the app.
+- **macOS** — the legacy MDM lookup can return an iOS offer even with
+  `platform=osx`, so the Mac storefront product page
+  (`apps.apple.com/{cc}/app/id{id}?platform=mac`) selects the native Mac offer
+  the same way (`"mac"` in `appPlatforms`, `salableAdamId` and `bundleId`
+  matching).
+
+`downloadProduct.ts` pins tvOS/visionOS/macOS before the volumeStore request;
+`versionFinder.ts` pins the same three before the version list exchange. iOS/iPad
+pass an empty pin and let the exchange resolve one on fallback.
+
+### Package Platform Validation (Backend)
+
+`backend/src/services/packagePlatform.ts` mirrors ipatool's
+`validatePackagePlatform`: after the IPA download completes and before SINF
+injection, the package's `Payload/*.app/Info.plist`
+`CFBundleSupportedPlatforms` must contain the expected platform string
+(`iPhoneOS` / `AppleTVOS` / `XROS`). A mismatch — Apple served the iOS build of
+a universal app despite the pin — deletes the file and fails the task. macOS
+`.pkg` packages are skipped (they are xar containers, not IPAs).
 
 The payload both endpoints receive is `creditDisplay`, `guid`, `salableAdamId`
 (integer), `serialNumber: "0"`, plus the endpoint's version key when pinned. The

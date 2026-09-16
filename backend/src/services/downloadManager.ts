@@ -8,6 +8,7 @@ import {
   type PackageMetadata,
   type PackageIcon,
 } from "./sinfInjector.js";
+import { validatePackagePlatform, PackagePlatformError } from "./packagePlatform.js";
 import { ChunkedDownloader } from "./chunkedDownloader.js";
 import type { DownloadTask, Software, Sinf } from "../types/index.js";
 
@@ -67,7 +68,8 @@ type FillableField =
   | "minimumOsVersion"
   | "primaryGenreName"
   | "releaseDate"
-  | "artworkUrl";
+  | "artworkUrl"
+  | "externalVersionId";
 
 /**
  * @returns whether anything was filled in.
@@ -100,6 +102,15 @@ export function applyPackageMetadata(
   fill("primaryGenreName", metadata.primaryGenreName);
   fill("releaseDate", metadata.releaseDate);
   fill("artworkUrl", metadata.artworkURL);
+  fill("externalVersionId", metadata.externalVersionId);
+
+  // The package's own CFBundleSupportedPlatforms is the authority over the
+  // platform the search or download request named: a universal app searched as
+  // tvOS may have served its iOS build, and the package knows which.
+  if (metadata.platform && software.platform !== metadata.platform) {
+    software.platform = metadata.platform;
+    changed = true;
+  }
 
   return changed;
 }
@@ -681,7 +692,13 @@ async function startDownload(task: DownloadTask) {
 
   fs.mkdirSync(dir, { recursive: true });
 
-  const filePath = path.join(dir, `${task.id}.ipa`);
+  // macOS App Store packages arrive as .pkg (a xar container), not as an IPA:
+  // they carry no sinfs to inject and cannot be unpacked the way an IPA is.
+  const isMacOSPackage = task.software.platform === "macos";
+  const filePath = path.join(
+    dir,
+    `${task.id}${isMacOSPackage ? ".pkg" : ".ipa"}`,
+  );
   task.filePath = filePath;
 
   try {
@@ -705,8 +722,22 @@ async function startDownload(task: DownloadTask) {
     abortControllers.delete(task.id);
     clearTimeout(timeout);
 
-    // Inject sinfs
-    if (task.sinfs.length > 0) {
+    // Validate the package declares support for a known platform before
+    // injecting — mirrors ipatool's validatePackagePlatform. macOS packages are
+    // .pkg (xar), not IPAs, so the check is skipped for them. The package's own
+    // declaration is the authority over the request's platform: a manual download
+    // can pin a tvOS version id with the selector on iOS, and the IPA that comes
+    // back is a tvOS build.
+    if (!isMacOSPackage) {
+      const actualPlatform = await validatePackagePlatform(filePath);
+      if (actualPlatform && actualPlatform !== task.software.platform) {
+        task.software.platform = actualPlatform;
+      }
+    }
+
+    // Inject sinfs — macOS packages cannot carry them, so the download is the
+    // final artifact as-is.
+    if (task.sinfs.length > 0 && !isMacOSPackage) {
       task.status = "injecting";
       task.progress = 100;
       notifyProgress(task);
@@ -723,9 +754,10 @@ async function startDownload(task: DownloadTask) {
       // values instead of the placeholder the request carried.
       applyPackageMetadata(task.software, metadata);
       writeTaskIcon(task, icon);
-      if (!task.software.fileSizeBytes) {
-        task.software.fileSizeBytes = String(fs.statSync(filePath).size);
-      }
+    }
+
+    if (!task.software.fileSizeBytes) {
+      task.software.fileSizeBytes = String(fs.statSync(filePath).size);
     }
 
     task.status = "completed";
@@ -758,7 +790,8 @@ async function startDownload(task: DownloadTask) {
       `Download ${task.id} failed:`,
       err instanceof Error ? err.message : err,
     );
-    task.error = "Download failed";
+    task.error =
+      err instanceof PackagePlatformError ? err.message : "Download failed";
     notifyProgress(task);
   }
 }

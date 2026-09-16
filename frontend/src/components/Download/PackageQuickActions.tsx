@@ -27,7 +27,7 @@ export default function PackageQuickActions({
   const isPreview = isPreviewDownloadTask(task);
   const buttonSize =
     size === 'compact'
-      ? 'min-h-10 px-2 text-xs'
+      ? 'min-h-10 px-2 text-sm'
       : 'min-h-11 px-3 text-sm';
   const secondaryButton = `${buttonSize} inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white font-medium text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800`;
 

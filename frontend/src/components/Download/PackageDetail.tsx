@@ -23,6 +23,7 @@ import { taskIconUrl } from '../../utils/icon';
 import { getAccountContext } from '../../utils/toast';
 import { isNewerVersion } from '../../utils/version';
 import { storeIdToCountry } from '../../apple/config';
+import { PLATFORM_LABELS } from '../../apple/platform';
 import type { Software } from '../../types';
 
 export default function PackageDetail() {
@@ -247,7 +248,7 @@ export default function PackageDetail() {
             />
             <DetailTile
               label={t('downloads.package.minOs')}
-              value={`iOS ${task.software.minimumOsVersion || '—'}`}
+              value={task.software.minimumOsVersion ? `${PLATFORM_LABELS[task.software.platform || 'ios']} ${task.software.minimumOsVersion}` : '—'}
             />
             <DetailTile
               label={t('downloads.package.category')}
@@ -267,11 +268,25 @@ export default function PackageDetail() {
               {task.software.sellerName || task.software.artistName}
             </PackageDetailRow>
             <PackageDetailRow
+              label={t('downloads.package.softwareId')}
+              valueTitle={String(task.software.id)}
+              mono
+            >
+              {task.software.id}
+            </PackageDetailRow>
+            <PackageDetailRow
               label={t('downloads.package.bundleId')}
               valueTitle={task.software.bundleID}
               mono
             >
               {task.software.bundleID}
+            </PackageDetailRow>
+            <PackageDetailRow
+              label={t('downloads.package.versionId')}
+              valueTitle={task.software.externalVersionId}
+              mono
+            >
+              {task.software.externalVersionId || '—'}
             </PackageDetailRow>
             <PackageDetailRow
               label={t('downloads.package.version')}

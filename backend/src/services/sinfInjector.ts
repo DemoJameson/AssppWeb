@@ -10,7 +10,8 @@ import bplistParser from "bplist-parser";
 import bplistCreator from "bplist-creator";
 import plist from "plist";
 import { convertCgbiToPng, isCgbiPng } from "./cgbiPng.js";
-import type { Sinf } from "../types/index.js";
+import { platformFromSupported } from "./packagePlatform.js";
+import type { Sinf, Platform } from "../types/index.js";
 
 const execFile = promisify(execFileCb);
 
@@ -77,6 +78,15 @@ export interface PackageMetadata {
    * Assets.car, which is not something worth parsing.
    */
   artworkURL?: string;
+  /** Apple's external version identifier, read from the store metadata. */
+  externalVersionId?: string;
+  /**
+   * The platform the package actually targets, inferred from
+   * `CFBundleSupportedPlatforms` in the app's Info.plist. This is the authority
+   * over the platform the search or download request named: a universal app
+   * searched as tvOS may have served its iOS build, and the package knows which.
+   */
+  platform?: Platform;
 }
 
 export interface InjectResult {
@@ -207,6 +217,32 @@ function firstString(
 }
 
 /**
+ * Like {@link firstString} but also coerces numbers to strings — Apple's
+ * `softwareVersionExternalIdentifier` is an integer in the plist, not a string.
+ */
+function firstValue(
+  source: Record<string, unknown> | null,
+  keys: string[],
+): string | undefined {
+  if (!source) return undefined;
+
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim() !== "") {
+      return value.trim();
+    }
+    if (typeof value === "number" && !Number.isNaN(value)) {
+      return String(value);
+    }
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString();
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Collects what the package says about the app. Apple's own store metadata
  * (the iTunesMetadata.plist the App Store hands out with a download) names the
  * app the way the storefront does, so it wins where both are available; the
@@ -235,6 +271,8 @@ function packageMetadata(
     artworkURL: sharperIconURL(
       firstString(store, ["softwareIcon57x57URL", "artworkURL"]),
     ),
+    externalVersionId: firstValue(store, ["softwareVersionExternalIdentifier"]),
+    platform: platformFromSupported(infoPlist),
   };
 }
 

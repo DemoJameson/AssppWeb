@@ -35,13 +35,17 @@ RUN apk add --no-cache zip
 WORKDIR /app
 COPY --from=backend-build /app/backend/dist ./dist
 COPY backend/package*.json ./
-# Native modules install per target platform: @node-rs/crc32 (via
-# yauzl-promise) ships prebuilt napi binaries, but bufferutil (via wisp-js)
-# has no linux-arm64-musl prebuild and falls back to source compilation.
-# The toolchain is added and removed inside one layer, so it never bloats
-# the final image.
+# Native modules install per target platform. @node-rs/crc32 (via
+# yauzl-promise) ships prebuilt napi binaries as optionalDependencies
+# (e.g. @node-rs/crc32-linux-arm64-musl) — npm installs the right slice
+# automatically. bufferutil (via wisp-js) has no linux-arm64-musl prebuild
+# and falls back to source compilation, which triggers SIGILL under QEMU
+# cross-builds. --ignore-scripts skips both the bufferutil compile and
+# the @node-rs/crc32 verification require(); the binaries are already in
+# place from the optionalDependencies install. bufferutil is optional
+# for ws and falls back to pure JavaScript.
 RUN apk add --no-cache --virtual .node-build python3 make g++ \
-    && npm ci --omit=dev \
+    && npm ci --omit=dev --ignore-scripts \
     && apk del .node-build \
     && npm cache clean --force
 COPY --from=frontend-build /app/frontend/dist ./public

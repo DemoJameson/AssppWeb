@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useParams, useLocation, Link } from "react-router-dom";
+import { useParams, useLocation, useSearchParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import Alert from '../common/Alert';
@@ -13,9 +13,10 @@ import {
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useToastStore } from '../../store/toast';
-import { lookupApp } from "../../api/search";
+import { lookupAppById } from "../../api/search";
+import { parsePlatform, PLATFORM_LABELS } from "../../apple/platform";
 import { storeIdToCountry } from "../../apple/config";
-import type { Software } from "../../types";
+import type { Platform, Software } from "../../types";
 
 export default function ProductDetail() {
   const { appId } = useParams<{ appId: string }>();
@@ -38,6 +39,11 @@ export default function ProductDetail() {
   } | null;
   const stateApp = previewEnabled ? previewProductApp : routeState?.app;
   const stateCountry = previewEnabled ? 'US' : routeState?.country;
+  const [searchParams] = useSearchParams();
+  // The app in the router state carries its platform; a direct visit falls
+  // back to the query the search results attached.
+  const platform: Platform | undefined =
+    stateApp?.platform ?? parsePlatform(searchParams.get("platform"));
   const [country] = useState(stateCountry ?? "US");
   const [app, setApp] = useState<Software | null>(stateApp ?? null);
   const [loading, setLoading] = useState(!stateApp);
@@ -58,7 +64,7 @@ export default function ProductDetail() {
   useEffect(() => {
     if (!stateApp && appId) {
       setLoading(true);
-      lookupApp(appId, country)
+      lookupAppById(appId, country, platform)
         .then((result) => {
           setApp(result);
           setLoading(false);
@@ -67,7 +73,7 @@ export default function ProductDetail() {
           setLoading(false);
         });
     }
-  }, [appId, stateApp, country]);
+  }, [appId, stateApp, country, platform]);
 
   useEffect(() => {
     if (
@@ -158,6 +164,11 @@ export default function ProductDetail() {
             </h1>
             <p className="text-gray-500 dark:text-gray-400">{app.artistName}</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
+              {app.platform && (
+                <span className="rounded-full bg-gray-100 px-3 py-1 dark:bg-gray-800">
+                  {PLATFORM_LABELS[app.platform]}
+                </span>
+              )}
               <span className="rounded-full bg-gray-100 px-3 py-1 dark:bg-gray-800">
                 {app.formattedPrice ?? t("search.product.free")}
               </span>
@@ -238,7 +249,7 @@ export default function ProductDetail() {
                 <span>{t("search.product.download")}</span>
               </button>
               <Link
-                to={`/search/${app.id}/versions`}
+                to={`/search/${app.id}/versions${app.platform ? `?platform=${app.platform}` : ''}`}
                 state={{ app, country }}
                 className="inline-flex min-h-10 w-full min-w-0 items-center justify-center rounded-full bg-gray-100 px-2 py-2 text-center text-xs font-semibold leading-tight text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:px-5 sm:text-sm"
               >
@@ -253,6 +264,12 @@ export default function ProductDetail() {
             {t("search.product.details")}
           </h2>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <dt className="text-gray-500 dark:text-gray-400">
+              {t("search.product.softwareId")}
+            </dt>
+            <dd className="text-gray-900 dark:text-gray-200 break-all">
+              {app.id}
+            </dd>
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.bundleId")}
             </dt>
@@ -275,7 +292,7 @@ export default function ProductDetail() {
               {t("search.product.minOs")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200">
-              {app.minimumOsVersion}
+              {`${PLATFORM_LABELS[app.platform || 'ios']} ${app.minimumOsVersion}`}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.seller")}

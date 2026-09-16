@@ -3,13 +3,14 @@ import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import AppIcon from "../common/AppIcon";
 import CountrySelect from "../common/CountrySelect";
+import PlatformSelect from "../common/PlatformSelect";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useSettingsStore } from "../../store/settings";
 import { lookupAppById } from "../../api/search";
 import { firstAccountCountry } from "../../utils/account";
 import { countryCodeMap, storeIdToCountry } from "../../apple/config";
-import type { Software } from "../../types";
+import type { Platform, Software } from "../../types";
 
 /** Apple's app and version ids are both numeric. */
 const NUMERIC_ID_RE = /^\d+$/;
@@ -22,7 +23,7 @@ const NUMERIC_ID_RE = /^\d+$/;
  * backend/src/services/downloadManager.ts), so this label only shows while the
  * download is still running.
  */
-function placeholderSoftware(id: string): Software {
+function placeholderSoftware(id: string, platform: Platform): Software {
   return {
     id: Number(id),
     bundleID: "",
@@ -39,6 +40,7 @@ function placeholderSoftware(id: string): Software {
     minimumOsVersion: "",
     releaseDate: "",
     primaryGenreName: "",
+    platform,
   };
 }
 
@@ -49,7 +51,7 @@ function placeholderSoftware(id: string): Software {
  */
 export default function ManualDownload() {
   const { accounts } = useAccounts();
-  const { defaultCountry } = useSettingsStore();
+  const { defaultCountry, defaultPlatform } = useSettingsStore();
   const { t } = useTranslation();
   const { startDownload, toastDownloadError } = useDownloadAction();
 
@@ -57,6 +59,7 @@ export default function ManualDownload() {
   const [versionId, setVersionId] = useState("");
   const [country, setCountry] = useState(defaultCountry);
   const [countryTouched, setCountryTouched] = useState(false);
+  const [platform, setPlatform] = useState<Platform>(defaultPlatform);
   const [selectedAccount, setSelectedAccount] = useState("");
   const [queued, setQueued] = useState<Software | null>(null);
   const [loading, setLoading] = useState(false);
@@ -113,13 +116,15 @@ export default function ManualDownload() {
     if (!account || !appIdValid || !versionIdValid) return;
 
     const id = appId.trim();
-    let target = placeholderSoftware(id);
+    let target = placeholderSoftware(id, platform);
     setLoading(true);
     try {
       // Best effort: the catalogue names the app and supplies its bundle id.
       // It is not required, so a miss must not block the download.
-      const resolved = await lookupAppById(id, country).catch(() => null);
-      if (resolved) target = resolved;
+      const resolved = await lookupAppById(id, country, platform).catch(
+        () => null,
+      );
+      if (resolved) target = { ...resolved, platform };
       setQueued(target);
 
       await startDownload(account, target, versionId.trim() || undefined);
@@ -137,7 +142,7 @@ export default function ManualDownload() {
           onSubmit={handleDownload}
           className="min-w-0 space-y-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-5"
         >
-          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_10rem_auto] sm:items-start">
             <div className="min-w-0">
               <label
                 htmlFor="manual-app-id"
@@ -184,6 +189,35 @@ export default function ManualDownload() {
                 </p>
               )}
             </div>
+            <div className="min-w-0">
+              <label
+                className="invisible block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+              >
+                {t("downloads.platform.label")}
+              </label>
+              <PlatformSelect
+                value={platform}
+                onChange={setPlatform}
+                disabled={loading}
+                className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
+              />
+            </div>
+            <div className="min-w-0">
+              <label
+                className="invisible block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+              >
+                {t("downloads.manual.download")}
+              </label>
+              <button
+                type="submit"
+                disabled={loading || !account || !appIdValid || !versionIdValid}
+                className="min-h-11 w-full min-w-0 whitespace-normal break-words rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+              >
+                {loading
+                  ? t("downloads.manual.processing")
+                  : t("downloads.manual.download")}
+              </button>
+            </div>
           </div>
 
           <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
@@ -217,16 +251,6 @@ export default function ManualDownload() {
               )}
             </select>
           </div>
-
-          <button
-            type="submit"
-            disabled={loading || !account || !appIdValid || !versionIdValid}
-            className="min-h-11 w-full min-w-0 whitespace-normal break-words rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          >
-            {loading
-              ? t("downloads.manual.processing")
-              : t("downloads.manual.download")}
-          </button>
         </form>
 
         {queued && (

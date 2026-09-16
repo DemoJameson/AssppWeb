@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useParams, useLocation } from "react-router-dom";
+import { useParams, useLocation, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import AppIcon from "../common/AppIcon";
@@ -8,9 +8,11 @@ import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { listVersions } from "../../apple/versionFinder";
 import { storeIdToCountry } from "../../apple/config";
 import { getVersionMetadata } from "../../apple/versionLookup";
+import { lookupAppById } from "../../api/search";
+import { parsePlatform } from "../../apple/platform";
 import { getErrorMessage } from "../../utils/error";
 import { useToastStore } from "../../store/toast";
-import type { Software, VersionMetadata } from "../../types";
+import type { Software, VersionMetadata, Platform } from "../../types";
 
 export default function VersionHistory() {
   const { appId } = useParams<{ appId: string }>();
@@ -24,8 +26,12 @@ export default function VersionHistory() {
     ?.app;
   const stateCountry = (location.state as { country?: string })?.country;
   const country = stateCountry ?? "US";
+  const [searchParams] = useSearchParams();
+  const platform: Platform | undefined =
+    stateApp?.platform ?? parsePlatform(searchParams.get("platform"));
 
-  const [app] = useState<Software | null>(stateApp ?? null);
+  const [app, setApp] = useState<Software | null>(stateApp ?? null);
+  const [loadingApp, setLoadingApp] = useState(!stateApp);
   const [selectedAccount, setSelectedAccount] = useState("");
 
   const filteredAccounts = useMemo(
@@ -41,6 +47,20 @@ export default function VersionHistory() {
   const [downloadingVersion, setDownloadingVersion] = useState<string | null>(
     null,
   );
+
+  useEffect(() => {
+    if (!stateApp && appId) {
+      setLoadingApp(true);
+      lookupAppById(appId, country, platform)
+        .then((result) => {
+          setApp(result);
+          setLoadingApp(false);
+        })
+        .catch(() => {
+          setLoadingApp(false);
+        });
+    }
+  }, [appId, stateApp, country, platform]);
 
   useEffect(() => {
     if (
@@ -93,11 +113,19 @@ export default function VersionHistory() {
     }
   }
 
+  if (loadingApp) {
+    return (
+      <PageContainer title={t("search.versions.title")}>
+        <div className="text-center text-gray-500 py-12">{t("loading")}</div>
+      </PageContainer>
+    );
+  }
+
   if (!app) {
     return (
       <PageContainer title={t("search.versions.title")}>
         <p className="text-gray-500 [overflow-wrap:anywhere]">
-          {t("search.versions.unavailable")}
+          {t("search.product.notFound")}
         </p>
       </PageContainer>
     );

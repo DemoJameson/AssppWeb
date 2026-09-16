@@ -65,6 +65,7 @@
       "download": "다운로드",
       "versionHistory": "버전 기록",
       "details": "세부 정보",
+      "softwareId": "소프트웨어 ID",
       "bundleId": "Bundle ID",
       "version": "버전",
       "size": "크기",
@@ -182,9 +183,9 @@
       "button": "수동 다운로드",
       "hint": "앱 ID로 바로 다운로드",
       "title": "수동 다운로드",
-      "appId": "앱 ID (숫자)",
+      "appId": "앱 ID",
       "appIdPlaceholder": "예: 1492142120",
-      "versionId": "버전 ID (선택)",
+      "versionId": "버전 ID",
       "versionIdPlaceholder": "비워 두면 최신 버전",
       "download": "다운로드",
       "processing": "처리 중...",
@@ -221,6 +222,8 @@
       "deleteConfirm": "이 다운로드를 삭제하시겠습니까?",
       "bundleId": "Bundle ID",
       "version": "버전",
+      "softwareId": "소프트웨어 ID",
+      "versionId": "버전 ID",
       "account": "계정",
       "created": "생성됨",
       "install": "기기에 설치",
@@ -235,7 +238,7 @@
       "downloadFailed": "IPA를 다운로드하지 못했습니다.",
       "information": "패키지 정보",
       "size": "크기",
-      "minOs": "최소 iOS 버전",
+      "minOs": "최소 OS",
       "category": "카테고리",
       "released": "출시일",
       "developer": "개발자",
@@ -253,6 +256,9 @@
       "latestVersion": "최신 ({{id}})",
       "update": "지금 업데이트",
       "updateFailed": "업데이트를 시작하지 못했습니다."
+    },
+    "platform": {
+      "label": "플랫폼"
     }
   },
   "settings": {
@@ -265,9 +271,9 @@
     "defaults": {
       "title": "기본값",
       "country": "기본 국가 / 지역",
-      "entity": "기본 기기 유형",
       "countryChanged": "기본 국가 / 지역이 업데이트되었습니다",
-      "entityChanged": "기본 기기 유형이 업데이트되었습니다"
+      "platform": "기본 플랫폼",
+      "platformChanged": "기본 플랫폼이 업데이트되었습니다"
     },
     "server": {
       "title": "서버",

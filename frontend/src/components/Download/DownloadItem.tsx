@@ -6,6 +6,7 @@ import ProgressBar from '../common/ProgressBar';
 import PackageQuickActions from './PackageQuickActions';
 import { formatBytes } from '../../utils/format';
 import { taskIconUrl } from '../../utils/icon';
+import { PLATFORM_LABELS } from '../../apple/platform';
 import type { DownloadTask } from '../../types';
 
 interface DownloadItemProps {
@@ -76,7 +77,7 @@ export default function DownloadItem({
         />
         <SummaryItem
           label={t('downloads.package.minOs')}
-          value={`iOS ${task.software.minimumOsVersion || '—'}`}
+          value={task.software.minimumOsVersion ? `${PLATFORM_LABELS[task.software.platform || 'ios']} ${task.software.minimumOsVersion}` : '—'}
         />
       </dl>
 
@@ -111,7 +112,7 @@ export default function DownloadItem({
           <button
             type="button"
             onClick={() => onPause(task.id)}
-            className="min-h-10 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            className="min-h-10 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
           >
             {t('downloads.package.pause')}
           </button>
@@ -119,14 +120,14 @@ export default function DownloadItem({
           <button
             type="button"
             onClick={() => onResume(task.id)}
-            className="min-h-10 min-w-0 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-950"
+            className="min-h-10 min-w-0 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-950"
           >
             {t('downloads.package.resume')}
           </button>
         ) : (
           <Link
             to={detailsHref}
-            className="inline-flex min-h-10 min-w-0 items-center justify-center rounded-lg border border-gray-300 px-3 py-2 text-center text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            className="inline-flex min-h-10 min-w-0 items-center justify-center rounded-lg border border-gray-300 px-3 py-2 text-center text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
           >
             {t('downloads.package.title')}
           </Link>
@@ -134,7 +135,7 @@ export default function DownloadItem({
         <button
           type="button"
           onClick={() => onDelete(task.id)}
-          className="min-h-10 min-w-0 rounded-lg border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+          className="min-h-10 min-w-0 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
         >
           {t('downloads.package.delete')}
         </button>

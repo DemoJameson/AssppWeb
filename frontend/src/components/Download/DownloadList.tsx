@@ -204,7 +204,7 @@ export default function DownloadList() {
         <Link
           to="/downloads/manual"
           title={t("downloads.manual.hint")}
-          className="flex h-9 w-full min-w-0 items-center justify-center rounded-full bg-blue-600 px-2.5 text-center text-[clamp(0.75rem,3.6vw,0.875rem)] font-semibold leading-tight text-white transition-colors hover:bg-blue-700"
+          className="flex h-9 w-full min-w-0 items-center justify-center rounded-full bg-red-600/90 px-2.5 text-center text-[clamp(0.75rem,3.6vw,0.875rem)] font-semibold leading-tight text-white transition-colors hover:bg-red-700/90"
         >
           {t("downloads.manual.button")}
         </Link>

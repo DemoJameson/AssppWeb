@@ -3,6 +3,7 @@ import {
   FAILURE_LICENSE_NOT_FOUND,
   FAILURE_PASSWORD_TOKEN_EXPIRED,
   FAILURE_SIGN_IN_REQUIRED,
+  storeIdToCountry,
 } from "./config";
 import {
   DownloadError,
@@ -13,6 +14,10 @@ import {
   requestDownloadProduct,
   type DownloadReply,
 } from "./downloadProduct";
+import {
+  lookupLatestExternalVersionId,
+  lookupLatestMacOSVersionId,
+} from "./platformVersion";
 import i18n from "../i18n";
 
 export interface VersionListOutput {
@@ -39,8 +44,13 @@ export async function listVersions(
 ): Promise<VersionListOutput & { updatedCookies: typeof account.cookies }> {
   const session = createDownloadSession(account, app);
 
-  // An empty pin: for iPhone the exchange resolves one itself when it falls back.
-  const reply = await requestDownloadProduct(session, "");
+  // ipatool's ListVersions pins macOS/tvOS/visionOS before the exchange so the
+  // version list reflects the requested platform, not the account's default
+  // device class (iOS). iOS/iPad pass an empty pin and let the exchange resolve
+  // one itself when it falls back.
+  const pin = await platformVersionPin(session);
+
+  const reply = await requestDownloadProduct(session, pin);
 
   assertListVersionsReply(reply);
 
@@ -61,6 +71,46 @@ export async function listVersions(
     latestExternalVersionId: latest === undefined || latest === null ? undefined : String(latest),
     updatedCookies: session.cookies,
   };
+}
+
+/**
+ * Resolves the platform-specific version pin for the version list exchange.
+ * Mirrors ipatool's `ListVersions`: macOS/tvOS/visionOS pin before the
+ * exchange so the listed versions belong to the requested platform; iOS/iPad
+ * pass an empty pin and let the exchange resolve one on fallback.
+ */
+async function platformVersionPin(
+  session: ReturnType<typeof createDownloadSession>,
+): Promise<string> {
+  const platform = session.app.platform;
+  if (platform !== "tvos" && platform !== "visionos" && platform !== "macos") {
+    return "";
+  }
+
+  const country = storeIdToCountry(session.account.store) ?? "us";
+  let versionId: string | undefined;
+
+  if (platform === "macos") {
+    versionId = await lookupLatestMacOSVersionId(
+      session.app.id,
+      country,
+      session.app.bundleID || undefined,
+      session.cookies,
+    );
+  } else {
+    versionId = await lookupLatestExternalVersionId(
+      session.app.id,
+      country,
+      platform,
+      session.cookies,
+    );
+  }
+
+  if (!versionId) {
+    throw new DownloadError(i18n.t("errors.download.missingVersion"));
+  }
+
+  return versionId;
 }
 
 /**
