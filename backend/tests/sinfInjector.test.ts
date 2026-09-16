@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { inject } from "../src/services/sinfInjector.js";
+import {
+  inject,
+  extractPackageIcon,
+} from "../src/services/sinfInjector.js";
 import AdmZip from "adm-zip";
 import fs from "fs";
 import path from "path";
@@ -16,12 +19,36 @@ afterAll(() => {
   fs.rmSync(TEMP_DIR, { recursive: true, force: true });
 });
 
+// A valid 1x1 PNG. Each icon gets the file name appended after IEND so a test
+// can tell which entry was actually read back.
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12P4////DwAJBgMBMHREuwAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+function iconImage(name: string): Buffer {
+  return Buffer.concat([TINY_PNG, Buffer.from(name)]);
+}
+
 function createMockIPA(
   bundleName: string,
   opts?: {
     addManifest?: boolean;
     sinfPaths?: string[];
     executableName?: string;
+    /** Icon images placed at the top of the app bundle. */
+    icons?: string[];
+    /** Icons of a nested bundle, which are not this app's icon. */
+    nestedIcons?: string[];
+    /** Names to declare as `CFBundleIconFiles` in the Info.plist. */
+    declaredIcons?: string[];
+    /** `CFBundleIconName`, the asset-catalogue name. */
+    iconName?: string;
+    /**
+     * Alternate icons, the ones a user can choose between. Real apps file whole
+     * theme catalogues here, and none of them is the app's icon.
+     */
+    alternateIcons?: string[];
   },
 ): string {
   const zip = new AdmZip();
@@ -30,6 +57,24 @@ function createMockIPA(
   const infoPlistXml = plist.build({
     CFBundleExecutable: execName,
     CFBundleIdentifier: `com.example.${bundleName.toLowerCase()}`,
+    CFBundleDisplayName: `${bundleName} Display`,
+    CFBundleShortVersionString: "4.5.6",
+    MinimumOSVersion: "16.0",
+    ...(opts?.declaredIcons ? { CFBundleIconFiles: opts.declaredIcons } : {}),
+    ...(opts?.iconName ? { CFBundleIconName: opts.iconName } : {}),
+    ...(opts?.alternateIcons
+      ? {
+          CFBundleIcons: {
+            CFBundleAlternateIcons: Object.fromEntries(
+              opts.alternateIcons.map((name) => [
+                name,
+                { CFBundleIconFiles: [name] },
+              ]),
+            ),
+            CFBundlePrimaryIcon: { CFBundleIconName: "appIconNew" },
+          },
+        }
+      : {}),
   });
   zip.addFile(
     `Payload/${bundleName}.app/Info.plist`,
@@ -39,6 +84,16 @@ function createMockIPA(
     `Payload/${bundleName}.app/${execName}`,
     Buffer.from("fake executable"),
   );
+
+  for (const icon of opts?.icons ?? []) {
+    zip.addFile(`Payload/${bundleName}.app/${icon}`, iconImage(icon));
+  }
+  for (const icon of opts?.nestedIcons ?? []) {
+    zip.addFile(
+      `Payload/${bundleName}.app/PlugIns/Extension.appex/${icon}`,
+      iconImage(icon),
+    );
+  }
 
   if (opts?.addManifest && opts?.sinfPaths) {
     const manifestPlistXml = plist.build({
@@ -180,11 +235,11 @@ describe("sinfInjector", () => {
     );
   });
 
-  it("should report the bundle identifier the package declares", async () => {
-    // The package is the source of truth for the bundle id, which is what lets
-    // a download started from a bare app id still produce a valid manifest.
-    const ipaPath = createMockIPA("IdentifierApp", {
-      executableName: "IdentifierApp",
+  it("should report the metadata the package declares", async () => {
+    // The package is the source of truth for what it contains, which is what
+    // lets a download started from a bare app id show real values.
+    const ipaPath = createMockIPA("MetadataApp", {
+      executableName: "MetadataApp",
     });
 
     const result = await inject(
@@ -192,6 +247,165 @@ describe("sinfInjector", () => {
       ipaPath,
     );
 
-    expect(result.bundleID).toBe("com.example.identifierapp");
+    expect(result.metadata).toEqual({
+      name: "MetadataApp Display",
+      bundleID: "com.example.metadataapp",
+      version: "4.5.6",
+      minimumOsVersion: "16.0",
+      artistName: undefined,
+      primaryGenreName: undefined,
+      releaseDate: undefined,
+    });
+  });
+
+  it("should prefer the store metadata it injected over the Info.plist", async () => {
+    const ipaPath = createMockIPA("StoreApp", { executableName: "StoreApp" });
+    const storeMetadata = Buffer.from(
+      plist.build({
+        bundleDisplayName: "Store Display Name",
+        artistName: "Store Developer",
+        bundleShortVersionString: "9.9.9",
+        primaryGenreName: "Utilities",
+        releaseDate: new Date("2026-01-02T03:04:05Z"),
+      }),
+    ).toString("base64");
+
+    const result = await inject(
+      [{ id: 1, sinf: Buffer.from("sinf").toString("base64") }],
+      ipaPath,
+      storeMetadata,
+    );
+
+    expect(result.metadata.name).toBe("Store Display Name");
+    expect(result.metadata.artistName).toBe("Store Developer");
+    expect(result.metadata.version).toBe("9.9.9");
+    expect(result.metadata.primaryGenreName).toBe("Utilities");
+    expect(result.metadata.releaseDate).toBe("2026-01-02T03:04:05.000Z");
+    // Still the package's own value: the store metadata does not carry one.
+    expect(result.metadata.minimumOsVersion).toBe("16.0");
+  });
+});
+
+describe("sinfInjector icon extraction", () => {
+  const sinf = Buffer.from("sinf").toString("base64");
+
+  /** Which entry the icon came from, from the marker the mock appends. */
+  function iconNameOf(result: { icon?: { data: Buffer } }): string | undefined {
+    return result.icon?.data.subarray(TINY_PNG.length).toString();
+  }
+
+  it("should lift the largest icon out of the bundle", async () => {
+    // Apple ships several variants; the biggest downsamples cleanly, which is
+    // what both the download list and the install manifest need.
+    const ipaPath = createMockIPA("IconApp", {
+      icons: ["AppIcon60x60@2x.png", "AppIcon76x76@2x~ipad.png"],
+    });
+
+    const result = await inject([{ id: 1, sinf }], ipaPath);
+
+    expect(result.icon?.filename).toBe("AppIcon76x76@2x~ipad.png");
+    expect(iconNameOf(result)).toBe("AppIcon76x76@2x~ipad.png");
+  });
+
+  it("should prefer the icon the Info.plist declares", async () => {
+    // A declared icon that is smaller still wins over a bigger undecided one:
+    // the Info.plist is what the app itself says it uses.
+    const ipaPath = createMockIPA("DeclaredIconApp", {
+      icons: ["Alternate@2x.png", "AppIcon76x76@2x~ipad.png"],
+      declaredIcons: ["Alternate"],
+    });
+
+    const result = await inject([{ id: 1, sinf }], ipaPath);
+
+    expect(iconNameOf(result)).toBe("Alternate@2x.png");
+  });
+
+  it("should match asset-catalogue icons by CFBundleIconName", async () => {
+    const ipaPath = createMockIPA("CatalogueIconApp", {
+      icons: ["AppIcon60x60@2x.png", "Unrelated@2x.png"],
+      iconName: "AppIcon",
+    });
+
+    const result = await inject([{ id: 1, sinf }], ipaPath);
+
+    expect(iconNameOf(result)).toBe("AppIcon60x60@2x.png");
+  });
+
+  it("should ignore icons of nested bundles", async () => {
+    // Extensions and watch apps carry their own icons; only the top of the app
+    // bundle describes this app.
+    const ipaPath = createMockIPA("NestedIconApp", {
+      icons: ["AppIcon60x60@2x.png"],
+      nestedIcons: ["AppIcon1024x1024.png"],
+    });
+
+    const result = await inject([{ id: 1, sinf }], ipaPath);
+
+    expect(iconNameOf(result)).toBe("AppIcon60x60@2x.png");
+  });
+
+  it("should report no icon when the bundle carries none", async () => {
+    const ipaPath = createMockIPA("NoIconApp");
+
+    const result = await inject([{ id: 1, sinf }], ipaPath);
+
+    expect(result.icon).toBeUndefined();
+  });
+
+  it("should not mistake an alternate icon for the app icon", async () => {
+    // One shipping app registers hundreds of theme icons as `CFBundleIconFiles`
+    // under `CFBundleAlternateIcons`, naming the files after numbers. Treating
+    // those as declarations would let any numbered resource image pass for the
+    // icon, which is exactly the wrong answer.
+    const ipaPath = createMockIPA("AlternateIconApp", {
+      icons: ["176.png", "185.png"],
+      alternateIcons: ["176", "185"],
+    });
+
+    const result = await inject([{ id: 1, sinf }], ipaPath);
+
+    expect(result.icon).toBeUndefined();
+  });
+
+  it("should not guess from a resource image that merely mentions an icon", async () => {
+    // The icon lives in Assets.car for this shape of bundle, and the root is
+    // full of unrelated art. Nothing here is the app icon, and a wrong icon is
+    // worse than none: the caller still has the storefront's.
+    const ipaPath = createMockIPA("CatalogueOnlyApp", {
+      icons: ["cm6_playpage_live_icon.png", "cm8_homepage_live_icon@2x.png"],
+    });
+
+    const result = await inject([{ id: 1, sinf }], ipaPath);
+
+    expect(result.icon).toBeUndefined();
+  });
+
+  it("should read the icon back out of an already compiled package", async () => {
+    // This is what fills in the icon of a package compiled before icons were
+    // extracted, so it must work on a finished package and leave it alone.
+    const ipaPath = createMockIPA("BackfillApp", {
+      icons: ["AppIcon60x60@2x.png"],
+    });
+    await inject([{ id: 1, sinf }], ipaPath);
+
+    const icon = await extractPackageIcon(ipaPath);
+
+    expect(icon?.filename).toBe("AppIcon60x60@2x.png");
+    expect(icon?.data.subarray(TINY_PNG.length).toString()).toBe(
+      "AppIcon60x60@2x.png",
+    );
+
+    // Nothing was injected twice or otherwise disturbed.
+    const after = new AdmZip(ipaPath);
+    const sinfEntries = after
+      .getEntries()
+      .filter((entry) => entry.entryName.endsWith(".sinf"));
+    expect(sinfEntries).toHaveLength(1);
+  });
+
+  it("should report no icon for a package that has none", async () => {
+    const ipaPath = createMockIPA("NoIconBackfillApp");
+
+    expect(await extractPackageIcon(ipaPath)).toBeUndefined();
   });
 });

@@ -9,6 +9,7 @@ import type { Readable } from "stream";
 import bplistParser from "bplist-parser";
 import bplistCreator from "bplist-creator";
 import plist from "plist";
+import { convertCgbiToPng, isCgbiPng } from "./cgbiPng.js";
 import type { Sinf } from "../types/index.js";
 
 const execFile = promisify(execFileCb);
@@ -17,17 +18,69 @@ interface IpaMetadata {
   bundleName: string;
   manifest: { sinfPaths: string[] } | null;
   info: { bundleExecutable: string } | null;
-  /** `CFBundleIdentifier` as declared by the package itself. */
-  bundleIdentifier?: string;
+  /** The app's parsed Info.plist, as declared by the package itself. */
+  infoPlist: Record<string, unknown> | null;
+  /** Images sitting at the top of the app bundle, any of which may be the icon. */
+  iconCandidates: IconCandidate[];
+}
+
+/**
+ * `Payload/<App>.app/<name>` — a file at the top of the app bundle. Requiring
+ * exactly two slashes keeps icons of nested bundles (extensions, watch apps) out
+ * of the running.
+ */
+const APP_ROOT_IMAGE_RE = /^Payload\/[^/]+\.app\/([^/]+\.(?:png|jpe?g))$/i;
+
+/** Apple names the loose icon files it ships; nothing else at the root does. */
+const ICON_HINT_RE = /^(?:app)?icon(?:[-_@.~]|\d|$)/i;
+
+/**
+ * A PNG of several megabytes sitting at the bundle root is artwork rather than
+ * the app icon, and nothing downstream needs to move that much data around.
+ */
+const MAX_ICON_BYTES = 4 * 1024 * 1024;
+
+/** An image the package carries, as listed in the archive's central directory. */
+interface IconCandidate {
+  entryName: string;
+  /** File name inside the app bundle — the last path segment. */
+  name: string;
+  /** Declared uncompressed size, used to rank variants of the same icon. */
+  size: number;
+}
+
+/** The app icon lifted out of a package. */
+export interface PackageIcon {
+  /** File name the icon had inside the app bundle. */
+  filename: string;
+  data: Buffer;
+}
+
+/** Metadata a compiled package declares about the app it contains. */
+export interface PackageMetadata {
+  name?: string;
+  artistName?: string;
+  bundleID?: string;
+  version?: string;
+  minimumOsVersion?: string;
+  primaryGenreName?: string;
+  releaseDate?: string;
 }
 
 export interface InjectResult {
   /**
-   * The bundle identifier the package declares. The IPA is the source of truth
-   * for it, which is what lets a download created from a bare app id still end
-   * up with a usable install manifest.
+   * Metadata read out of the package: the app's Info.plist plus the
+   * iTunesMetadata.plist written during injection. The package is the source of
+   * truth for what it contains, which is what lets a download created from a
+   * bare app id still report real values.
    */
-  bundleID?: string;
+  metadata: PackageMetadata;
+  /**
+   * The app's icon, when the bundle carries one. The App Store hands the icon
+   * out to clients as a CDN URL, so a download that never saw storefront
+   * metadata (a bare app id) has no other way to show one.
+   */
+  icon?: PackageIcon;
 }
 
 export async function inject(
@@ -35,8 +88,17 @@ export async function inject(
   ipaPath: string,
   iTunesMetadata?: string,
 ): Promise<InjectResult> {
-  const { bundleName, manifest, info, bundleIdentifier } =
+  const { bundleName, manifest, info, infoPlist, iconCandidates } =
     await readIpaMetadata(ipaPath);
+
+  // Read the icon before the archive is rewritten, so a package that fails to
+  // yield one still compiles normally.
+  const icon = await readPackageIcon(
+    ipaPath,
+    bundleName,
+    infoPlist,
+    iconCandidates,
+  );
 
   // Collect all files to inject
   const filesToInject: { entryPath: string; data: Buffer }[] = [];
@@ -66,13 +128,15 @@ export async function inject(
   // Inject iTunesMetadata.plist at the archive root if provided
   // Frontend sends base64-encoded XML plist; convert to binary plist
   // to match Apple's native format (PropertyListSerialization .binary)
+  let storeMetadata: Record<string, unknown> | null = null;
   if (iTunesMetadata) {
     const xmlBuffer = Buffer.from(iTunesMetadata, "base64");
     const xmlString = xmlBuffer.toString("utf-8");
     let metadataBuffer: Buffer;
     try {
-      const parsed = plist.parse(xmlString);
-      metadataBuffer = bplistCreator(parsed as Record<string, unknown>);
+      const parsed = plist.parse(xmlString) as Record<string, unknown>;
+      storeMetadata = parsed;
+      metadataBuffer = bplistCreator(parsed);
     } catch {
       metadataBuffer = xmlBuffer;
     }
@@ -86,7 +150,72 @@ export async function inject(
     await addFilesToZip(ipaPath, filesToInject);
   }
 
-  return { bundleID: bundleIdentifier };
+  return { metadata: packageMetadata(storeMetadata, infoPlist), icon };
+}
+
+/**
+ * Reads a package's icon without touching it — no injection, no rewrite. This is
+ * what fills in the icon of a task that was compiled before icons were
+ * extracted: the image is already inside the package, so recovering it costs far
+ * less than downloading the app again.
+ */
+export async function extractPackageIcon(
+  ipaPath: string,
+): Promise<PackageIcon | undefined> {
+  const { bundleName, infoPlist, iconCandidates } =
+    await readIpaMetadata(ipaPath);
+  return readPackageIcon(ipaPath, bundleName, infoPlist, iconCandidates);
+}
+
+/** First non-empty value among the given keys of a parsed plist. */
+function firstString(
+  source: Record<string, unknown> | null,
+  keys: string[],
+): string | undefined {
+  if (!source) return undefined;
+
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed !== "") return trimmed;
+    }
+    // A plist <date> parses to a Date.
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString();
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Collects what the package says about the app. Apple's own store metadata
+ * (the iTunesMetadata.plist the App Store hands out with a download) names the
+ * app the way the storefront does, so it wins where both are available; the
+ * Info.plist covers whatever the store metadata leaves out.
+ */
+function packageMetadata(
+  store: Record<string, unknown> | null,
+  infoPlist: Record<string, unknown> | null,
+): PackageMetadata {
+  return {
+    name:
+      firstString(store, ["bundleDisplayName", "itemName"]) ??
+      firstString(infoPlist, ["CFBundleDisplayName", "CFBundleName"]),
+    artistName: firstString(store, ["artistName", "sellerName"]),
+    bundleID:
+      firstString(store, ["softwareVersionBundleId"]) ??
+      firstString(infoPlist, ["CFBundleIdentifier"]),
+    version:
+      firstString(store, ["bundleShortVersionString"]) ??
+      firstString(infoPlist, ["CFBundleShortVersionString"]),
+    minimumOsVersion:
+      firstString(infoPlist, ["MinimumOSVersion"]) ??
+      firstString(store, ["minimumOsVersion"]),
+    primaryGenreName: firstString(store, ["primaryGenreName", "genre"]),
+    releaseDate: firstString(store, ["releaseDate"]),
+  };
 }
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -103,9 +232,15 @@ async function readIpaMetadata(ipaPath: string): Promise<IpaMetadata> {
     let bundleName: string | null = null;
     let manifestData: Buffer | null = null;
     let infoPlistData: Buffer | null = null;
+    const iconCandidates: IconCandidate[] = [];
 
     for await (const entry of zip) {
       const filename = entry.filename;
+
+      // Collect the images that could be the app icon. Choosing among them
+      // needs the Info.plist, so this only gathers what the archive lists.
+      const candidate = iconCandidateForEntry(filename, entry);
+      if (candidate) iconCandidates.push(candidate);
 
       // Find bundle name from .app directory
       if (
@@ -157,26 +292,240 @@ async function readIpaMetadata(ipaPath: string): Promise<IpaMetadata> {
 
     // Parse info plist
     let info: { bundleExecutable: string } | null = null;
-    let bundleIdentifier: string | undefined;
+    let infoPlist: Record<string, unknown> | null = null;
     if (infoPlistData) {
       const parsed = parsePlistBuffer(infoPlistData);
       if (parsed) {
+        infoPlist = parsed;
         const executable = parsed["CFBundleExecutable"];
         if (typeof executable === "string") {
           info = { bundleExecutable: executable };
         }
-
-        const identifier = parsed["CFBundleIdentifier"];
-        if (typeof identifier === "string" && identifier !== "") {
-          bundleIdentifier = identifier;
-        }
       }
     }
 
-    return { bundleName, manifest, info, bundleIdentifier };
+    return { bundleName, manifest, info, infoPlist, iconCandidates };
   } finally {
     await zip.close();
   }
+}
+
+function iconCandidateForEntry(
+  filename: string,
+  entry: { uncompressedSize?: number },
+): IconCandidate | null {
+  const match = APP_ROOT_IMAGE_RE.exec(filename);
+  if (!match) return null;
+
+  const size = Number(entry.uncompressedSize) || 0;
+  if (size > MAX_ICON_BYTES) return null;
+
+  return { entryName: filename, name: match[1], size };
+}
+
+/**
+ * Lifts the app icon out of the package, or nothing when the bundle carries no
+ * usable image. The archive is opened again: which entry is the icon depends on
+ * the Info.plist, which the first pass was reading at the same time.
+ */
+async function readPackageIcon(
+  ipaPath: string,
+  bundleName: string,
+  infoPlist: Record<string, unknown> | null,
+  candidates: IconCandidate[],
+): Promise<PackageIcon | undefined> {
+  const chosen = selectIcon(candidates, infoPlist, bundleName);
+  if (!chosen) return undefined;
+
+  try {
+    const data = await readArchiveEntry(ipaPath, chosen.entryName);
+    if (!data || data.length === 0) return undefined;
+    return { filename: chosen.name, data: toRenderableIcon(data) };
+  } catch (err) {
+    // An unusable icon must never fail a download that otherwise compiled.
+    console.warn(
+      `[sinfInjector] Could not read the app icon: ${err instanceof Error ? err.message : err}`,
+    );
+    return undefined;
+  }
+}
+
+/**
+ * Apple repacks the icons it ships with `pngcrush -iphone`, and the result
+ * (a CgBI PNG) is only decodable by Safari. Handing one to a browser means the
+ * image silently fails and the UI shows a placeholder, so convert it back to a
+ * standard PNG. Anything else is already renderable and passes straight through.
+ */
+function toRenderableIcon(data: Buffer): Buffer {
+  if (!isCgbiPng(data)) return data;
+
+  const converted = convertCgbiToPng(data);
+  if (!converted) {
+    console.warn(
+      "[sinfInjector] Could not convert a CgBI icon; browsers may not render it",
+    );
+    return data;
+  }
+  return converted;
+}
+
+async function readArchiveEntry(
+  ipaPath: string,
+  entryName: string,
+): Promise<Buffer | null> {
+  const zip = await openZip(ipaPath);
+  try {
+    for await (const entry of zip) {
+      if (entry.filename !== entryName) continue;
+      const stream = await entry.openReadStream();
+      return await streamToBuffer(stream);
+    }
+    return null;
+  } finally {
+    await zip.close();
+  }
+}
+
+/**
+ * Picks which of the bundle's images is the app icon. Apple ships the icon as a
+ * set of loose files at the bundle root (`AppIcon60x60@2x.png` and friends), so
+ * the largest one is the best source: it downsamples cleanly, which is what the
+ * install manifest and the download list both need.
+ *
+ * Only two kinds of file are considered: those the Info.plist names as the
+ * primary icon, and those named like an icon (`AppIcon…`, `Icon-60@2x`). The
+ * bundle root of a real app is full of unrelated artwork — one shipping app puts
+ * hundreds of numbered resource images there — so anything else is left alone.
+ * Guessing among those would trade a missing icon for a wrong one, and the
+ * caller has a storefront icon to fall back on. Returning nothing is deliberate.
+ */
+function selectIcon(
+  candidates: IconCandidate[],
+  infoPlist: Record<string, unknown> | null,
+  bundleName: string,
+): IconCandidate | null {
+  const bundleRoot = `Payload/${bundleName}.app/`;
+  const inBundle = candidates.filter((c) =>
+    c.entryName.startsWith(bundleRoot),
+  );
+  if (inBundle.length === 0) return null;
+
+  const declared = declaredIconNames(infoPlist);
+  const pool =
+    [
+      inBundle.filter((candidate) => isDeclaredIcon(candidate.name, declared)),
+      inBundle.filter((candidate) => ICON_HINT_RE.test(candidate.name)),
+    ].find((group) => group.length > 0) ?? [];
+
+  return [...pool].sort(compareIcons)[0] ?? null;
+}
+
+/** Largest first: by the point size in the file name, then by bytes. */
+function compareIcons(a: IconCandidate, b: IconCandidate): number {
+  return iconPoints(b.name) - iconPoints(a.name) || b.size - a.size;
+}
+
+/**
+ * The pixel size Apple encodes in an icon's name — `AppIcon60x60@2x` is a
+ * 120-point icon. Names that do not follow the convention score zero and fall
+ * back to comparing file sizes.
+ */
+function iconPoints(name: string): number {
+  const match = /(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)(?:@(\d)x)?/i.exec(name);
+  if (!match) return 0;
+
+  const base = Math.max(Number.parseFloat(match[1]), Number.parseFloat(match[2]));
+  const scale = match[3] ? Number.parseFloat(match[3]) : 1;
+  return base * scale;
+}
+
+interface DeclaredIconNames {
+  /** Icon bases from `CFBundleIconFiles`, scale suffixes stripped. */
+  bases: Set<string>;
+  /** `CFBundleIconName`: an asset-catalogue name the loose files prefix-match. */
+  prefix?: string;
+}
+
+/**
+ * The icon names the Info.plist declares as the app's own.
+ *
+ * Only the *primary* icon counts. `CFBundleAlternateIcons` lists the alternates
+ * a user can choose, and apps that offer themes register hundreds of them — one
+ * shipping app files its entire skin catalogue there — so treating those as
+ * candidates would let any resource image in the bundle pass for the icon.
+ */
+function declaredIconNames(
+  infoPlist: Record<string, unknown> | null,
+): DeclaredIconNames {
+  const bases = new Set<string>();
+  let prefix: string | undefined;
+
+  if (infoPlist) {
+    // `CFBundleIcons` and its iPad twin carry `CFBundlePrimaryIcon`; the legacy
+    // layout puts the same keys at the top level.
+    for (const node of [
+      infoPlist["CFBundleIcons"],
+      infoPlist["CFBundleIcons~ipad"],
+      infoPlist,
+    ]) {
+      const record = asRecord(node);
+      if (!record) continue;
+
+      const primary = asRecord(record["CFBundlePrimaryIcon"]) ?? record;
+      collectIconFiles(primary["CFBundleIconFiles"], bases);
+
+      const name = primary["CFBundleIconName"];
+      if (prefix === undefined && typeof name === "string" && name !== "") {
+        prefix = name;
+      }
+    }
+  }
+
+  return { bases, prefix };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function collectIconFiles(node: unknown, bases: Set<string>, depth = 0): void {
+  if (depth > 3 || !node || typeof node !== "object") return;
+
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      // `CFBundleIconFiles` is a list of names; anything else in there is a
+      // container to walk.
+      if (typeof item === "string") bases.add(iconBase(item));
+      else collectIconFiles(item, bases, depth + 1);
+    }
+    return;
+  }
+
+  const record = node as Record<string, unknown>;
+  if (typeof record["CFBundleIconFiles"] !== "undefined") {
+    collectIconFiles(record["CFBundleIconFiles"], bases, depth + 1);
+  }
+  if (typeof record["CFBundlePrimaryIcon"] !== "undefined") {
+    collectIconFiles(record["CFBundlePrimaryIcon"], bases, depth + 1);
+  }
+}
+
+function isDeclaredIcon(name: string, declared: DeclaredIconNames): boolean {
+  if (declared.bases.size > 0 && declared.bases.has(iconBase(name))) {
+    return true;
+  }
+  return Boolean(
+    declared.prefix && name.toLowerCase().startsWith(declared.prefix.toLowerCase()),
+  );
+}
+
+/** `AppIcon60x60@2x~ipad.png` → `AppIcon60x60`. */
+function iconBase(name: string): string {
+  return name
+    .replace(/\.(?:png|jpe?g)$/i, "")
+    .replace(/@\d+x$/i, "")
+    .replace(/~[\w-]+$/i, "");
 }
 
 async function addFilesToZip(

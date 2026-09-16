@@ -81,6 +81,8 @@ export interface DownloadTask {
   speed: string;
   error?: string;
   hasFile?: boolean;
+  /** Set when the compiled package carried an icon the backend can serve. */
+  hasIcon?: boolean;
   createdAt: string;
 }
 

@@ -75,6 +75,21 @@ describe("Downloads Route", () => {
     expect(res.status).toBe(404);
   });
 
+  it("GET /api/downloads/:id/icon should return 400 without accountHash", async () => {
+    const res = await request(app).get("/api/downloads/nonexistent-id/icon");
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("accountHash");
+  });
+
+  it("GET /api/downloads/:id/icon should return 404 with valid accountHash", async () => {
+    // No icon is a normal outcome, and a 404 is what lets the client fall back
+    // to its own placeholder.
+    const res = await request(app).get(
+      "/api/downloads/nonexistent-id/icon?accountHash=abcdef1234567890",
+    );
+    expect(res.status).toBe(404);
+  });
+
   it("POST /api/downloads/:id/pause should return 400 without accountHash", async () => {
     const res = await request(app).post("/api/downloads/nonexistent-id/pause");
     expect(res.status).toBe(400);

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import path from "path";
 import { config } from "../config.js";
 import {
   createTask,
@@ -11,6 +12,7 @@ import {
   removeProgressListener,
   sanitizeTaskForResponse,
   validateDownloadURL,
+  iconPathFor,
 } from "../services/downloadManager.js";
 import {
   getIdParam,
@@ -221,6 +223,40 @@ router.get("/downloads/:id/progress", (req: Request, res: Response) => {
   req.on("close", () => {
     removeProgressListener(id, listener);
   });
+});
+
+// The icon lifted out of the compiled package (requires accountHash). A task
+// created from a bare app id has no storefront artwork, so this is the only
+// place its icon can come from. Missing files 404 so the caller can fall back
+// to its own placeholder.
+router.get("/downloads/:id/icon", (req: Request, res: Response) => {
+  const accountHash = requireAccountHash(req, res);
+  if (!accountHash) return;
+
+  const id = getIdParam(req);
+  const task = getTask(id);
+  if (!task) {
+    res.status(404).json({ error: "Download not found" });
+    return;
+  }
+
+  if (!verifyTaskOwnership(task, accountHash, res)) return;
+
+  const iconPath = iconPathFor(task);
+  if (!iconPath) {
+    res.status(404).json({ error: "Icon not found" });
+    return;
+  }
+
+  res.setHeader(
+    "Content-Type",
+    iconPath.endsWith(".jpg") ? "image/jpeg" : "image/png",
+  );
+  // Revalidate rather than serve a stored copy blind: a browser that cached an
+  // icon from an older pipeline would otherwise keep the version it cannot
+  // decode. The file is a few kilobytes and revalidation mostly answers 304.
+  res.setHeader("Cache-Control", "private, no-cache");
+  res.sendFile(path.resolve(iconPath));
 });
 
 // Pause download (requires accountHash)

@@ -2,7 +2,12 @@ import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { config, DOWNLOAD_TIMEOUT_MS } from "../config.js";
-import { inject } from "./sinfInjector.js";
+import {
+  inject,
+  extractPackageIcon,
+  type PackageMetadata,
+  type PackageIcon,
+} from "./sinfInjector.js";
 import { ChunkedDownloader } from "./chunkedDownloader.js";
 import type { DownloadTask, Software, Sinf } from "../types/index.js";
 
@@ -45,6 +50,94 @@ export function appPathSegment(software: Software): string {
   );
 }
 
+/**
+ * Fills in what a task could not know up front from what the compiled package
+ * declares. A value the storefront reported always wins, so a download created
+ * from search results is left untouched.
+ *
+ * The manual download page labels an app it could not look up as `App <id>`
+ * (see `placeholderSoftware` in the frontend's ManualDownload page); that label
+ * counts as "no name yet" so the package can supply the real one.
+ */
+export function applyPackageMetadata(
+  software: Software,
+  metadata: PackageMetadata,
+): void {
+  if (metadata.name && (!software.name || software.name === `App ${software.id}`)) {
+    software.name = metadata.name;
+  }
+
+  software.bundleID = fillMissing(software.bundleID, metadata.bundleID);
+  software.version = fillMissing(software.version, metadata.version);
+  software.artistName = fillMissing(software.artistName, metadata.artistName);
+  software.minimumOsVersion = fillMissing(
+    software.minimumOsVersion,
+    metadata.minimumOsVersion,
+  );
+  software.primaryGenreName = fillMissing(
+    software.primaryGenreName,
+    metadata.primaryGenreName,
+  );
+  software.releaseDate = fillMissing(software.releaseDate, metadata.releaseDate);
+}
+
+function fillMissing(current: string, fallback?: string): string {
+  return current || fallback || "";
+}
+
+// --- App icon extracted from the compiled package ---
+
+/**
+ * The icon is parked beside the IPA under this name, so its location is a
+ * function of the task's own file path and needs no extra bookkeeping.
+ */
+const ICON_BASENAME = "icon";
+const ICON_EXTENSIONS = ["png", "jpg"] as const;
+
+/**
+ * The icon a task's package carried, or null when it had none — a package
+ * without a usable image simply falls back to whatever the UI shows instead.
+ */
+export function iconPathFor(task: DownloadTask): string | null {
+  if (!task.filePath) return null;
+
+  const dir = path.dirname(task.filePath);
+  for (const extension of ICON_EXTENSIONS) {
+    const candidate = path.join(dir, `${ICON_BASENAME}.${extension}`);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** Apple ships PNGs; JPEG is the only other shape a bundle may carry. */
+function iconExtensionFor(data: Buffer): (typeof ICON_EXTENSIONS)[number] {
+  return data[0] === 0xff && data[1] === 0xd8 ? "jpg" : "png";
+}
+
+function writeTaskIcon(task: DownloadTask, icon?: PackageIcon): void {
+  if (!icon || !task.filePath) return;
+
+  const dir = path.dirname(task.filePath);
+  const extension = iconExtensionFor(icon.data);
+  const target = path.join(dir, `${ICON_BASENAME}.${extension}`);
+
+  try {
+    // An icon left under the other extension would still be found, so clear it.
+    for (const other of ICON_EXTENSIONS) {
+      if (other === extension) continue;
+      const stale = path.join(dir, `${ICON_BASENAME}.${other}`);
+      if (fs.existsSync(stale)) fs.unlinkSync(stale);
+    }
+
+    fs.writeFileSync(target, icon.data);
+  } catch (err) {
+    // A missing icon is cosmetic; it must not fail a download that compiled.
+    console.warn(
+      `[downloadManager] Could not store the app icon: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+}
+
 // --- Security: download URL allowlist ---
 const ALLOWED_DOWNLOAD_HOSTS_RE = /\.apple\.com$/i;
 
@@ -78,11 +171,12 @@ export function sanitizeTaskForResponse(
 ): Omit<
   DownloadTask,
   "downloadURL" | "sinfs" | "iTunesMetadata" | "filePath"
-> & { hasFile?: boolean } {
+> & { hasFile?: boolean; hasIcon?: boolean } {
   const { downloadURL, sinfs, iTunesMetadata, filePath, ...safe } = task;
   return {
     ...safe,
     hasFile: !!filePath && fs.existsSync(filePath),
+    hasIcon: Boolean(iconPathFor(task)),
   };
 }
 
@@ -241,9 +335,79 @@ function initOnStartup() {
   // Clean up orphaned IPA files (files without a task)
   cleanOrphanedPackages();
 
+  // Recover or repair icons for packages compiled before icons were handled.
+  // Deliberately not awaited: it is file work over packages that may be hundreds
+  // of megabytes, and it must not hold up the server.
+  void repairTaskIcons().catch(() => {});
+
   // Run time-based cleanup once on startup, then schedule daily
   runTimeCleanup();
   scheduleDailyCleanup();
+}
+
+/**
+ * Makes the stored icon of every finished package match what that package
+ * actually contains, under the rules the extractor applies today.
+ *
+ * Re-deriving rather than only filling gaps is deliberate: the stored file is a
+ * cached answer, so a rule fix has to reach packages that are already on disk —
+ * and a package with no icon of its own has any stale one removed, because a
+ * wrong icon is worse than none when the storefront's is available instead. The
+ * alternative to all of this is asking the user to download the app again.
+ *
+ * Runs in the background: it reads archives that can be hundreds of megabytes,
+ * and it must not hold up the server. The frontend picks the result up as soon
+ * as it next lists the downloads, since `hasIcon` is answered from the file
+ * system on every request.
+ */
+async function repairTaskIcons(): Promise<void> {
+  const finished = Array.from(tasks.values()).filter(
+    (task) => task.status === "completed" && task.filePath,
+  );
+  let changed = 0;
+
+  for (const task of finished) {
+    const filePath = task.filePath;
+    if (!filePath || !fs.existsSync(filePath)) continue;
+
+    let icon: PackageIcon | undefined;
+    try {
+      icon = await extractPackageIcon(filePath);
+    } catch (err) {
+      console.warn(
+        `[downloadManager] Could not read the icon of ${task.id}: ${err instanceof Error ? err.message : err}`,
+      );
+      continue;
+    }
+
+    const stored = iconPathFor(task);
+
+    if (icon) {
+      if (stored && iconsMatch(stored, icon.data)) continue;
+      writeTaskIcon(task, icon);
+      changed++;
+      continue;
+    }
+
+    if (stored) {
+      fs.unlinkSync(stored);
+      changed++;
+    }
+  }
+
+  if (changed > 0) {
+    console.log(
+      `[downloadManager] Refreshed the icon of ${changed} finished package(s)`,
+    );
+  }
+}
+
+function iconsMatch(iconPath: string, data: Buffer): boolean {
+  try {
+    return fs.readFileSync(iconPath).equals(data);
+  } catch {
+    return false;
+  }
 }
 
 function cleanOrphanedPackages() {
@@ -252,6 +416,10 @@ function cleanOrphanedPackages() {
     if (task.filePath) {
       knownPaths.add(path.resolve(task.filePath));
     }
+    // The icon lives beside the IPA but is not the task's file, so it has to be
+    // listed explicitly or the sweep below would delete it as an orphan.
+    const iconPath = iconPathFor(task);
+    if (iconPath) knownPaths.add(path.resolve(iconPath));
   }
 
   const packagesBase = path.resolve(PACKAGES_DIR);
@@ -347,6 +515,9 @@ export function deleteTask(id: string): boolean {
       fs.existsSync(resolved)
     ) {
       fs.unlinkSync(resolved);
+
+      const iconPath = iconPathFor(task);
+      if (iconPath) fs.unlinkSync(iconPath);
 
       // Clean up empty parent directories
       let dir = path.dirname(resolved);
@@ -506,13 +677,20 @@ async function startDownload(task: DownloadTask) {
       task.progress = 100;
       notifyProgress(task);
 
-      const { bundleID } = await inject(task.sinfs, filePath, task.iTunesMetadata);
+      const { metadata, icon } = await inject(
+        task.sinfs,
+        filePath,
+        task.iTunesMetadata,
+      );
 
-      // A download started from a bare app id learns the bundle identifier from
-      // the package it just compiled, which is what the install manifest and
-      // the package detail view report.
-      if (!task.software.bundleID && bundleID) {
-        task.software.bundleID = bundleID;
+      // A download started from a bare app id knows almost nothing about the
+      // app it asked for. The package does, so fill in whatever is still
+      // missing before the task is persisted: every view then reports the real
+      // values instead of the placeholder the request carried.
+      applyPackageMetadata(task.software, metadata);
+      writeTaskIcon(task, icon);
+      if (!task.software.fileSizeBytes) {
+        task.software.fileSizeBytes = String(fs.statSync(filePath).size);
       }
     }
 

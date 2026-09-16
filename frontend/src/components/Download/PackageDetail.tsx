@@ -19,6 +19,7 @@ import { useToastStore } from '../../store/toast';
 import { listVersions } from '../../apple/versionFinder';
 import { lookupApp } from '../../api/search';
 import { formatBytes } from '../../utils/format';
+import { taskIconUrl } from '../../utils/icon';
 import { getAccountContext } from '../../utils/toast';
 import { isNewerVersion } from '../../utils/version';
 import { storeIdToCountry } from '../../apple/config';
@@ -175,7 +176,7 @@ export default function PackageDetail() {
         <section className="min-w-0 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 sm:p-5">
           <div className="flex min-w-0 items-start gap-4">
             <AppIcon
-              url={task.software.artworkUrl}
+              url={taskIconUrl(task)}
               name={task.software.name}
               size="lg"
             />

@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import fs from "fs";
 import path from "path";
 import { config } from "../config.js";
-import { getAllTasks } from "../services/downloadManager.js";
+import { getAllTasks, iconPathFor } from "../services/downloadManager.js";
 import { buildManifest, getWhitePng } from "../services/manifestBuilder.js";
 import { getIdParam } from "../utils/route.js";
 
@@ -144,20 +144,45 @@ router.get("/install/:id/payload.ipa", (req: Request, res: Response) => {
   stream.pipe(res);
 });
 
-// Small icon placeholder (57x57)
-router.get("/install/:id/icon-small.png", (_req: Request, res: Response) => {
-  const png = getWhitePng();
-  res.setHeader("Content-Type", "image/png");
-  res.setHeader("Content-Length", png.length);
-  res.send(png);
+/**
+ * Serves the icon the package carried, which iOS shows on the home screen while
+ * the app installs. Both sizes draw from the same file: the manifest asks for a
+ * 57x57 and a 512x512 image, but iOS scales, and the package is unlikely to
+ * hold anything near 512 anyway.
+ *
+ * iOS fetches these unauthenticated, so they stay reachable without a token and
+ * fall back to a blank image when the package had no icon.
+ */
+router.get("/install/:id/icon-small.png", (req: Request, res: Response) => {
+  sendInstallIcon(getIdParam(req), res);
 });
 
-// Large icon placeholder (512x512)
-router.get("/install/:id/icon-large.png", (_req: Request, res: Response) => {
+router.get("/install/:id/icon-large.png", (req: Request, res: Response) => {
+  sendInstallIcon(getIdParam(req), res);
+});
+
+function sendInstallIcon(id: string | undefined, res: Response): void {
+  const task = id
+    ? getAllTasks().find((t) => t.id === id && t.status === "completed")
+    : undefined;
+  const iconPath = task ? iconPathFor(task) : null;
+
+  if (iconPath) {
+    res.setHeader(
+      "Content-Type",
+      iconPath.endsWith(".jpg") ? "image/jpeg" : "image/png",
+    );
+    // Revalidated rather than cached blind, so an icon stored in an older
+    // format cannot stay stuck in a cache it cannot be decoded from.
+    res.setHeader("Cache-Control", "public, no-cache");
+    res.sendFile(path.resolve(iconPath));
+    return;
+  }
+
   const png = getWhitePng();
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Content-Length", png.length);
   res.send(png);
-});
+}
 
 export default router;

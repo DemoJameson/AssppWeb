@@ -16,9 +16,11 @@ const NUMERIC_ID_RE = /^\d+$/;
 
 /**
  * Stand-in for an id the catalogue did not describe. The numeric id is the only
- * thing the Apple protocol calls need, and the download response reports the
- * real bundle id before a task is created, so a manual download can proceed
- * without metadata.
+ * thing the Apple protocol calls need, and the rest is filled in from the
+ * compiled package afterwards — the backend replaces the `App <id>` label below
+ * with the name the package declares (see `applyPackageMetadata` in
+ * backend/src/services/downloadManager.ts), so this label only shows while the
+ * download is still running.
  */
 function placeholderSoftware(id: string): Software {
   return {

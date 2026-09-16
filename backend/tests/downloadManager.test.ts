@@ -1,6 +1,13 @@
-import { describe, it, expect } from "vitest";
-import { appPathSegment } from "../src/services/downloadManager.js";
-import type { Software } from "../src/types/index.js";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import {
+  appPathSegment,
+  applyPackageMetadata,
+  iconPathFor,
+} from "../src/services/downloadManager.js";
+import type { DownloadTask, Software } from "../src/types/index.js";
 
 function software(overrides: Partial<Software>): Software {
   return {
@@ -44,5 +51,135 @@ describe("appPathSegment", () => {
     // still rejected outright rather than silently accepted.
     expect(appPathSegment(software({ bundleID: "" }))).toBe("1492142120");
     expect(() => appPathSegment(software({ bundleID: ".." }))).toThrow();
+  });
+});
+
+describe("iconPathFor", () => {
+  const TEMP_DIR = path.join(os.tmpdir(), "download-manager-icon-test");
+
+  beforeAll(() => {
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  });
+
+  afterAll(() => {
+    fs.rmSync(TEMP_DIR, { recursive: true, force: true });
+  });
+
+  function task(filePath?: string): DownloadTask {
+    return {
+      id: "task-id",
+      software: software({}),
+      accountHash: "abcdef1234567890",
+      downloadURL: "",
+      sinfs: [],
+      status: "completed",
+      progress: 100,
+      speed: "0 B/s",
+      filePath,
+      createdAt: "2026-09-16T00:00:00.000Z",
+    };
+  }
+
+  it("finds the icon the compile parked beside the IPA", () => {
+    // The icon is located by name alone, so a task needs no extra field for it.
+    const dir = fs.mkdtempSync(path.join(TEMP_DIR, "task-"));
+    fs.writeFileSync(path.join(dir, "task.ipa"), "ipa");
+    fs.writeFileSync(path.join(dir, "icon.png"), "icon");
+
+    expect(iconPathFor(task(path.join(dir, "task.ipa")))).toBe(
+      path.join(dir, "icon.png"),
+    );
+  });
+
+  it("finds a JPEG icon too, which is the only other shape a bundle carries", () => {
+    const dir = fs.mkdtempSync(path.join(TEMP_DIR, "jpg-"));
+    fs.writeFileSync(path.join(dir, "task.ipa"), "ipa");
+    fs.writeFileSync(path.join(dir, "icon.jpg"), "icon");
+
+    expect(iconPathFor(task(path.join(dir, "task.ipa")))).toBe(
+      path.join(dir, "icon.jpg"),
+    );
+  });
+
+  it("returns null when the package carried no icon", () => {
+    const dir = fs.mkdtempSync(path.join(TEMP_DIR, "none-"));
+    fs.writeFileSync(path.join(dir, "task.ipa"), "ipa");
+
+    expect(iconPathFor(task(path.join(dir, "task.ipa")))).toBeNull();
+  });
+
+  it("returns null before the task has a file at all", () => {
+    expect(iconPathFor(task())).toBeNull();
+  });
+});
+
+describe("applyPackageMetadata", () => {
+  const fromPackage = {
+    name: "Package Name",
+    artistName: "Package Developer",
+    bundleID: "com.package.app",
+    version: "9.9.9",
+    minimumOsVersion: "17.0",
+    primaryGenreName: "Utilities",
+    releaseDate: "2026-01-02T03:04:05Z",
+  };
+
+  it("fills in everything a download by bare app id could not know", () => {
+    const target = software({
+      bundleID: "",
+      name: "App 1492142120",
+      version: "",
+      artistName: "",
+      minimumOsVersion: "",
+      primaryGenreName: "",
+      releaseDate: "",
+    });
+
+    applyPackageMetadata(target, fromPackage);
+
+    expect(target.name).toBe("Package Name");
+    expect(target.bundleID).toBe("com.package.app");
+    expect(target.version).toBe("9.9.9");
+    expect(target.artistName).toBe("Package Developer");
+    expect(target.minimumOsVersion).toBe("17.0");
+    expect(target.primaryGenreName).toBe("Utilities");
+    expect(target.releaseDate).toBe("2026-01-02T03:04:05Z");
+  });
+
+  it("keeps the values the storefront already reported", () => {
+    const target = software({
+      artistName: "Storefront Developer",
+      minimumOsVersion: "16.0",
+      primaryGenreName: "Productivity",
+      releaseDate: "2025-12-31T00:00:00Z",
+    });
+
+    applyPackageMetadata(target, fromPackage);
+
+    // The storefront's own values survive; only the missing ones are filled.
+    expect(target.name).toBe("Example Utility");
+    expect(target.artistName).toBe("Storefront Developer");
+    expect(target.minimumOsVersion).toBe("16.0");
+    expect(target.primaryGenreName).toBe("Productivity");
+    expect(target.releaseDate).toBe("2025-12-31T00:00:00Z");
+    expect(target.bundleID).toBe("com.example.utility");
+    expect(target.version).toBe("1.2.3");
+  });
+
+  it("keeps the id label when the package offers no name", () => {
+    const target = software({ name: "App 1492142120" });
+
+    applyPackageMetadata(target, {});
+
+    expect(target.name).toBe("App 1492142120");
+  });
+
+  it("does not blank a field when neither side has a value", () => {
+    const target = software({ artistName: "", minimumOsVersion: "" });
+
+    applyPackageMetadata(target, {});
+
+    expect(target.artistName).toBe("");
+    expect(target.minimumOsVersion).toBe("");
   });
 });

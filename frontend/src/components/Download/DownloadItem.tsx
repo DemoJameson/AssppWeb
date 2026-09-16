@@ -5,6 +5,7 @@ import Badge from '../common/Badge';
 import ProgressBar from '../common/ProgressBar';
 import PackageQuickActions from './PackageQuickActions';
 import { formatBytes } from '../../utils/format';
+import { taskIconUrl } from '../../utils/icon';
 import type { DownloadTask } from '../../types';
 
 interface DownloadItemProps {
@@ -34,7 +35,7 @@ export default function DownloadItem({
     <article className="min-w-0 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
       <div className="flex min-w-0 items-start gap-3">
         <AppIcon
-          url={task.software.artworkUrl}
+          url={taskIconUrl(task)}
           name={task.software.name}
           size="sm"
         />

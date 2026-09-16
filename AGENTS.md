@@ -263,20 +263,94 @@ found by name. The page's "software ID" **is** ipatool's `App.ID`. The catalogue
 lookup it performs first is best effort: when it misses, the task is built from
 the id alone.
 
-The app id is therefore the identity of a task and the bundle id is derived, in
-this order:
+The app id is therefore the identity of a task and everything else is derived,
+in this order:
 
 1. the storefront lookup on the manual page,
-2. `softwareVersionBundleId` in the download response (`DownloadOutput.bundleID`),
-3. the compiled package's `CFBundleIdentifier`, read by the injector — `inject()`
-   returns it and the task stores it, so the package detail view and the install
-   manifest report the real value.
+2. what the download response reports — `softwareVersionBundleId` becomes
+   `DownloadOutput.bundleID`, and the item metadata is what the frontend embeds
+   as `iTunesMetadata.plist`,
+3. **the compiled package**, read by the injector (`inject()` returns a
+   `PackageMetadata`): the `iTunesMetadata.plist` written during injection names
+   the app the way the storefront does, and the app's own `Info.plist` covers
+   the rest (`CFBundleIdentifier`, `CFBundleShortVersionString`,
+   `MinimumOSVersion`, `CFBundleDisplayName`/`CFBundleName`).
+
+`applyPackageMetadata` in `downloadManager.ts` fills only the fields that are
+still empty, and the task is persisted with them — so the downloads list and the
+package detail view show the real name, developer, version, minimum OS, genre and
+release date instead of the `App <id>` label the request carried. The package
+build size is filled the same way. A storefront value always wins, so downloads
+started from search results are untouched.
 
 Until step 3 lands, the on-disk layout uses the app id as the directory segment
 (`appPathSegment`), which is also ipatool's rule of omitting the fields it does
 not know. `POST /api/downloads` rejects a request without a positive app id, and
 the install manifest refuses to build without a bundle identifier rather than
 handing iOS one it will reject.
+
+One deliberate gap remains: a task that finished before this enrichment existed
+keeps its stored values.
+
+### App icon extraction
+
+The icon comes out of the package during the same pass that reads the metadata —
+`inject()` returns a `PackageIcon` alongside `PackageMetadata`. Apple ships the
+icon as several loose images at the top of the app bundle
+(`AppIcon60x60@2x.png` and friends), so `selectIcon` considers only two groups,
+in order:
+
+1. images the **primary** icon declares (`CFBundleIcons.CFBundlePrimaryIcon` /
+   `CFBundleIcons~ipad.CFBundlePrimaryIcon` / the legacy top-level
+   `CFBundleIconFiles` + `CFBundleIconName`);
+2. files named like an icon — `AppIcon…`, `Icon-60@2x`.
+
+Within the group it takes the largest, by the point size encoded in the name
+(`AppIcon76x76@2x` beats `AppIcon60x60@2x`) with file size as the tiebreak.
+
+Three rules keep this from picking the wrong image, and all three matter:
+
+- **`CFBundleAlternateIcons` is ignored.** Those are the alternates a user picks
+  between, and apps that sell themes register hundreds of them. One shipping app
+  files its whole skin catalogue there, naming the files after numbers, and its
+  bundle root holds 269 images — treating those as declarations let unrelated
+  resource art pass for the icon.
+- **Only `Payload/<App>.app/<file>` counts**, so icons of nested bundles
+  (extensions, watch apps) are never mistaken for the app's.
+- **When neither group matches, nothing is extracted.** The real icon may live
+  in `Assets.car`, which is not worth parsing; a wrong icon is worse than none
+  when `software.artworkUrl` can cover the UI instead.
+
+Apple repacks shipped icons with `pngcrush -iphone`, producing a **CgBI** PNG:
+the `CgBI` chunk before IHDR, a raw (unwrapped) deflate stream, and BGRA
+premultiplied pixels. Safari decodes those and **no other browser does**, so an
+icon served untouched simply fails to load and the UI shows a placeholder.
+`services/cgbiPng.ts` converts it back to a standard PNG (inflate raw, reverse
+the scanline filters, un-premultiply, swap channels, re-emit with a zlib stream
+and fresh CRCs) as part of extraction.
+
+`downloadManager` parks the result beside the IPA as `icon.png` (or `icon.jpg`),
+and `iconPathFor` finds it by that name — no extra field on the task. It is
+exposed as `hasIcon` on the API response and served by
+`GET /api/downloads/:id/icon?accountHash=…`, which 404s when a package had none
+so the frontend can draw its own placeholder. That route is exempt from
+`accessAuth` because an `<img>` cannot carry the access token, and the same image
+is already public under `/install/`.
+
+`/api/install/:id/icon-small.png` and `icon-large.png` serve the same file
+instead of the blank placeholder they used to return, which is what iOS shows on
+the home screen while installing. Both come from one file because the package
+rarely holds anything near the 512px the manifest nominally asks for and iOS
+scales. The frontend prefers `software.artworkUrl` and only falls back to the
+extracted icon (`taskIconUrl` in `utils/icon.ts`), so a storefront download is
+unchanged.
+
+The stored icon is a **cached answer**, so `repairTaskIcons` re-derives it for
+every finished package at startup (in the background, never awaited): packages
+that predate extraction get theirs read back, an icon stored in a format
+browsers cannot decode is rewritten, and one the current rules would not choose
+is removed. That is what carries a selection fix to packages already on disk —
+much cheaper than another download.
 
 ## Bag Proxy (Backend)
 
