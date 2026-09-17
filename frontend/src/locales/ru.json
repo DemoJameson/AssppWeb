@@ -209,7 +209,6 @@
       "versionsFailed": "Не удалось загрузить версии",
       "downloadFailed": "Ошибка загрузки",
       "versionOptional": "Версия (опционально)",
-      "latest": "Последняя",
       "getLicense": "Получить лицензию",
       "selectVersion": "Выбрать версию",
       "download": "Загрузить",
@@ -253,7 +252,6 @@
       "updateAvailable": "Доступно обновление",
       "updatePrompt": "Доступна новая версия (v{{version}}). Хотите обновить?",
       "selectVersion": "Выберите версию для обновления",
-      "latestVersion": "Последняя ({{id}})",
       "update": "Обновить сейчас",
       "updateFailed": "Не удалось начать обновление."
     },

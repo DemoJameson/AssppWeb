@@ -212,7 +212,6 @@
       "versionsFailed": "Failed to load versions",
       "downloadFailed": "Download failed",
       "versionOptional": "Version (optional)",
-      "latest": "Latest",
       "getLicense": "Get License",
       "selectVersion": "Select Version",
       "download": "Download",
@@ -256,7 +255,6 @@
       "updateAvailable": "Update Available",
       "updatePrompt": "A newer version (v{{version}}) is available. Do you want to update?",
       "selectVersion": "Select Version to Update",
-      "latestVersion": "Latest ({{id}})",
       "update": "Update Now",
       "updateFailed": "Failed to start update."
     },

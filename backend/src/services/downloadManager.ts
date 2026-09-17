@@ -9,6 +9,10 @@ import {
   type PackageIcon,
 } from "./sinfInjector.js";
 import { validatePackagePlatform, PackagePlatformError } from "./packagePlatform.js";
+import {
+  initVersionMetadataCache,
+  seedVersionMetadata,
+} from "./versionMetadataCache.js";
 import { ChunkedDownloader } from "./chunkedDownloader.js";
 import type { DownloadTask, Software, Sinf } from "../types/index.js";
 
@@ -338,6 +342,10 @@ function initOnStartup() {
   // Ensure packages dir exists
   fs.mkdirSync(PACKAGES_DIR, { recursive: true });
 
+  // Load the shared version metadata cache before the repair pass below seeds
+  // it from finished packages.
+  initVersionMetadataCache();
+
   // Load completed tasks from previous run
   if (fs.existsSync(TASKS_FILE)) {
     try {
@@ -422,6 +430,7 @@ async function repairFinishedPackages(): Promise<void> {
     }
 
     if (applyPackageMetadata(task.software, info.metadata)) changed++;
+    seedVersionMetadata(task.software.id, info.metadata);
 
     const stored = iconPathFor(task);
     const { icon } = info;
@@ -753,6 +762,10 @@ async function startDownload(task: DownloadTask) {
       // missing before the task is persisted: every view then reports the real
       // values instead of the placeholder the request carried.
       applyPackageMetadata(task.software, metadata);
+
+      // The package is the trusted source for the shared version metadata
+      // cache — the same read-back, recorded for every client of the instance.
+      seedVersionMetadata(task.software.id, metadata);
       writeTaskIcon(task, icon);
     }
 

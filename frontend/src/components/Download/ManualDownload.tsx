@@ -5,12 +5,14 @@ import AppIcon from "../common/AppIcon";
 import PlatformSelect from "../common/PlatformSelect";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
+import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
 import { useSettingsStore } from "../../store/settings";
 import { useToastStore } from "../../store/toast";
 import { lookupAppById } from "../../api/search";
 import { listVersions } from "../../apple/versionFinder";
 import { accountSelectLabel, accountStoreCountry } from "../../utils/account";
 import { getErrorMessage } from "../../utils/error";
+import { versionOptionLabel } from "../../utils/versionLabels";
 import type { Platform, Software } from "../../types";
 
 /** Apple's app and version ids are both numeric. */
@@ -55,6 +57,7 @@ export default function ManualDownload() {
   const { defaultCountry, defaultPlatform } = useSettingsStore();
   const { t } = useTranslation();
   const { startDownload, toastDownloadError } = useDownloadAction();
+  const { versionMeta, ensureLoaded } = useVersionMetadataMap();
   const addToast = useToastStore((s) => s.addToast);
 
   const [appId, setAppId] = useState("");
@@ -109,6 +112,7 @@ export default function ManualDownload() {
       const result = await listVersions(account, target);
       setVersions(result.versions);
       setVersionId(result.versions[0] || "");
+      await ensureLoaded(target.id);
       await updateAccount({ ...account, cookies: result.updatedCookies });
     } catch (err) {
       addToast(
@@ -194,7 +198,7 @@ export default function ManualDownload() {
                 >
                   {versions.map((v) => (
                     <option key={v} value={v}>
-                      {v}
+                      {versionOptionLabel(v, versionMeta[v])}
                     </option>
                   ))}
                 </select>

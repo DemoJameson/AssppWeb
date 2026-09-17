@@ -212,7 +212,6 @@
       "versionsFailed": "バージョンの読み込みに失敗しました",
       "downloadFailed": "ダウンロードに失敗しました",
       "versionOptional": "バージョン (任意)",
-      "latest": "最新",
       "getLicense": "ライセンスを取得",
       "selectVersion": "バージョンを選択",
       "download": "ダウンロード",
@@ -256,7 +255,6 @@
       "updateAvailable": "アップデートが利用可能です",
       "updatePrompt": "新しいバージョン (v{{version}}) が利用可能です。アップデートしますか？",
       "selectVersion": "アップデートするバージョンを選択",
-      "latestVersion": "最新 ({{id}})",
       "update": "今すぐアップデート",
       "updateFailed": "アップデートの開始に失敗しました。"
     },

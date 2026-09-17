@@ -6,12 +6,14 @@ import PlatformSelect from "../common/PlatformSelect";
 
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
+import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
 import { useSettingsStore } from "../../store/settings";
 import { useToastStore } from "../../store/toast";
 import { lookupApp } from "../../api/search";
 import { listVersions } from "../../apple/versionFinder";
 import { accountSelectLabel, accountStoreCountry } from "../../utils/account";
 import { getErrorMessage } from "../../utils/error";
+import { versionOptionLabel } from "../../utils/versionLabels";
 import type { Platform, Software } from "../../types";
 
 export default function AddDownload() {
@@ -25,6 +27,7 @@ export default function AddDownload() {
     toastDownloadError,
     toastLicenseError,
   } = useDownloadAction();
+  const { versionMeta, ensureLoaded } = useVersionMetadataMap();
 
   const [bundleId, setBundleId] = useState("");
   const [platform, setPlatform] = useState<Platform>(defaultPlatform);
@@ -95,6 +98,8 @@ export default function AddDownload() {
     try {
       const result = await listVersions(account, app);
       setVersions(result.versions);
+      setSelectedVersion(result.versions[0] || "");
+      await ensureLoaded(app.id);
       await updateAccount({ ...account, cookies: result.updatedCookies });
       setStep("versions");
     } catch (e) {
@@ -242,10 +247,9 @@ export default function AddDownload() {
                   onChange={(e) => setSelectedVersion(e.target.value)}
                   className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
                 >
-                  <option value="">{t("downloads.add.latest")}</option>
                   {versions.map((v) => (
                     <option key={v} value={v}>
-                      {v}
+                      {versionOptionLabel(v, versionMeta[v])}
                     </option>
                   ))}
                 </select>

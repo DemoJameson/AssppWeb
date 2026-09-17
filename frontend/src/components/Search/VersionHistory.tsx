@@ -5,15 +5,17 @@ import PageContainer from "../Layout/PageContainer";
 import AppIcon from "../common/AppIcon";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
+import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
 import { listVersions } from "../../apple/versionFinder";
 import { storeIdToCountry } from "../../apple/config";
 import { getVersionMetadata } from "../../apple/versionLookup";
 import { lookupAppById } from "../../api/search";
 import { parsePlatform } from "../../apple/platform";
 import { getErrorMessage } from "../../utils/error";
+import { versionRowLabel } from "../../utils/versionLabels";
 import { accountSelectLabel } from "../../utils/account";
 import { useToastStore } from "../../store/toast";
-import type { Software, VersionMetadata, Platform } from "../../types";
+import type { Software, Platform } from "../../types";
 
 export default function VersionHistory() {
   const { appId } = useParams<{ appId: string }>();
@@ -40,9 +42,7 @@ export default function VersionHistory() {
     [accounts, country],
   );
   const [versions, setVersions] = useState<string[]>([]);
-  const [versionMeta, setVersionMeta] = useState<
-    Record<string, VersionMetadata>
-  >({});
+  const { versionMeta, putEntry, ensureLoaded } = useVersionMetadataMap();
   const [loading, setLoading] = useState(false);
   const [loadingMeta, setLoadingMeta] = useState<Record<string, boolean>>({});
   const [downloadingVersion, setDownloadingVersion] = useState<string | null>(
@@ -80,6 +80,7 @@ export default function VersionHistory() {
     try {
       const result = await listVersions(account, app);
       setVersions(result.versions);
+      await ensureLoaded(app.id);
       await updateAccount({ ...account, cookies: result.updatedCookies });
     } catch (e) {
       addToast(getErrorMessage(e, t("search.versions.loadFailed")), "error");
@@ -93,7 +94,7 @@ export default function VersionHistory() {
     setLoadingMeta((prev) => ({ ...prev, [versionId]: true }));
     try {
       const result = await getVersionMetadata(account, app, versionId);
-      setVersionMeta((prev) => ({ ...prev, [versionId]: result.metadata }));
+      putEntry(versionId, result.metadata);
       await updateAccount({ ...account, cookies: result.updatedCookies });
     } catch {
       // Silently fail for individual version metadata
@@ -199,7 +200,7 @@ export default function VersionHistory() {
                 >
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-gray-900 [overflow-wrap:anywhere] dark:text-white">
-                      {meta ? `v${meta.displayVersion}` : `ID: ${versionId}`}
+                      {versionRowLabel(versionId, meta)}
                     </p>
                     {meta && (
                       <p className="text-xs text-gray-500 [overflow-wrap:anywhere] dark:text-gray-400">

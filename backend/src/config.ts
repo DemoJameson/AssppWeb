@@ -36,6 +36,13 @@ export const BAG_TIMEOUT_MS = 15_000; // 15 seconds
 export const BAG_MAX_BYTES = 1024 * 1024; // 1 MB
 export const MIN_ACCOUNT_HASH_LENGTH = 8;
 
+// Shared version metadata cache: entry cap for the (appId, versionId) directory
+// seeded passively from compiled packages (oldest entries evicted first).
+export const VERSION_METADATA_MAX_ENTRIES = Math.max(
+  1,
+  parseInt(process.env.VERSION_METADATA_MAX_ENTRIES || "20000", 10) || 20000,
+);
+
 // Chunked download settings
 export const DOWNLOAD_THREADS = Math.max(
   1,

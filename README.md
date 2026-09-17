@@ -75,6 +75,7 @@ docker compose up -d
 | `AUTO_CLEANUP_MAX_MB`                       | `0`             | Automatically delete oldest cached IPA files when size exceeds this MB limit (0 to disable) |
 | `MAX_DOWNLOAD_MB`                           | `0`             | Reject downloads exceeding this size in MB to prevent out-of-memory errors (0 to disable)   |
 | `DOWNLOAD_THREADS`                          | `8`             | Number of parallel threads for IPA downloads (1–32)                                         |
+| `VERSION_METADATA_MAX_ENTRIES`              | `20000`         | Max entries kept in the shared version metadata cache (oldest evicted first)                |
 | `ACCESS_PASSWORD`                           | _(none)_        | Require a password to access the web UI and API (empty to disable)                          |
 
 **Reverse Proxy (Required for Install Apps on iOS)**

@@ -410,11 +410,16 @@ The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using No
 - SINF injector also handles optional `iTunesMetadata.plist` injection at IPA root
 - Bag proxy for `init.itunes.apple.com`
 - SAP asset extraction service (xar + bzip2 + cpio) with digest pinning; routes under `/api/sap-assets`
+- Shared version metadata cache (read-only, passively seeded — see the Version Metadata Cache section below)
 
 ### Backend Shared Utilities
 
 - `backend/src/utils/route.ts` — shared Express route helpers (`getIdParam`, `requireAccountHash`, `verifyTaskOwnership`)
-- `backend/src/config.ts` — centralized constants (`MAX_DOWNLOAD_SIZE`, `DOWNLOAD_TIMEOUT_MS`, `BAG_TIMEOUT_MS`, `BAG_MAX_BYTES`, `MIN_ACCOUNT_HASH_LENGTH`) and env-var config (`disableHttpsRedirect` via `UNSAFE_DANGEROUSLY_DISABLE_HTTPS_REDIRECT`)
+- `backend/src/config.ts` — centralized constants (`MAX_DOWNLOAD_SIZE`, `DOWNLOAD_TIMEOUT_MS`, `BAG_TIMEOUT_MS`, `BAG_MAX_BYTES`, `MIN_ACCOUNT_HASH_LENGTH`, `VERSION_METADATA_MAX_ENTRIES`) and env-var config (`disableHttpsRedirect` via `UNSAFE_DANGEROUSLY_DISABLE_HTTPS_REDIRECT`)
+
+### Version Metadata Cache
+
+`services/versionMetadataCache.ts` + `routes/versionMetadata.ts` serve a read-only, instance-wide `(appId, versionId) -> (displayVersion, releaseDate)` directory via `GET /api/version-metadata/:appId`. Entries are seeded **passively only** — the download pipeline records what compiled packages read back (the two `applyPackageMetadata` sites in downloadManager, including the startup `repairFinishedPackages` pass). There is no client write-back and the server never queries Apple itself (it holds no credentials), so the zero-trust invariant is untouched; the data is storefront-public and carries no account binding, but reads still ride `accessAuth`. Entries are immutable (a version id names a fixed build), capped at `VERSION_METADATA_MAX_ENTRIES` (oldest evicted first), and persisted to `DATA_DIR/version-metadata.json`. The frontend consumes the cache best-effort (`api/versionMetadata.ts`, `hooks/useVersionMetadata.ts`, `utils/versionLabels.ts`) and falls back to the live Apple exchange for uncached versions.
 
 ## Frontend
 
@@ -449,6 +454,7 @@ The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using No
 - `utils/account.ts` — `accountHash()`, `accountStoreCountry()`, `firstAccountCountry()`
 - `utils/toast.ts` — toast helpers (pairs with `ToastContainer`)
 - `utils/version.ts` — numeric dot-separated version string comparison
+- `utils/versionLabels.ts` — `versionOptionLabel` / `versionRowLabel`: render a cached display version in the version pickers (uncached entries keep the raw id)
 
 ### Import Ordering Convention
 

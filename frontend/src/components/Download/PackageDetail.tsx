@@ -15,6 +15,7 @@ import {
 import { useAccounts } from '../../hooks/useAccounts';
 import { useDownloadAction } from '../../hooks/useDownloadAction';
 import { useDownloads } from '../../hooks/useDownloads';
+import { useVersionMetadataMap } from '../../hooks/useVersionMetadata';
 import { useToastStore } from '../../store/toast';
 import { listVersions } from '../../apple/versionFinder';
 import { lookupApp } from '../../api/search';
@@ -22,6 +23,7 @@ import { formatBytes } from '../../utils/format';
 import { taskIconUrl } from '../../utils/icon';
 import { getAccountContext } from '../../utils/toast';
 import { isNewerVersion } from '../../utils/version';
+import { versionRowLabel } from '../../utils/versionLabels';
 import { storeIdToCountry } from '../../apple/config';
 import { PLATFORM_LABELS } from '../../apple/platform';
 import type { Software } from '../../types';
@@ -42,6 +44,7 @@ export default function PackageDetail() {
   const [latestApp, setLatestApp] = useState<Software | null>(null);
   const [availableVersions, setAvailableVersions] = useState<string[]>([]);
   const [selectedVersion, setSelectedVersion] = useState('');
+  const { versionMeta, ensureLoaded } = useVersionMetadataMap();
 
   const previewEnabled = isDownloadPreviewEnabled(location.search);
   const taskPool = previewEnabled ? previewDownloadTasks : tasks;
@@ -129,6 +132,7 @@ export default function PackageDetail() {
         const result = await listVersions(account, app);
         setAvailableVersions(result.versions);
         setSelectedVersion(result.versions[0] || '');
+        await ensureLoaded(app.id);
         setShowUpdateModal(true);
       } else {
         addToast(t('downloads.package.noUpdate'), 'info');
@@ -393,11 +397,9 @@ export default function PackageDetail() {
                 onChange={(event) => setSelectedVersion(event.target.value)}
                 className="min-h-11 w-full min-w-0 max-w-full truncate rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
               >
-                {availableVersions.map((version, index) => (
+                {availableVersions.map((version) => (
                   <option key={version} value={version}>
-                    {index === 0
-                      ? t('downloads.package.latestVersion', { id: version })
-                      : version}
+                    {versionRowLabel(version, versionMeta[version])}
                   </option>
                 ))}
               </select>
