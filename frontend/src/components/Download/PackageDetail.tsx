@@ -19,6 +19,7 @@ import { useVersionMetadataMap } from '../../hooks/useVersionMetadata';
 import { useToastStore } from '../../store/toast';
 import { listVersions } from '../../apple/versionFinder';
 import { lookupApp } from '../../api/search';
+import { getErrorMessage } from '../../utils/error';
 import { formatBytes } from '../../utils/format';
 import { taskIconUrl } from '../../utils/icon';
 import { getAccountContext } from '../../utils/toast';
@@ -41,6 +42,8 @@ export default function PackageDetail() {
 
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [latestApp, setLatestApp] = useState<Software | null>(null);
   const [availableVersions, setAvailableVersions] = useState<string[]>([]);
   const [selectedVersion, setSelectedVersion] = useState('');
@@ -82,21 +85,39 @@ export default function PackageDetail() {
     );
   }
 
-  async function handleDelete() {
+  function handleDelete() {
     if (isPreview) {
       showPreviewNotice();
       return;
     }
-    if (!confirm(t('downloads.package.deleteConfirm'))) return;
+    // Native confirm() is not blocking in embedded browsers (Trae's built-in
+    // browser returns true immediately while still drawing the dialog), so
+    // deletion is confirmed through the in-app modal instead.
+    setShowDeleteModal(true);
+  }
 
-    await deleteDownload(taskId);
-    const context = getAccountContext(account, t);
-    addToast(
-      t('toast.msg', { appName, ...context }),
-      'success',
-      t('toast.title.deleteSuccess'),
-    );
-    navigate('/downloads');
+  async function handleConfirmDelete() {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await deleteDownload(taskId);
+      const context = getAccountContext(account, t);
+      addToast(
+        t('toast.msg', { appName, ...context }),
+        'success',
+        t('toast.title.deleteSuccess'),
+      );
+      navigate('/downloads');
+    } catch (err) {
+      addToast(
+        getErrorMessage(err, t('downloads.deleteFailed')),
+        'error',
+        t('downloads.package.delete'),
+      );
+      setShowDeleteModal(false);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   function handlePause() {
@@ -375,6 +396,36 @@ export default function PackageDetail() {
           </div>
         </section>
       </div>
+
+      <Modal
+        open={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        title={t('downloads.package.deleteConfirm')}
+      >
+        <div className="min-w-0 space-y-4">
+          <p className="min-w-0 break-words text-sm text-gray-600 [overflow-wrap:anywhere] dark:text-gray-300">
+            {t('downloads.deletePrompt', { appName })}
+          </p>
+          <div className="grid min-w-0 grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(false)}
+              disabled={deleting}
+              className="min-h-11 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              {t('settings.data.cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDelete}
+              disabled={deleting}
+              className="min-h-11 min-w-0 inline-flex items-center justify-center rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+            >
+              {t('downloads.package.delete')}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={showUpdateModal}

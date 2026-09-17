@@ -155,6 +155,8 @@
     "emptyFilterDesc": "没有符合该状态的下载记录。",
     "searchApps": "搜索要下载的应用",
     "deleteConfirm": "删除此下载？",
+    "deletePrompt": "确定要删除 {{appName}} 吗？此操作无法撤销，安装包将从服务器删除。",
+    "deleteFailed": "删除失败，请重试。",
     "checkUpdates": "检查更新",
     "checkingApp": "当前正在检查：",
     "checkingUpdates": "检查中...",
@@ -288,6 +290,7 @@
     "data": {
       "title": "数据",
       "description": "清除本地账号、凭据和设置。",
+      "confirmTitle": "清除所有数据？",
       "confirm": "这将删除所有账号、凭据和设置，且无法恢复。是否继续？",
       "button": "重置所有数据",
       "exportBtn": "导出账号",

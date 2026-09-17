@@ -16,6 +16,7 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useToastStore } from "../../store/toast";
 import { lookupApp } from "../../api/search";
+import { getErrorMessage } from "../../utils/error";
 import { getAccountContext } from "../../utils/toast";
 import { isNewerVersion } from "../../utils/version";
 import { storeIdToCountry } from "../../apple/config";
@@ -50,6 +51,8 @@ export default function DownloadList() {
     total: 0,
     appName: "",
   });
+  const [deleteTarget, setDeleteTarget] = useState<DownloadTask | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -70,26 +73,45 @@ export default function DownloadList() {
 
   function handleDelete(id: string) {
     const task = displayTasks.find((item) => item.id === id);
-    if (task && isPreviewDownloadTask(task)) {
+    // A queued second click (e.g. a double-click where the first deletion
+    // already finished) finds no task — there is nothing left to confirm.
+    if (!task) return;
+    if (isPreviewDownloadTask(task)) {
       showPreviewNotice();
       return;
     }
 
-    if (!confirm(t("downloads.deleteConfirm"))) return;
+    // Native confirm() is not blocking in embedded browsers (Trae's built-in
+    // browser returns true immediately while still drawing the dialog), so
+    // deletion is confirmed through the in-app modal instead.
+    setDeleteTarget(task);
+  }
 
-    if (task) {
-      const accountEmail = hashToEmail[task.accountHash];
+  async function handleConfirmDelete() {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      // Only announce success once the deletion actually completed.
+      await deleteDownload(deleteTarget.id);
+      const accountEmail = hashToEmail[deleteTarget.accountHash];
       const account = accounts.find((a) => a.email === accountEmail);
       const ctx = getAccountContext(account, t);
 
       addToast(
-        t("toast.msg", { appName: task.software.name, ...ctx }),
+        t("toast.msg", { appName: deleteTarget.software.name, ...ctx }),
         "success",
         t("toast.title.deleteSuccess"),
       );
+      setDeleteTarget(null);
+    } catch (err) {
+      addToast(
+        getErrorMessage(err, t("downloads.deleteFailed")),
+        "error",
+        t("downloads.package.delete"),
+      );
+    } finally {
+      setDeleting(false);
     }
-
-    deleteDownload(id);
   }
 
   function showPreviewNotice() {
@@ -415,6 +437,39 @@ export default function DownloadList() {
               className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
             >
               {t("settings.data.cancel")}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title={t("downloads.deleteConfirm")}
+      >
+        <div className="min-w-0 space-y-4">
+          <p className="min-w-0 break-words text-sm text-gray-600 dark:text-gray-300">
+            {t("downloads.deletePrompt", {
+              appName: deleteTarget?.software.name ?? "",
+            })}
+          </p>
+          <div className="grid min-w-0 grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleting}
+              className="min-h-11 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              {t("settings.data.cancel")}
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDelete}
+              disabled={deleting}
+              className="min-h-11 min-w-0 inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+            >
+              {deleting && <Spinner />}
+              {t("downloads.package.delete")}
             </button>
           </div>
         </div>

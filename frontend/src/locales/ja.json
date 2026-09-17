@@ -155,6 +155,8 @@
     "emptyFilterDesc": "このステータスに一致するダウンロード記録はありません。",
     "searchApps": "ダウンロードするアプリを検索",
     "deleteConfirm": "このダウンロードを削除しますか？",
+    "deletePrompt": "{{appName}} を削除しますか？この操作は元に戻せません。パッケージはサーバーから削除されます。",
+    "deleteFailed": "削除に失敗しました。もう一度お試しください。",
     "checkUpdates": "アップデートを確認",
     "checkingApp": "確認中: ",
     "checkingUpdates": "確認中...",
@@ -288,6 +290,7 @@
     "data": {
       "title": "データ",
       "description": "保存済みのアカウント・認証情報・設定を消去します。",
+      "confirmTitle": "すべてのデータを消去しますか？",
       "confirm": "すべてのアカウントと設定が削除され、元に戻すことはできません。続行しますか？",
       "button": "すべてのデータをリセット",
       "exportBtn": "アカウントをエクスポート",

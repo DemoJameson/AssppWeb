@@ -18,6 +18,22 @@ describe("api/client", () => {
       expect(result).toEqual(mockData);
       expect(fetch).toHaveBeenCalledWith("/api/test", {
         headers: {},
+        signal: undefined,
+      });
+    });
+
+    it("should forward an abort signal", async () => {
+      const mockData = { results: [] };
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockData),
+      } as Response);
+      const controller = new AbortController();
+
+      await apiGet("/api/test", { signal: controller.signal });
+      expect(fetch).toHaveBeenCalledWith("/api/test", {
+        headers: {},
+        signal: controller.signal,
       });
     });
 
@@ -28,6 +44,26 @@ describe("api/client", () => {
       } as Response);
 
       await expect(apiGet("/api/missing")).rejects.toThrow("Not found");
+    });
+
+    it("should surface the error field of a JSON error body", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve('{"error":"Invalid version"}'),
+      } as Response);
+
+      await expect(apiGet("/api/downloads")).rejects.toThrow("Invalid version");
+    });
+
+    it("should fall back to the HTTP status when the body is empty", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        text: () => Promise.resolve(""),
+      } as Response);
+
+      await expect(apiGet("/api/downloads")).rejects.toThrow("HTTP 502");
     });
   });
 
@@ -83,6 +119,16 @@ describe("api/client", () => {
       } as Response);
 
       await expect(apiDelete("/api/test/123")).rejects.toThrow("Server error");
+    });
+
+    it("should surface the error field of a JSON error body", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve('{"error":"Unauthorized"}'),
+      } as Response);
+
+      await expect(apiDelete("/api/test/123")).rejects.toThrow("Unauthorized");
     });
   });
 });

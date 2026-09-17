@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import { config } from "./config.js";
 import { httpsRedirect } from "./middleware/httpsRedirect.js";
+import { securityHeaders } from "./middleware/securityHeaders.js";
 import { accessAuth } from "./middleware/accessAuth.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { setupWsProxy } from "./services/wsProxy.js";
@@ -21,10 +22,18 @@ const app = express();
 
 // Middleware
 app.use(httpsRedirect);
-app.use(express.json({ limit: "50mb" }));
+app.use(securityHeaders);
+
+// Body parsing happens after accessAuth, so an unauthenticated request is
+// rejected before its body is read at all. The download-creation route needs
+// the large limit (base64 SINFs + iTunesMetadata); it is mounted before the
+// global parser because body-parser skips requests it has already parsed
+// (req._body set), letting every other route stay at 1mb.
+app.use("/api", accessAuth);
+app.use("/api/downloads", express.json({ limit: "50mb" }));
+app.use(express.json({ limit: "1mb" }));
 
 // API routes
-app.use("/api", accessAuth);
 app.use("/api", authRoutes);
 app.use("/api", searchRoutes);
 app.use("/api", downloadRoutes);

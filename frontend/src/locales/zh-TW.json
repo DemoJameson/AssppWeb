@@ -155,6 +155,8 @@
     "emptyFilterDesc": "沒有符合該狀態的下載記錄。",
     "searchApps": "搜尋要下載的應用程式",
     "deleteConfirm": "刪除此下載？",
+    "deletePrompt": "確定要刪除 {{appName}} 嗎？此操作無法撤銷，安裝包將從伺服器刪除。",
+    "deleteFailed": "刪除失敗，請重試。",
     "checkUpdates": "一鍵檢查更新",
     "checkingApp": "當前正在檢查：",
     "checkingUpdates": "檢查中...",
@@ -288,6 +290,7 @@
     "data": {
       "title": "資料",
       "description": "清除本機帳號、憑證和設定。",
+      "confirmTitle": "清除所有資料？",
       "confirm": "這將刪除所有帳號、憑證和設定，且無法復原。是否繼續？",
       "button": "重設所有資料",
       "exportBtn": "匯出帳號",

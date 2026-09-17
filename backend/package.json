@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@mercuryworkshop/wisp-js": "^0.4.1",
-    "adm-zip": "^0.5.16",
+    "archiver": "^8.0.0",
     "bplist-creator": "^0.1.1",
     "bplist-parser": "^0.3.2",
     "express": "^4.21.2",
@@ -26,6 +26,8 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/adm-zip": "^0.5.7",
+    "@types/archiver": "^8.0.0",
+    "adm-zip": "^0.5.16",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.1",
     "@types/plist": "^3.0.5",

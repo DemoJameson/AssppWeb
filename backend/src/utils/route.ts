@@ -4,6 +4,8 @@ const MIN_ACCOUNT_HASH_LENGTH = 8;
 
 export function getIdParam(req: Request): string {
   const id = req.params.id;
+  // A single `:id` segment is always a string at runtime (Express 4); the
+  // array shape only exists in the @types/express v5 declaration.
   return Array.isArray(id) ? id[0] : id;
 }
 

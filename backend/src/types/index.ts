@@ -65,6 +65,14 @@ export interface DownloadTask {
   speed: string;
   error?: string;
   filePath?: string;
+  /**
+   * Cached answers for the API response, maintained at the few mutation
+   * points (completion, icon write/unlink, startup restore) instead of
+   * hitting the file system on every list/poll request. Recomputed once at
+   * startup, so an externally deleted file stays "present" until restart.
+   */
+  hasFile?: boolean;
+  hasIcon?: boolean;
   createdAt: string;
 }
 

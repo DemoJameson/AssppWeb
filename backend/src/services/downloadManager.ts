@@ -8,12 +8,12 @@ import {
   type PackageMetadata,
   type PackageIcon,
 } from "./sinfInjector.js";
-import { validatePackagePlatform, PackagePlatformError } from "./packagePlatform.js";
+import { validatePackagePlatform } from "./packagePlatform.js";
 import {
   initVersionMetadataCache,
   seedVersionMetadata,
 } from "./versionMetadataCache.js";
-import { ChunkedDownloader } from "./chunkedDownloader.js";
+import { ChunkedDownloader, removePartFiles } from "./chunkedDownloader.js";
 import type { DownloadTask, Software, Sinf } from "../types/index.js";
 
 const tasks = new Map<string, DownloadTask>();
@@ -174,6 +174,7 @@ function writeTaskIcon(task: DownloadTask, icon?: PackageIcon): void {
     }
 
     fs.writeFileSync(target, icon.data);
+    task.hasIcon = true;
   } catch (err) {
     // A missing icon is cosmetic; it must not fail a download that compiled.
     console.warn(
@@ -212,15 +213,12 @@ export function validateDownloadURL(url: string): void {
 // --- Security: sanitize task for API responses ---
 export function sanitizeTaskForResponse(
   task: DownloadTask,
-): Omit<
-  DownloadTask,
-  "downloadURL" | "sinfs" | "iTunesMetadata" | "filePath"
-> & { hasFile?: boolean; hasIcon?: boolean } {
+): Omit<DownloadTask, "downloadURL" | "sinfs" | "iTunesMetadata" | "filePath"> {
   const { downloadURL, sinfs, iTunesMetadata, filePath, ...safe } = task;
   return {
     ...safe,
-    hasFile: !!filePath && fs.existsSync(filePath),
-    hasIcon: Boolean(iconPathFor(task)),
+    hasFile: task.hasFile ?? false,
+    hasIcon: task.hasIcon ?? false,
   };
 }
 
@@ -238,6 +236,8 @@ function persistTasks() {
       progress: t.progress,
       speed: t.speed,
       filePath: t.filePath,
+      hasFile: t.hasFile ?? true,
+      hasIcon: t.hasIcon ?? false,
       createdAt: t.createdAt,
     }));
   fs.writeFileSync(TASKS_FILE, JSON.stringify(completed, null, 2));
@@ -270,8 +270,9 @@ export function runTimeCleanup() {
 
   for (const id of expiredIds) {
     console.log(`[Cleanup] Deleting expired task: ${id}`);
-    deleteTask(id);
+    deleteTaskInternal(id);
   }
+  if (expiredIds.length > 0) persistTasks();
 }
 
 // Auto-cleanup: evict oldest completed files when total size exceeds limit
@@ -302,12 +303,15 @@ export function runSpaceCleanup() {
   if (totalBytes <= maxBytes) return;
 
   fileTasks.sort((a, b) => a.mtimeMs - b.mtimeMs);
+  let evicted = false;
   for (const ft of fileTasks) {
     console.log(`[Cleanup] Space limit exceeded, deleting task: ${ft.id}`);
-    deleteTask(ft.id);
+    deleteTaskInternal(ft.id);
+    evicted = true;
     totalBytes -= ft.size;
     if (totalBytes <= maxBytes) break;
   }
+  if (evicted) persistTasks();
 }
 
 // Schedule daily time-based cleanup at midnight (self-correcting to avoid drift)
@@ -369,8 +373,13 @@ function initOnStartup() {
               progress: 100,
               speed: "0 B/s",
               filePath: item.filePath,
+              // The restore condition already verified the file exists; the
+              // icon is re-derived once here so old tasks.json entries
+              // (without the cached fields) come back correct.
+              hasFile: true,
               createdAt: item.createdAt,
             };
+            task.hasIcon = Boolean(iconPathFor(task));
             tasks.set(task.id, task);
           }
         }
@@ -436,7 +445,10 @@ async function repairFinishedPackages(): Promise<void> {
     const { icon } = info;
 
     if (icon) {
-      if (stored && iconsMatch(stored, icon.data)) continue;
+      if (stored && iconsMatch(stored, icon.data)) {
+        task.hasIcon = true;
+        continue;
+      }
       writeTaskIcon(task, icon);
       changed++;
       continue;
@@ -444,6 +456,7 @@ async function repairFinishedPackages(): Promise<void> {
 
     if (stored) {
       fs.unlinkSync(stored);
+      task.hasIcon = false;
       changed++;
     }
   }
@@ -544,7 +557,12 @@ export function getTask(id: string): DownloadTask | undefined {
   return tasks.get(id);
 }
 
-export function deleteTask(id: string): boolean {
+/**
+ * Removes a task, its files, and its bookkeeping without touching the
+ * persistence file — the cleanup loops call this repeatedly and persist once
+ * at the end instead of rewriting tasks.json per deletion.
+ */
+function deleteTaskInternal(id: string): boolean {
   const task = tasks.get(id);
   if (!task) return false;
 
@@ -564,24 +582,27 @@ export function deleteTask(id: string): boolean {
   if (task.filePath) {
     const resolved = path.resolve(task.filePath);
     const packagesBase = path.resolve(PACKAGES_DIR);
-    if (
-      resolved.startsWith(packagesBase + path.sep) &&
-      fs.existsSync(resolved)
-    ) {
-      fs.unlinkSync(resolved);
+    if (resolved.startsWith(packagesBase + path.sep)) {
+      // A paused task's downloader is no longer registered, so its .part
+      // leftovers must be swept here or they survive until the next restart.
+      removePartFiles(resolved);
 
-      const iconPath = iconPathFor(task);
-      if (iconPath) fs.unlinkSync(iconPath);
+      if (fs.existsSync(resolved)) {
+        fs.unlinkSync(resolved);
 
-      // Clean up empty parent directories
-      let dir = path.dirname(resolved);
-      while (dir !== packagesBase && dir.startsWith(packagesBase)) {
-        const contents = fs.readdirSync(dir);
-        if (contents.length === 0) {
-          fs.rmdirSync(dir);
-          dir = path.dirname(dir);
-        } else {
-          break;
+        const iconPath = iconPathFor(task);
+        if (iconPath) fs.unlinkSync(iconPath);
+
+        // Clean up empty parent directories
+        let dir = path.dirname(resolved);
+        while (dir !== packagesBase && dir.startsWith(packagesBase)) {
+          const contents = fs.readdirSync(dir);
+          if (contents.length === 0) {
+            fs.rmdirSync(dir);
+            dir = path.dirname(dir);
+          } else {
+            break;
+          }
         }
       }
     }
@@ -589,8 +610,13 @@ export function deleteTask(id: string): boolean {
 
   tasks.delete(id);
   progressListeners.delete(id);
-  persistTasks();
   return true;
+}
+
+export function deleteTask(id: string): boolean {
+  const removed = deleteTaskInternal(id);
+  if (removed) persistTasks();
+  return removed;
 }
 
 export function pauseTask(id: string): boolean {
@@ -604,7 +630,8 @@ export function pauseTask(id: string): boolean {
   }
   const downloader = chunkDownloaders.get(id);
   if (downloader) {
-    downloader.abort();
+    // Keep the .part files: resume skips the chunks that are already complete.
+    downloader.abort(true);
     chunkDownloaders.delete(id);
   }
 
@@ -660,6 +687,10 @@ export function createTask(
 }
 
 async function startDownload(task: DownloadTask) {
+  // A resumed task keeps its progress: the downloader seeds the real byte
+  // count from the .part files a pause left behind.
+  const resuming = task.status === "paused";
+
   // Pre-download cleanup: expire old files + enforce space limit
   runTimeCleanup();
   runSpaceCleanup();
@@ -671,7 +702,9 @@ async function startDownload(task: DownloadTask) {
   const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
 
   task.status = "downloading";
-  task.progress = 0;
+  if (!resuming) {
+    task.progress = 0;
+  }
   task.speed = "0 B/s";
   task.error = undefined;
   notifyProgress(task);
@@ -776,6 +809,7 @@ async function startDownload(task: DownloadTask) {
 
     task.status = "completed";
     task.progress = 100;
+    task.hasFile = true;
 
     // Strip sensitive data after successful compile
     task.downloadURL = "";
@@ -786,13 +820,22 @@ async function startDownload(task: DownloadTask) {
     persistTasks();
     notifyProgress(task);
   } catch (err) {
+    // A rapid pause → resume replaces this attempt's registrations (and a
+    // new download is already running): the newer attempt owns the task's
+    // lifecycle now, so this stale catch must not delete the new
+    // registrations or overwrite the task's status.
+    if (abortControllers.get(task.id) !== controller) {
+      clearTimeout(timeout);
+      return;
+    }
     chunkDownloaders.delete(task.id);
     abortControllers.delete(task.id);
     clearTimeout(timeout);
 
     if (err instanceof Error && err.name === "AbortError") {
-      // Status may have been changed to "paused" externally by pauseTask()
-      if ((task.status as string) === "paused") return;
+      // The abort came from this attempt's own timeout: pauseTask() has
+      // already removed the controller from the map (caught above), so
+      // reaching here means the download genuinely timed out.
       task.status = "failed";
       task.error = "Download timed out";
       notifyProgress(task);
@@ -804,8 +847,9 @@ async function startDownload(task: DownloadTask) {
       `Download ${task.id} failed:`,
       err instanceof Error ? err.message : err,
     );
-    task.error =
-      err instanceof PackagePlatformError ? err.message : "Download failed";
+    // The specific reason (platform mismatch, chunk HTTP error, injection
+    // failure) is what the user can act on; the generic text hid it.
+    task.error = err instanceof Error ? err.message : "Download failed";
     notifyProgress(task);
   }
 }

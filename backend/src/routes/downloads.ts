@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import path from "path";
-import { config } from "../config.js";
+import { config, SIZE_PROBE_TIMEOUT_MS } from "../config.js";
 import {
   createTask,
   getAllTasks,
@@ -28,6 +28,7 @@ async function fetchDownloadSizeBytes(
   const headResponse = await fetch(downloadURL, {
     method: "HEAD",
     redirect: "follow",
+    signal: AbortSignal.timeout(SIZE_PROBE_TIMEOUT_MS),
   });
   if (!headResponse.ok) {
     throw new Error(`HEAD failed: HTTP ${headResponse.status}`);
@@ -45,6 +46,7 @@ async function fetchDownloadSizeBytes(
     method: "GET",
     headers: { Range: "bytes=0-0" },
     redirect: "follow",
+    signal: AbortSignal.timeout(SIZE_PROBE_TIMEOUT_MS),
   });
   try {
     if (rangeResponse.status !== 206 && rangeResponse.status !== 200) {
@@ -150,7 +152,11 @@ router.post("/downloads", async (req: Request, res: Response) => {
       "Create download error:",
       err instanceof Error ? err.message : err,
     );
-    res.status(400).json({ error: "Failed to create download" });
+    // The messages thrown here (URL validation, path-segment validation) are
+    // user-safe and far more actionable than a generic failure.
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "Failed to create download",
+    });
   }
 });
 

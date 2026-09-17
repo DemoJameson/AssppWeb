@@ -44,6 +44,7 @@ export default function SettingsPage() {
 
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportPassword, setExportPassword] = useState("");
+  const [clearModalOpen, setClearModalOpen] = useState(false);
   const [exportConfirmPassword, setExportConfirmPassword] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -99,6 +100,19 @@ export default function SettingsPage() {
     } catch {
       addToast(t("settings.data.exportFailed"), "error");
     }
+  };
+
+  // Native confirm() is not blocking in embedded browsers (Trae's built-in
+  // browser returns true immediately while still drawing the dialog), so the
+  // destructive clear-all is confirmed through the in-app modal instead.
+  const handleConfirmClear = () => {
+    setClearModalOpen(false);
+    localStorage.clear();
+    indexedDB.deleteDatabase("asspp-accounts");
+    addToast(t("settings.data.cleared"), "success");
+    setTimeout(() => {
+      window.location.href = "/";
+    }, 1000);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -371,15 +385,7 @@ export default function SettingsPage() {
           </div>
 
           <button
-            onClick={() => {
-              if (!confirm(t("settings.data.confirm"))) return;
-              localStorage.clear();
-              indexedDB.deleteDatabase("asspp-accounts");
-              addToast(t("settings.data.cleared"), "success");
-              setTimeout(() => {
-                window.location.href = "/";
-              }, 1000);
-            }}
+            onClick={() => setClearModalOpen(true)}
             className="min-h-11 w-full min-w-0 whitespace-normal break-words rounded-lg border border-red-300 px-4 py-2 text-center text-sm font-medium text-red-600 transition-colors hover:bg-red-50 sm:w-auto dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
           >
             {t("settings.data.button")}
@@ -440,6 +446,34 @@ export default function SettingsPage() {
           )}
         </section>
       </div>
+
+      <Modal
+        open={clearModalOpen}
+        onClose={() => setClearModalOpen(false)}
+        title={t("settings.data.confirmTitle")}
+      >
+        <div className="min-w-0 space-y-4">
+          <p className="min-w-0 break-words text-sm text-gray-600 dark:text-gray-300">
+            {t("settings.data.confirm")}
+          </p>
+          <div className="grid min-w-0 grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setClearModalOpen(false)}
+              className="min-h-11 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              {t("settings.data.cancel")}
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmClear}
+              className="min-h-11 min-w-0 rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+            >
+              {t("settings.data.button")}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={exportModalOpen}

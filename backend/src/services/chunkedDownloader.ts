@@ -23,6 +23,45 @@ interface ProgressInfo {
 
 type ProgressCallback = (info: ProgressInfo) => void;
 
+/** Size of each `${destPath}.part${i}` on disk; 0 when the file is absent. */
+export function readPartSizes(
+  destPath: string,
+  chunkCount: number,
+): number[] {
+  const sizes = new Array<number>(chunkCount).fill(0);
+  for (let i = 0; i < chunkCount; i++) {
+    const partPath = `${destPath}.part${i}`;
+    try {
+      if (fs.existsSync(partPath)) {
+        sizes[i] = fs.statSync(partPath).size;
+      }
+    } catch {
+      // Unreadable — treat as absent.
+    }
+  }
+  return sizes;
+}
+
+/** Remove every `${destPath}.part*` sibling of the destination file. */
+export function removePartFiles(destPath: string): void {
+  try {
+    const dir = path.dirname(destPath);
+    const base = path.basename(destPath);
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir)) {
+      if (entry.startsWith(base + ".part")) {
+        try {
+          fs.unlinkSync(path.join(dir, entry));
+        } catch {
+          // best-effort
+        }
+      }
+    }
+  } catch {
+    // best-effort cleanup
+  }
+}
+
 /**
  * Multi-threaded HTTP downloader using Range requests.
  * Falls back to single-stream when the server doesn't support Range.
@@ -95,6 +134,21 @@ export class ChunkedDownloader {
   ): Promise<void> {
     const partPath = `${this.destPath}.part${chunk.index}`;
     const expectedBytes = chunk.end - chunk.start + 1;
+
+    // A pause leaves completed .part files behind; a chunk that is already
+    // fully on disk is skipped, which is what makes resume a resume.
+    try {
+      if (
+        fs.existsSync(partPath) &&
+        fs.statSync(partPath).size === expectedBytes
+      ) {
+        this.chunkBytes[chunk.index] = expectedBytes;
+        return;
+      }
+    } catch {
+      // Stat failed — fall through and re-download the chunk.
+    }
+
     let lastErr: Error | undefined;
 
     for (let attempt = 0; attempt < CHUNK_RETRY_COUNT; attempt++) {
@@ -291,10 +345,20 @@ export class ChunkedDownloader {
 
     this.totalSize = contentLength;
     const chunks = this.splitChunks(contentLength);
-    this.chunkBytes = new Array(chunks.length).fill(0);
+    // Seed from whatever a previous paused attempt left on disk, so progress
+    // resumes from the real byte count and completed chunks are skipped.
+    this.chunkBytes = readPartSizes(this.destPath, chunks.length);
+    const resumedBytes = this.chunkBytes.reduce((a, b) => a + b, 0);
+    if (resumedBytes > 0) {
+      this.onProgress?.({
+        downloaded: resumedBytes,
+        total: this.totalSize,
+        speed: "0 B/s",
+      });
+    }
 
     this.lastProgressTime = Date.now();
-    this.lastProgressBytes = 0;
+    this.lastProgressBytes = resumedBytes;
     const progressInterval = setInterval(() => {
       const now = Date.now();
       const totalDownloaded = this.chunkBytes.reduce((a, b) => a + b, 0);
@@ -331,13 +395,22 @@ export class ChunkedDownloader {
       });
     } catch (err) {
       clearInterval(progressInterval);
-      this.cleanPartFiles(chunks.length);
+      // An abort() already made its keep-or-clean decision (pause keeps the
+      // parts for resume; delete/timeout cleaned them), so only a genuine
+      // failure cleans up here.
+      if (!this.aborted) {
+        this.cleanPartFiles(chunks.length);
+      }
       throw err;
     }
   }
 
-  /** Abort all active connections and clean up temporary files. */
-  abort(): void {
+  /**
+   * Abort all active connections. `keepParts` leaves completed `.part` files
+   * on disk so a subsequent download of the same destination can skip the
+   * chunks it already holds — this is what pause/resume rides on.
+   */
+  abort(keepParts = false): void {
     this.aborted = true;
     for (const ac of this.abortControllers) {
       try {
@@ -348,23 +421,8 @@ export class ChunkedDownloader {
     }
     this.abortControllers.clear();
 
-    // Clean up any .part files by scanning directory
-    try {
-      const dir = path.dirname(this.destPath);
-      const base = path.basename(this.destPath);
-      if (fs.existsSync(dir)) {
-        for (const entry of fs.readdirSync(dir)) {
-          if (entry.startsWith(base + ".part")) {
-            try {
-              fs.unlinkSync(path.join(dir, entry));
-            } catch {
-              // best-effort
-            }
-          }
-        }
-      }
-    } catch {
-      // best-effort cleanup
+    if (!keepParts) {
+      removePartFiles(this.destPath);
     }
   }
 }

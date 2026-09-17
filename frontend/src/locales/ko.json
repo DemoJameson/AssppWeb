@@ -155,6 +155,8 @@
     "emptyFilterDesc": "이 상태와 일치하는 다운로드 기록이 없습니다.",
     "searchApps": "다운로드할 앱 검색",
     "deleteConfirm": "이 다운로드를 삭제하시겠습니까?",
+    "deletePrompt": "{{appName}}을(를) 삭제하시겠습니까? 이 작업은 되돌릴 수 없으며 패키지가 서버에서 삭제됩니다.",
+    "deleteFailed": "삭제에 실패했습니다. 다시 시도해 주세요.",
     "checkUpdates": "업데이트 확인",
     "checkingApp": "현재 확인 중: ",
     "checkingUpdates": "확인 중...",
@@ -288,6 +290,7 @@
     "data": {
       "title": "데이터",
       "description": "저장된 계정, 자격 증명 및 설정을 지웁니다.",
+      "confirmTitle": "모든 데이터를 삭제하시겠습니까?",
       "confirm": "모든 계정과 설정이 삭제되며 복구할 수 없습니다. 계속하시겠습니까?",
       "button": "모든 데이터 초기화",
       "exportBtn": "계정 내보내기",

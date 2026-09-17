@@ -61,6 +61,10 @@ export const MAX_DOWNLOAD_SIZE = 8 * 1024 * 1024 * 1024; // 8 GB
 export const DOWNLOAD_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours
 export const BAG_TIMEOUT_MS = 15_000; // 15 seconds
 export const BAG_MAX_BYTES = 1024 * 1024; // 1 MB
+// Deadline for the HEAD/Range probes that verify an Apple file size before a
+// download task is created. Without it a stalled CDN response hangs the
+// POST /downloads request until undici's default (~5 min) fires.
+export const SIZE_PROBE_TIMEOUT_MS = 15_000;
 export const MIN_ACCOUNT_HASH_LENGTH = 8;
 
 // Shared version metadata cache: entry cap for the (appId, versionId) directory

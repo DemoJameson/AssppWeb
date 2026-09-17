@@ -3,8 +3,8 @@ import { promisify } from "util";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import AdmZip from "adm-zip";
-import { open as openZip } from "yauzl-promise";
+import { ZipArchive } from "archiver";
+import { open as openZip, type Entry } from "yauzl-promise";
 import type { Readable } from "stream";
 import bplistParser from "bplist-parser";
 import bplistCreator from "bplist-creator";
@@ -662,7 +662,7 @@ async function addFilesToZip(
   files: { entryPath: string; data: Buffer }[],
 ): Promise<void> {
   if (!(await hasZipCommand())) {
-    rewriteWithAdmZip(ipaPath, files);
+    await rewriteZipStreaming(ipaPath, files);
     return;
   }
 
@@ -708,50 +708,109 @@ function hasZipCommand(): Promise<boolean> {
 }
 
 /**
- * Upper bound for the in-process writer: adm-zip rewrites the whole archive in
- * memory, which is exactly why upstream moved to the `zip` command for large
- * packages. Refuse rather than risk an OOM on a huge IPA.
+ * Rewrites the archive with the built-in streaming writer. Only used when no
+ * `zip` command exists, so that a download fails for a real reason instead of
+ * "spawn zip ENOENT". Entries are piped one at a time from yauzl to archiver
+ * — a full entry is in flight at most — so memory stays bounded no matter how
+ * large the package is. The 512 MB ceiling the previous in-memory writer
+ * (adm-zip) needed is deliberately gone: a bare host can now compile any
+ * package the container image can.
  */
-const MAX_IN_PROCESS_ARCHIVE_BYTES = 512 * 1024 * 1024;
-
-/**
- * Rewrites the archive with the bundled zip writer. Only used when no `zip`
- * command exists, so that a download fails for a real reason instead of
- * "spawn zip ENOENT".
- */
-function rewriteWithAdmZip(
+async function rewriteZipStreaming(
   ipaPath: string,
   files: { entryPath: string; data: Buffer }[],
-): void {
-  const { size } = fs.statSync(ipaPath);
-  if (size > MAX_IN_PROCESS_ARCHIVE_BYTES) {
-    throw new Error(
-      `Package is ${Math.round(size / 1024 / 1024)} MB and no \`zip\` command is available; install zip or run the container image for packages this large`,
-    );
-  }
-
+): Promise<void> {
   console.warn(
-    "[sinfInjector] `zip` not found on PATH; rewriting the IPA with the built-in zip writer",
+    "[sinfInjector] `zip` not found on PATH; rewriting the IPA with the built-in streaming zip writer",
   );
 
-  const archive = new AdmZip(ipaPath);
+  // Normalize and traversal-check the incoming entries up front; an entry
+  // whose name collides with an existing archive entry replaces it.
+  const injected = new Map<string, Buffer>();
   for (const file of files) {
     const normalized = path.posix.normalize(file.entryPath);
     if (path.posix.isAbsolute(normalized) || normalized.startsWith("../")) {
       throw new Error(`Path traversal detected in entry: ${file.entryPath}`);
     }
-
-    if (archive.getEntry(file.entryPath)) {
-      archive.updateFile(file.entryPath, file.data);
-    } else {
-      archive.addFile(file.entryPath, file.data);
-    }
+    injected.set(normalized, file.data);
   }
 
-  // adm-zip appends `.zip` to a target name that lacks the extension.
-  const rewritten = `${ipaPath}.tmp.zip`;
-  archive.writeZip(rewritten);
-  fs.renameSync(rewritten, ipaPath);
+  const rebuiltPath = `${ipaPath}.rebuild`;
+  const source = await openZip(ipaPath);
+  const output = fs.createWriteStream(rebuiltPath);
+  const archive = new ZipArchive();
+  archive.pipe(output);
+
+  // Rejects on any archive or output error; resolves only once the rebuilt
+  // file has been fully flushed to disk.
+  const settled = new Promise<void>((resolve, reject) => {
+    output.on("close", resolve);
+    output.on("error", reject);
+    archive.on("error", reject);
+  });
+
+  try {
+    for await (const entry of source) {
+      // Replaced entries are written fresh at the end, not copied through.
+      if (injected.has(entry.filename)) continue;
+
+      if (entry.filename.endsWith("/")) {
+        archive.append(Buffer.alloc(0), {
+          name: entry.filename,
+          store: true,
+          date: entry.getLastMod(),
+          mode: unixModeOf(entry),
+        });
+        continue;
+      }
+
+      const stream = await entry.openReadStream();
+      archive.append(stream, {
+        name: entry.filename,
+        store: !entry.isCompressed(),
+        date: entry.getLastMod(),
+        mode: unixModeOf(entry),
+      });
+      // One entry in flight at a time: yauzl streams are consumed strictly
+      // sequentially, and a package of any size is rewritten with bounded
+      // memory. The race against `settled` keeps a mid-rewrite archive error
+      // from hanging on a stream that will never be drained.
+      await Promise.race([
+        new Promise<void>((resolve, reject) => {
+          stream.on("end", resolve);
+          stream.on("error", reject);
+        }),
+        settled,
+      ]);
+    }
+
+    // The injected files go in uncompressed (they are tiny), matching the
+    // `zip -0` the command path uses.
+    for (const [name, data] of injected) {
+      archive.append(data, { name, store: true });
+    }
+
+    await archive.finalize();
+    await settled;
+    await source.close();
+    fs.renameSync(rebuiltPath, ipaPath);
+  } catch (err) {
+    await source.close().catch(() => {});
+    output.destroy();
+    try {
+      fs.rmSync(rebuiltPath, { force: true });
+    } catch {
+      // best-effort cleanup
+    }
+    throw err;
+  }
+}
+
+/** Unix permission bits of a zip entry, when the archive recorded any. */
+function unixModeOf(entry: Entry): number | undefined {
+  // The high byte of versionMadeBy names the host system; 3 is Unix.
+  if ((entry.versionMadeBy >> 8) !== 3) return undefined;
+  return (entry.externalFileAttributes >>> 16) & 0o7777;
 }
 
 function parsePlistBuffer(data: Buffer): Record<string, unknown> | null {

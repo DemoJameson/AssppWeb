@@ -20,6 +20,9 @@ interface DownloadsState {
 }
 
 let pollInterval: ReturnType<typeof setInterval> | null = null;
+// Aborts the in-flight list request when a newer one starts, so a slow older
+// response can never overwrite fresher state.
+let fetchAbort: AbortController | null = null;
 
 export const useDownloadsStore = create<DownloadsState>((set, get) => ({
   tasks: [],
@@ -30,9 +33,14 @@ export const useDownloadsStore = create<DownloadsState>((set, get) => ({
 
   fetchTasks: async () => {
     const { accountHashes } = get();
+    fetchAbort?.abort();
+    const abort = new AbortController();
+    fetchAbort = abort;
     set({ loading: true });
     try {
-      const tasks = await downloadsApi.fetchDownloads(accountHashes);
+      const tasks = await downloadsApi.fetchDownloads(accountHashes, {
+        signal: abort.signal,
+      });
       set({ tasks, loading: false });
 
       const hasActive = tasks.some(
@@ -49,7 +57,10 @@ export const useDownloadsStore = create<DownloadsState>((set, get) => ({
         clearInterval(pollInterval);
         pollInterval = null;
       }
-    } catch {
+    } catch (err) {
+      // A superseded request must not clear the loading state of its
+      // replacement.
+      if (err instanceof Error && err.name === "AbortError") return;
       set({ loading: false });
     }
   },

@@ -7,11 +7,33 @@ export function authHeaders(): Record<string, string> {
   return token ? { "X-Access-Token": token } : {};
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
+/**
+ * Builds the Error thrown for a non-2xx response. The backend answers with
+ * `{"error": "..."}` JSON — surface that field as the message instead of the
+ * raw JSON text, falling back to the body text or the status code.
+ */
+async function toError(res: Response): Promise<Error> {
+  const text = await res.text();
+  try {
+    const data = JSON.parse(text) as { error?: unknown };
+    if (typeof data.error === "string" && data.error) {
+      return new Error(data.error);
+    }
+  } catch {
+    // Not JSON — use the raw text below.
+  }
+  return new Error(text || `HTTP ${res.status}`);
+}
+
+export async function apiGet<T>(
+  path: string,
+  options?: { signal?: AbortSignal },
+): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: authHeaders(),
+    signal: options?.signal,
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw await toError(res);
   return res.json();
 }
 
@@ -21,7 +43,7 @@ export async function apiPost<T>(path: string, body?: any): Promise<T> {
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw await toError(res);
   return res.json();
 }
 
@@ -30,5 +52,5 @@ export async function apiDelete(path: string): Promise<void> {
     method: "DELETE",
     headers: authHeaders(),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw await toError(res);
 }

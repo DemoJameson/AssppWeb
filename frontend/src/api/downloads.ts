@@ -3,12 +3,13 @@ import type { DownloadTask, Software, Sinf } from "../types";
 
 export async function fetchDownloads(
   accountHashes: string[],
+  options?: { signal?: AbortSignal },
 ): Promise<DownloadTask[]> {
   if (accountHashes.length === 0) return [];
   const params = new URLSearchParams({
     accountHashes: accountHashes.join(","),
   });
-  return apiGet<DownloadTask[]>(`/api/downloads?${params}`);
+  return apiGet<DownloadTask[]>(`/api/downloads?${params}`, options);
 }
 
 export async function startDownload(data: {
