@@ -179,10 +179,10 @@
     "item": {
       "viewPackage": "View Package"
     },
-    "manual": {
-      "button": "Manual Download",
+    "byId": {
+      "button": "Download by ID",
       "hint": "Download directly by app ID",
-      "title": "Manual Download",
+      "title": "Download by ID",
       "appId": "App ID",
       "appIdPlaceholder": "e.g. 1492142120",
       "versionId": "Version ID",

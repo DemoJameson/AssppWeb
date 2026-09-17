@@ -47,7 +47,7 @@ describe('taskIconUrl', () => {
   });
 
   it('falls back to the icon lifted out of the package', () => {
-    // The whole point of the manual download page: an app looked up by id with
+    // The whole point of the download-by-ID page: an app looked up by id with
     // no storefront metadata behind it still gets an icon.
     expect(taskIconUrl(task({ hasIcon: true }))).toBe(
       '/api/downloads/task-id/icon?accountHash=hash1234567890',

@@ -52,7 +52,7 @@ function placeholderSoftware(id: string, platform: Platform): Software {
  * unknown or the app cannot be found by name. Same account and region selection
  * as the regular new-download page.
  */
-export default function ManualDownload() {
+export default function DownloadById() {
   const { accounts, updateAccount } = useAccounts();
   const { defaultCountry, defaultPlatform } = useSettingsStore();
   const { t } = useTranslation();
@@ -116,7 +116,7 @@ export default function ManualDownload() {
       await updateAccount({ ...account, cookies: result.updatedCookies });
     } catch (err) {
       addToast(
-        getErrorMessage(err, t("downloads.manual.versionsFailed")),
+        getErrorMessage(err, t("downloads.byId.versionsFailed")),
         "error",
       );
     } finally {
@@ -151,7 +151,7 @@ export default function ManualDownload() {
   }
 
   return (
-    <PageContainer title={t("downloads.manual.title")}>
+    <PageContainer title={t("downloads.byId.title")}>
       <div className="min-w-0 space-y-6">
         <form
           onSubmit={handleDownload}
@@ -160,37 +160,37 @@ export default function ManualDownload() {
           <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-start">
             <div className="min-w-0">
               <label
-                htmlFor="manual-app-id"
+                htmlFor="by-id-app-id"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
               >
-                {t("downloads.manual.appId")}
+                {t("downloads.byId.appId")}
               </label>
               <input
-                id="manual-app-id"
+                id="by-id-app-id"
                 type="text"
                 inputMode="numeric"
                 value={appId}
                 onChange={(e) => setAppId(e.target.value)}
-                placeholder={t("downloads.manual.appIdPlaceholder")}
+                placeholder={t("downloads.byId.appIdPlaceholder")}
                 className="min-h-11 w-full min-w-0 rounded-xl border-0 bg-gray-100 px-4 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
                 disabled={loading}
               />
               {appId.trim() !== "" && !appIdValid && (
                 <p className="mt-1 min-w-0 break-words text-xs text-red-600 [overflow-wrap:anywhere] dark:text-red-400">
-                  {t("downloads.manual.invalidAppId")}
+                  {t("downloads.byId.invalidAppId")}
                 </p>
               )}
             </div>
             <div className="min-w-0">
               <label
-                htmlFor="manual-version-id"
+                htmlFor="by-id-version-id"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
               >
-                {t("downloads.manual.versionId")}
+                {t("downloads.byId.versionId")}
               </label>
               {versions.length > 0 ? (
                 <select
-                  id="manual-version-id"
+                  id="by-id-version-id"
                   value={versionId}
                   onChange={(e) => setVersionId(e.target.value)}
                   className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
@@ -204,12 +204,12 @@ export default function ManualDownload() {
                 </select>
               ) : (
                 <input
-                  id="manual-version-id"
+                  id="by-id-version-id"
                   type="text"
                   inputMode="numeric"
                   value={versionId}
                   onChange={(e) => setVersionId(e.target.value)}
-                  placeholder={t("downloads.manual.versionIdPlaceholder")}
+                  placeholder={t("downloads.byId.versionIdPlaceholder")}
                   className="min-h-11 w-full min-w-0 rounded-xl border-0 bg-gray-100 px-4 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
                   disabled={loading}
                 />
@@ -218,7 +218,7 @@ export default function ManualDownload() {
                 versionId.trim() !== "" &&
                 !versionIdValid && (
                   <p className="mt-1 min-w-0 break-words text-xs text-red-600 [overflow-wrap:anywhere] dark:text-red-400">
-                    {t("downloads.manual.invalidVersionId")}
+                    {t("downloads.byId.invalidVersionId")}
                   </p>
                 )}
             </div>
@@ -227,7 +227,7 @@ export default function ManualDownload() {
                 className="invisible block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
               >
 
-                {t("downloads.manual.download")}
+                {t("downloads.byId.download")}
               </label>
               <button
                 type="button"
@@ -236,15 +236,15 @@ export default function ManualDownload() {
                 className="min-h-11 w-full min-w-0 whitespace-normal break-words rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
                 {loadingVersions
-                  ? t("downloads.manual.loadingVersions")
-                  : t("downloads.manual.loadVersions")}
+                  ? t("downloads.byId.loadingVersions")
+                  : t("downloads.byId.loadVersions")}
               </button>
             </div>
             <div className="min-w-0">
               <label
                 className="invisible block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
               >
-                {t("downloads.manual.download")}
+                {t("downloads.byId.download")}
               </label>
               <button
                 type="submit"
@@ -252,8 +252,8 @@ export default function ManualDownload() {
                 className="min-h-11 w-full min-w-0 whitespace-normal break-words rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
                 {loading
-                  ? t("downloads.manual.processing")
-                  : t("downloads.manual.download")}
+                  ? t("downloads.byId.processing")
+                  : t("downloads.byId.download")}
               </button>
             </div>
           </div>
@@ -279,7 +279,7 @@ export default function ManualDownload() {
                 ))
               ) : (
                 <option value="">
-                  {t("downloads.manual.noAccountsForRegion")}
+                  {t("downloads.byId.noAccountsForRegion")}
                 </option>
               )}
             </select>
@@ -306,12 +306,12 @@ export default function ManualDownload() {
                   </p>
                 )}
                 <p className="min-w-0 break-all text-sm text-gray-400 dark:text-gray-500">
-                  {t("downloads.manual.resolvedId", { id: queued.id })}
+                  {t("downloads.byId.resolvedId", { id: queued.id })}
                   {queued.bundleID ? ` - ${queued.bundleID}` : ""}
                 </p>
                 {!queued.bundleID && (
                   <p className="mt-1 min-w-0 break-words text-sm text-gray-400 [overflow-wrap:anywhere] dark:text-gray-500">
-                    {t("downloads.manual.notFoundNote")}
+                    {t("downloads.byId.notFoundNote")}
                   </p>
                 )}
               </div>

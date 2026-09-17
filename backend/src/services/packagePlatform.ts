@@ -5,7 +5,7 @@
 // identify, and installing it would silently give the user the wrong thing.
 //
 // The package's own declaration is the authority, not the platform the request
-// carried: a manual download can pin a tvOS version id while the platform
+// carried: a by-ID download can pin a tvOS version id while the platform
 // selector still reads iOS, and the package that comes back is a tvOS build.
 // Validating against the request's platform would reject a perfectly good IPA.
 //
@@ -55,7 +55,7 @@ export function platformFromSupported(
  * Validates that the downloaded IPA declares support for at least one known
  * platform in its `CFBundleSupportedPlatforms`, and returns that platform so the
  * caller can correct the task when the request's platform was wrong (e.g. a
- * manual download that pinned a tvOS version id with the selector on iOS).
+ * by-ID download that pinned a tvOS version id with the selector on iOS).
  * Throws {@link PackagePlatformError} when no known platform is declared.
  */
 export async function validatePackagePlatform(

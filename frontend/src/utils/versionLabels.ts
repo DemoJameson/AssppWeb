@@ -1,7 +1,7 @@
 import type { VersionMetadata } from "../types";
 
 /**
- * Option text for the download version pickers (AddDownload, ManualDownload):
+ * Option text for the download version pickers (AddDownload, DownloadById):
  * the external id stays first because it is the value the picker submits; a
  * cached display version is appended in parentheses.
  */

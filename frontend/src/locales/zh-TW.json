@@ -179,10 +179,10 @@
     "item": {
       "viewPackage": "查看安裝包"
     },
-    "manual": {
-      "button": "手動下載",
+    "byId": {
+      "button": "指定下載",
       "hint": "直接依軟體 ID 下載",
-      "title": "手動下載",
+      "title": "指定下載",
       "appId": "軟體 ID",
       "appIdPlaceholder": "例如 1492142120",
       "versionId": "版本 ID",

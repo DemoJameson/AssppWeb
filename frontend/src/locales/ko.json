@@ -179,10 +179,10 @@
     "item": {
       "viewPackage": "패키지 보기"
     },
-    "manual": {
-      "button": "수동 다운로드",
+    "byId": {
+      "button": "ID로 다운로드",
       "hint": "앱 ID로 바로 다운로드",
-      "title": "수동 다운로드",
+      "title": "ID로 다운로드",
       "appId": "앱 ID",
       "appIdPlaceholder": "예: 1492142120",
       "versionId": "버전 ID",

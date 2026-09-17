@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import ManualDownload from '../../src/components/Download/ManualDownload';
+import DownloadById from '../../src/components/Download/DownloadById';
 import type { Account, Software } from '../../src/types';
 
 const mocks = vi.hoisted(() => ({
@@ -95,19 +95,19 @@ const resolvedApp: Software = {
 function renderPage() {
   return render(
     <MemoryRouter>
-      <ManualDownload />
+      <DownloadById />
     </MemoryRouter>,
   );
 }
 
-const appIdInput = () => screen.getByLabelText('downloads.manual.appId');
-const versionIdInput = () => screen.getByLabelText('downloads.manual.versionId');
+const appIdInput = () => screen.getByLabelText('downloads.byId.appId');
+const versionIdInput = () => screen.getByLabelText('downloads.byId.versionId');
 const downloadButton = () =>
-  screen.getByRole('button', { name: 'downloads.manual.download' });
+  screen.getByRole('button', { name: 'downloads.byId.download' });
 const loadVersionsButton = () =>
-  screen.getByRole('button', { name: 'downloads.manual.loadVersions' });
+  screen.getByRole('button', { name: 'downloads.byId.loadVersions' });
 
-describe('ManualDownload', () => {
+describe('DownloadById', () => {
   beforeEach(() => {
     mocks.accounts = [account];
     mocks.startDownload.mockReset();
@@ -153,11 +153,11 @@ describe('ManualDownload', () => {
     expect((downloadButton() as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.change(appIdInput(), { target: { value: 'com.example.app' } });
-    expect(screen.getByText('downloads.manual.invalidAppId')).toBeTruthy();
+    expect(screen.getByText('downloads.byId.invalidAppId')).toBeTruthy();
     expect((downloadButton() as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.change(appIdInput(), { target: { value: '1492142120' } });
-    expect(screen.queryByText('downloads.manual.invalidAppId')).toBeNull();
+    expect(screen.queryByText('downloads.byId.invalidAppId')).toBeNull();
     expect((downloadButton() as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -167,7 +167,7 @@ describe('ManualDownload', () => {
     fireEvent.change(appIdInput(), { target: { value: '1492142120' } });
     fireEvent.change(versionIdInput(), { target: { value: 'latest' } });
 
-    expect(screen.getByText('downloads.manual.invalidVersionId')).toBeTruthy();
+    expect(screen.getByText('downloads.byId.invalidVersionId')).toBeTruthy();
     expect((downloadButton() as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -218,7 +218,7 @@ describe('ManualDownload', () => {
     expect(calledApp.id).toBe(1492142120);
     expect(calledApp.bundleID).toBe('');
     expect(calledApp.platform).toBe('ios');
-    expect(screen.getByText('downloads.manual.notFoundNote')).toBeTruthy();
+    expect(screen.getByText('downloads.byId.notFoundNote')).toBeTruthy();
   });
 
   it('reports a failed download instead of leaving the page silent', async () => {
@@ -248,7 +248,7 @@ describe('ManualDownload', () => {
 
     expect(mocks.lookupAppById).toHaveBeenCalledWith('1492142120', 'US', 'ios');
     const select = screen.getByLabelText(
-      'downloads.manual.versionId',
+      'downloads.byId.versionId',
     ) as HTMLSelectElement;
     expect(select.tagName).toBe('SELECT');
     expect(select.value).toBe('890964826');
@@ -285,7 +285,7 @@ describe('ManualDownload', () => {
       expect(mocks.addToast).toHaveBeenCalledWith('boom', 'error');
     });
     expect(
-      (screen.getByLabelText('downloads.manual.versionId') as HTMLInputElement)
+      (screen.getByLabelText('downloads.byId.versionId') as HTMLInputElement)
         .tagName,
     ).toBe('INPUT');
   });
@@ -307,7 +307,7 @@ describe('ManualDownload', () => {
     expect(calledApp.platform).toBe('ios');
 
     const select = screen.getByLabelText(
-      'downloads.manual.versionId',
+      'downloads.byId.versionId',
     ) as HTMLSelectElement;
     expect(select.tagName).toBe('SELECT');
     expect(select.value).toBe('890964826');

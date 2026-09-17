@@ -59,7 +59,7 @@ export function useDownloadAction() {
 
     // The app id is the identity here (ipatool's `App.ID`); the bundle id is
     // whatever the storefront or the download item reports. When neither knows
-    // it — a manual download by bare app id — it is left empty and the backend
+    // it — a download created from a bare app id — it is left empty and the backend
     // reads it out of the compiled package.
     const bundleID = app.bundleID || output.bundleID || "";
 

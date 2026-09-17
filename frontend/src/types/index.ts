@@ -11,7 +11,7 @@ export interface Software {
    */
   id: number;
   /**
-   * May be empty: a download created from a bare app id (the manual download
+   * May be empty: a download created from a bare app id (the download-by-ID
    * page) does not know it up front. The layout then keys off `id`, and the
    * bundle identifier is read out of the finished package.
    */
@@ -34,7 +34,7 @@ export interface Software {
   primaryGenreName: string;
   /**
    * Which store platform the app is meant for. Drives the search entity, the
-   * lookup entity and the version pin; absent on manual downloads until the
+   * lookup entity and the version pin; absent on by-ID downloads until the
    * catalogue or the user names a platform.
    */
   platform?: Platform;
@@ -78,7 +78,7 @@ export interface DownloadOutput {
   bundleVersion: string;
   /**
    * Apple's bundle identifier for the item. Lets a download created without
-   * storefront metadata (manual download) still produce a usable manifest.
+   * storefront metadata (by-ID download) still produce a usable manifest.
    */
   bundleID?: string;
   iTunesMetadata?: string;

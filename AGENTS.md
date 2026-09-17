@@ -291,9 +291,9 @@ already fulfilled, and ipatool's CLI ignores its `ErrLicenseAlreadyExists` as a
 terminal success state. `2059` retries once with the Apple Arcade
 `pricingParameters` (`GAME`), matching ipatool.
 
-### Manual download (app-id first)
+### Download by ID (app-id first)
 
-`/downloads/manual` creates a download from a bare numeric app id plus an
+`/downloads/by-id` creates a download from a bare numeric app id plus an
 optional version id, for when the bundle id is unknown or the app cannot be
 found by name. The page's "software ID" **is** ipatool's `App.ID`. The catalogue
 lookup it performs first is best effort: when it misses, the task is built from
@@ -302,7 +302,7 @@ the id alone.
 The app id is therefore the identity of a task and everything else is derived,
 in this order:
 
-1. the storefront lookup on the manual page,
+1. the storefront lookup on the by-ID page,
 2. what the download response reports — `softwareVersionBundleId` becomes
    `DownloadOutput.bundleID`, and the item metadata is what the frontend embeds
    as `iTunesMetadata.plist`,

@@ -179,10 +179,10 @@
     "item": {
       "viewPackage": "パッケージを表示"
     },
-    "manual": {
-      "button": "手動ダウンロード",
+    "byId": {
+      "button": "IDでダウンロード",
       "hint": "アプリ ID を指定してダウンロード",
-      "title": "手動ダウンロード",
+      "title": "IDでダウンロード",
       "appId": "アプリ ID",
       "appIdPlaceholder": "例: 1492142120",
       "versionId": "バージョン ID",

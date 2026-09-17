@@ -11,7 +11,7 @@ export interface Software {
    */
   id: number;
   /**
-   * May be empty: a download created from a bare app id (the manual download
+   * May be empty: a download created from a bare app id (the download-by-ID
    * page) does not know it up front. The layout then keys off `id`, and the
    * bundle identifier is read out of the finished package.
    */

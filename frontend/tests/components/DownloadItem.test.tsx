@@ -56,7 +56,7 @@ describe('DownloadItem icon', () => {
   afterEach(cleanup);
 
   it('draws the icon the package carried when the storefront had none', () => {
-    // A manual download knows only the app id, so the package is the only
+    // A by-ID download knows only the app id, so the package is the only
     // source for an icon.
     const { container } = renderItem(createTask({ hasIcon: true }));
 

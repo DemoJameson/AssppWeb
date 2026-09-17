@@ -60,8 +60,8 @@ export function appPathSegment(software: Software): string {
  * declares. A value the storefront reported always wins, so a download created
  * from search results is left untouched.
  *
- * The manual download page labels an app it could not look up as `App <id>`
- * (see `placeholderSoftware` in the frontend's ManualDownload page); that label
+ * The download-by-ID page labels an app it could not look up as `App <id>`
+ * (see `placeholderSoftware` in the frontend's DownloadById page); that label
  * counts as "no name yet" so the package can supply the real one.
  */
 /** Fields of `Software` that a package can supply when the request did not. */
@@ -84,8 +84,8 @@ export function applyPackageMetadata(
 ): boolean {
   let changed = false;
 
-  // The manual download page labels an app it could not look up `App <id>`
-  // (see `placeholderSoftware` in the frontend's ManualDownload page); that
+  // The download-by-ID page labels an app it could not look up `App <id>`
+  // (see `placeholderSoftware` in the frontend's DownloadById page); that
   // label counts as "no name yet" so the package can supply the real one.
   if (
     metadata.name &&
@@ -734,7 +734,7 @@ async function startDownload(task: DownloadTask) {
     // Validate the package declares support for a known platform before
     // injecting — mirrors ipatool's validatePackagePlatform. macOS packages are
     // .pkg (xar), not IPAs, so the check is skipped for them. The package's own
-    // declaration is the authority over the request's platform: a manual download
+    // declaration is the authority over the request's platform: a by-ID download
     // can pin a tvOS version id with the selector on iOS, and the IPA that comes
     // back is a tvOS build.
     if (!isMacOSPackage) {
