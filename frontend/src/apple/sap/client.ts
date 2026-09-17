@@ -50,11 +50,14 @@ class WorkerMachineDriver implements SapMachineDriver {
     };
   }
 
-  call(request: Record<string, unknown>): Promise<WorkerResult> {
+  call(
+    request: Record<string, unknown>,
+    transfer?: Transferable[],
+  ): Promise<WorkerResult> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ ...request, id });
+      this.worker.postMessage({ ...request, id }, transfer ?? []);
     });
   }
 
@@ -67,16 +70,23 @@ class WorkerMachineDriver implements SapMachineDriver {
     },
     wasmBinary: ArrayBuffer,
   ): Promise<void> {
-    await this.call({
-      type: "open",
-      assets: {
-        commerceKit: assets.commerceKit.slice().buffer,
-        commerceCore: assets.commerceCore.slice().buffer,
-        coreFP: assets.coreFP.slice().buffer,
-        coreFPICXS: assets.coreFPICXS.slice().buffer,
-      },
-      wasmBinary,
-    });
+    // Hand the buffers over instead of copying ~22.5 MB twice (the old
+    // slice() copies plus postMessage's structured clone): the emulation is
+    // the only consumer, and a rebuild re-reads the assets from the Cache
+    // API, so nothing on this side touches them after open(). Only the
+    // module-level wasm cache outlives a preparation and is copied.
+    const buffers = {
+      commerceKit: assets.commerceKit.buffer as ArrayBuffer,
+      commerceCore: assets.commerceCore.buffer as ArrayBuffer,
+      coreFP: assets.coreFP.buffer as ArrayBuffer,
+      coreFPICXS: assets.coreFPICXS.buffer as ArrayBuffer,
+    };
+    const wasmCopy = wasmBinary.slice(0);
+
+    await this.call(
+      { type: "open", assets: buffers, wasmBinary: wasmCopy },
+      [...Object.values(buffers), wasmCopy],
+    );
   }
 
   async initialize(hardwareID: Uint8Array): Promise<number> {

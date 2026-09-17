@@ -1,4 +1,5 @@
-import { libcurl } from "libcurl.js/bundled";
+import { libcurl } from "libcurl.js";
+import libcurlWasmUrl from "libcurl.js/libcurl.wasm?url";
 import { getAccessToken } from "../components/Auth/PasswordGate";
 
 let initialized = false;
@@ -16,7 +17,9 @@ export async function initLibcurl(): Promise<void> {
       wsUrl += `?token=${encodeURIComponent(token)}`;
     }
     libcurl.set_websocket(wsUrl);
-    await libcurl.load_wasm();
+    // The wasm engine is a separate asset: it downloads only when Apple
+    // networking is first initialized, not when this module is loaded.
+    await libcurl.load_wasm(libcurlWasmUrl);
     initialized = true;
   })();
 

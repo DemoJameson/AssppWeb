@@ -47,7 +47,7 @@ const CACHE_NAME = "asspp-sap-assets-v1";
 async function fetchWithProgress(
   url: string,
   onProgress?: (loaded: number, total: number) => void,
-): Promise<Uint8Array> {
+): Promise<Uint8Array<ArrayBuffer>> {
   const response = await fetch(url, { headers: authHeaders() });
   if (!response.ok) {
     throw new Error(`SAP asset download failed: HTTP ${response.status}`);
@@ -78,10 +78,11 @@ async function fetchWithProgress(
   return assembled;
 }
 
-async function digestMatches(data: Uint8Array, expected: string): Promise<boolean> {
-  const view = new Uint8Array(data.length);
-  view.set(data);
-  const digest = await crypto.subtle.digest("SHA-256", view.buffer as ArrayBuffer);
+async function digestMatches(
+  data: Uint8Array<ArrayBuffer>,
+  expected: string,
+): Promise<boolean> {
+  const digest = await crypto.subtle.digest("SHA-256", data);
   const actual = Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
@@ -107,15 +108,16 @@ export async function loadSapAssets(
 
   const bundle: Record<string, Uint8Array> = {};
   for (const spec of SAP_ASSET_SPECS) {
-    let data: Uint8Array | null = null;
+    let data: Uint8Array<ArrayBuffer> | null = null;
 
     if (cache) {
       const cached = await cache.match(`/api/sap-assets/${spec.name}`);
       if (cached) {
-        const buffer = await cached.arrayBuffer();
-        const cachedBytes = new Uint8Array(buffer);
+        const cachedBytes = new Uint8Array(await cached.arrayBuffer());
         if (await digestMatches(cachedBytes, spec.sha256)) {
-          data = new Uint8Array(cachedBytes);
+          // Hand out the verified view directly — nothing else references it,
+          // and the old extra copy doubled peak memory for no reason.
+          data = cachedBytes;
         }
       }
     }

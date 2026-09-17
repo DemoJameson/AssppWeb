@@ -38,3 +38,8 @@ declare module "libcurl.js/bundled" {
   import type { Libcurl } from "libcurl.js";
   export const libcurl: Libcurl;
 }
+
+declare module "libcurl.js/libcurl.wasm?url" {
+  const url: string;
+  export default url;
+}

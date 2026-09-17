@@ -12,3 +12,5 @@ icon.jpg
 references
 compose*.yml
 .DS_Store
+backend/data
+.cowork-temp

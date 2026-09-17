@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { useAccountsStore } from "../store/accounts";
 import { useSapStore } from "../store/sap";
-import { prepareSigner } from "../apple/sap/client";
 import { fetchBag } from "../apple/bag";
 
 // Starts preparing the SAP signer in the background once an account exists.
@@ -33,6 +32,9 @@ export function useSapWarmup() {
         if (!bag.sapEndpoints) {
           return; // bag without SAP keys: legacy flow, nothing to warm up
         }
+        // On-demand import: keeps the SAP machinery out of the route's
+        // initial download; the warmup itself is fire-and-forget either way.
+        const { prepareSigner } = await import("../apple/sap/client");
         await prepareSigner(device, bag.sapEndpoints);
       })
       .catch(() => {
