@@ -21,6 +21,8 @@ interface IpaMetadata {
   info: { bundleExecutable: string } | null;
   /** The app's parsed Info.plist, as declared by the package itself. */
   infoPlist: Record<string, unknown> | null;
+  /** The ZIP entry modification time of Info.plist — a fallback release date. */
+  infoPlistDate: Date | null;
   /**
    * The parsed `iTunesMetadata.plist` at the archive root, when a previous
    * injection wrote one. It carries what Apple said about the download.
@@ -110,7 +112,7 @@ export async function inject(
   ipaPath: string,
   iTunesMetadata?: string,
 ): Promise<InjectResult> {
-  const { bundleName, manifest, info, infoPlist, iconCandidates } =
+  const { bundleName, manifest, info, infoPlist, infoPlistDate, iconCandidates } =
     await readIpaMetadata(ipaPath);
 
   // Read the icon before the archive is rewritten, so a package that fails to
@@ -172,7 +174,7 @@ export async function inject(
     await addFilesToZip(ipaPath, filesToInject);
   }
 
-  return { metadata: packageMetadata(storeMetadata, infoPlist), icon };
+  return { metadata: packageMetadata(storeMetadata, infoPlist, infoPlistDate), icon };
 }
 
 /**
@@ -185,11 +187,11 @@ export async function inject(
 export async function readPackageInfo(
   ipaPath: string,
 ): Promise<{ metadata: PackageMetadata; icon?: PackageIcon }> {
-  const { bundleName, infoPlist, storeMetadata, iconCandidates } =
+  const { bundleName, infoPlist, infoPlistDate, storeMetadata, iconCandidates } =
     await readIpaMetadata(ipaPath);
 
   return {
-    metadata: packageMetadata(storeMetadata, infoPlist),
+    metadata: packageMetadata(storeMetadata, infoPlist, infoPlistDate),
     icon: await readPackageIcon(ipaPath, bundleName, infoPlist, iconCandidates),
   };
 }
@@ -213,6 +215,33 @@ function firstString(
     }
   }
 
+  return undefined;
+}
+
+/**
+ * Reads the release date from the package's Info.plist, mirroring ipatool's
+ * `readVersionMetadataFromIPA`: Apple's download API can return stale values,
+ * so the IPA itself is the source of truth. The ZIP entry's modification time
+ * is the fallback when Info.plist carries no date field.
+ */
+function releaseDateFromPackage(
+  infoPlist: Record<string, unknown> | null,
+  fallback?: Date | null,
+): string | undefined {
+  if (infoPlist) {
+    for (const key of ["releaseDate", "ReleaseDate"]) {
+      const value = infoPlist[key];
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.toISOString();
+      }
+      if (typeof value === "string" && value.trim() !== "") {
+        return value.trim();
+      }
+    }
+  }
+  if (fallback && !Number.isNaN(fallback.getTime())) {
+    return fallback.toISOString();
+  }
   return undefined;
 }
 
@@ -251,6 +280,7 @@ function firstValue(
 function packageMetadata(
   store: Record<string, unknown> | null,
   infoPlist: Record<string, unknown> | null,
+  infoPlistDate?: Date | null,
 ): PackageMetadata {
   return {
     name:
@@ -267,7 +297,7 @@ function packageMetadata(
       firstString(infoPlist, ["MinimumOSVersion"]) ??
       firstString(store, ["minimumOsVersion"]),
     primaryGenreName: firstString(store, ["primaryGenreName", "genre"]),
-    releaseDate: firstString(store, ["releaseDate"]),
+    releaseDate: releaseDateFromPackage(infoPlist, infoPlistDate),
     artworkURL: sharperIconURL(
       firstString(store, ["softwareIcon57x57URL", "artworkURL"]),
     ),
@@ -310,6 +340,7 @@ async function readIpaMetadata(ipaPath: string): Promise<IpaMetadata> {
     let bundleName: string | null = null;
     let manifestData: Buffer | null = null;
     let infoPlistData: Buffer | null = null;
+    let infoPlistDate: Date | null = null;
     let storeMetadataData: Buffer | null = null;
     const iconCandidates: IconCandidate[] = [];
 
@@ -358,6 +389,7 @@ async function readIpaMetadata(ipaPath: string): Promise<IpaMetadata> {
       ) {
         const stream = await entry.openReadStream();
         infoPlistData = await streamToBuffer(stream);
+        infoPlistDate = entry.getLastMod();
       }
     }
 
@@ -396,6 +428,7 @@ async function readIpaMetadata(ipaPath: string): Promise<IpaMetadata> {
       manifest,
       info,
       infoPlist,
+      infoPlistDate,
       storeMetadata: storeMetadataData
         ? parsePlistBuffer(storeMetadataData)
         : null,

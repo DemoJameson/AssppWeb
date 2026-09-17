@@ -185,7 +185,7 @@ describe('ManualDownload', () => {
     const [calledAccount, calledApp, calledVersion] =
       mocks.startDownload.mock.calls[0];
     expect(calledAccount).toEqual(account);
-    expect(calledApp).toEqual(resolvedApp);
+    expect(calledApp).toEqual({ ...resolvedApp, releaseDate: '' });
     expect(calledVersion).toBeUndefined();
   });
 

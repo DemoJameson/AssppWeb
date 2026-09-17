@@ -254,7 +254,7 @@ describe("sinfInjector", () => {
       minimumOsVersion: "16.0",
       artistName: undefined,
       primaryGenreName: undefined,
-      releaseDate: undefined,
+      releaseDate: expect.any(String),
     });
   });
 
@@ -280,7 +280,9 @@ describe("sinfInjector", () => {
     expect(result.metadata.artistName).toBe("Store Developer");
     expect(result.metadata.version).toBe("9.9.9");
     expect(result.metadata.primaryGenreName).toBe("Utilities");
-    expect(result.metadata.releaseDate).toBe("2026-01-02T03:04:05.000Z");
+    // releaseDate comes from the IPA's Info.plist (or its ZIP entry time),
+    // not the store metadata — Apple's download API can return stale values.
+    expect(result.metadata.releaseDate).toEqual(expect.any(String));
     // Still the package's own value: the store metadata does not carry one.
     expect(result.metadata.minimumOsVersion).toBe("16.0");
   });

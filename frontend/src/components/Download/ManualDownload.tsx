@@ -129,11 +129,13 @@ export default function ManualDownload() {
     setLoading(true);
     try {
       // Best effort: the catalogue names the app and supplies its bundle id.
-      // It is not required, so a miss must not block the download.
+      // It is not required, so a miss must not block the download. The
+      // catalogue's releaseDate belongs to the latest version, not the one
+      // being downloaded, so clear it and let the package supply the real date.
       const resolved = await lookupAppById(id, country, platform).catch(
         () => null,
       );
-      if (resolved) target = { ...resolved, platform };
+      if (resolved) target = { ...resolved, platform, releaseDate: "" };
       setQueued(target);
 
       await startDownload(account, target, versionId.trim() || undefined);
