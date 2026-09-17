@@ -310,7 +310,8 @@
       "title": "關於",
       "description": "Asspp Web —— Apple 應用程式與授權管理。",
       "buildCommit": "構建提交",
-      "buildDate": "構建日期"
+      "buildDate": "構建日期",
+      "copyCommit": "複製提交號"
     }
   },
   "countries": {

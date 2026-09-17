@@ -1,5 +1,30 @@
+import { execFileSync } from "child_process";
 import { createHash } from "crypto";
 import { timingSafeEqual } from "crypto";
+
+/**
+ * Local-dev fallback for the build info below: when BUILD_COMMIT/BUILD_DATE
+ * are not injected (plain `npm run dev`), identify the checked-out revision so
+ * local builds identify themselves. Containers have no .git, so this quietly
+ * yields an empty result and the caller falls back to "unknown".
+ */
+let gitRevision: { commit: string; date: string } | null = null;
+function readGitRevision(): { commit: string; date: string } {
+  if (gitRevision) return gitRevision;
+  gitRevision = { commit: "", date: "" };
+  try {
+    const output = execFileSync("git", ["log", "-1", "--format=%H%n%cI"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
+    });
+    const [commit = "", date = ""] = output.trim().split(/\r?\n/);
+    gitRevision = { commit, date };
+  } catch {
+    // No git available: keep "unknown".
+  }
+  return gitRevision;
+}
 
 export const config = {
   port: parseInt(process.env.PORT || "8080"),
@@ -12,9 +37,11 @@ export const config = {
   autoCleanupMaxMB: parseInt(process.env.AUTO_CLEANUP_MAX_MB || "0", 10) || 0,
   // Max download file size in MB (0 disables)
   maxDownloadMB: parseInt(process.env.MAX_DOWNLOAD_MB || "0", 10) || 0,
-  // Build info (injected via Docker build args)
-  buildCommit: process.env.BUILD_COMMIT || "unknown",
-  buildDate: process.env.BUILD_DATE || "unknown",
+  // Build info (injected via Docker build args; plain `npm run dev` falls back
+  // to the checked-out git revision so local builds identify themselves).
+  buildCommit:
+    process.env.BUILD_COMMIT || readGitRevision().commit || "unknown",
+  buildDate: process.env.BUILD_DATE || readGitRevision().date || "unknown",
   // Access password protection (empty = disabled)
   accessPassword: process.env.ACCESS_PASSWORD || "",
 };

@@ -307,7 +307,8 @@
       "title": "О программе",
       "description": "Asspp Web — приложения и лицензии Apple.",
       "buildCommit": "Коммит сборки",
-      "buildDate": "Дата сборки"
+      "buildDate": "Дата сборки",
+      "copyCommit": "Скопировать хеш коммита"
     }
   },
   "countries": {

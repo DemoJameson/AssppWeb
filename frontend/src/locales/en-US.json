@@ -310,7 +310,8 @@
       "title": "About",
       "description": "Asspp Web — Apple app and license manager.",
       "buildCommit": "Build Commit",
-      "buildDate": "Build Date"
+      "buildDate": "Build Date",
+      "copyCommit": "Copy commit hash"
     }
   },
   "countries": {

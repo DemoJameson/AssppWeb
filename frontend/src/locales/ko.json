@@ -310,7 +310,8 @@
       "title": "정보",
       "description": "Asspp Web — Apple 앱·라이선스 관리.",
       "buildCommit": "빌드 커밋",
-      "buildDate": "빌드 날짜"
+      "buildDate": "빌드 날짜",
+      "copyCommit": "커밋 복사"
     }
   },
   "countries": {

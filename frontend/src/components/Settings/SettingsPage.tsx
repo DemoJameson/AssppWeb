@@ -11,6 +11,9 @@ import { PLATFORMS, PLATFORM_LABELS } from "../../apple/platform";
 import { countryCodeMap } from "../../apple/config";
 import type { Account } from "../../types";
 
+// Where the "Build Commit" row links: this repository's commit browser.
+const REPO_COMMIT_BASE = "https://github.com/DemoJameson/AssppWeb/commit/";
+
 interface ServerInfo {
   uptime?: number;
   buildCommit?: string;
@@ -37,6 +40,7 @@ export default function SettingsPage() {
   const addToast = useToastStore((s) => s.addToast);
 
   const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null);
+  const [commitCopied, setCommitCopied] = useState(false);
 
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportPassword, setExportPassword] = useState("");
@@ -56,6 +60,18 @@ export default function SettingsPage() {
       .then(setServerInfo)
       .catch(() => setServerInfo(null));
   }, []);
+
+  const handleCopyCommit = async () => {
+    const commit = serverInfo?.buildCommit;
+    if (!commit) return;
+    try {
+      await navigator.clipboard.writeText(commit);
+      setCommitCopied(true);
+      window.setTimeout(() => setCommitCopied(false), 1500);
+    } catch {
+      // Clipboard unavailable (non-secure context): nothing to do.
+    }
+  };
 
   const sortedCountries = Object.keys(countryCodeMap).sort((a, b) =>
     t(`countries.${a}`, a).localeCompare(t(`countries.${b}`, b)),
@@ -387,7 +403,28 @@ export default function SettingsPage() {
                     compact
                     valueTitle={serverInfo.buildCommit}
                   >
-                    {serverInfo.buildCommit}
+                    <span className="inline-flex min-w-0 items-center gap-1">
+                      <a
+                        href={`${REPO_COMMIT_BASE}${serverInfo.buildCommit}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex min-w-0 items-center gap-0.5 text-blue-600 underline-offset-2 hover:underline dark:text-blue-400"
+                      >
+                        <span className="truncate">
+                          {serverInfo.buildCommit.slice(0, 7)}
+                        </span>
+                        <ExternalLinkIcon />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={handleCopyCommit}
+                        title={t("settings.about.copyCommit")}
+                        aria-label={t("settings.about.copyCommit")}
+                        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 transition-colors hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200"
+                      >
+                        {commitCopied ? <CheckIcon /> : <CopyIcon />}
+                      </button>
+                    </span>
                   </SettingsInfoRow>
                 )}
               {serverInfo.buildDate && serverInfo.buildDate !== "unknown" && (
@@ -565,4 +602,57 @@ function formatUptime(seconds: number): string {
   if (h > 0) parts.push(`${h}h`);
   parts.push(`${m}m`);
   return parts.join(" ");
+}
+
+function CopyIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+      aria-hidden="true"
+    >
+      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+      <path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-7a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h1" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3.5 w-3.5"
+      aria-hidden="true"
+    >
+      <path d="M2.5 8.5l3.5 3.5 7-7" />
+    </svg>
+  );
+}
+
+function ExternalLinkIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-3 w-3 shrink-0"
+      aria-hidden="true"
+    >
+      <path d="M6.5 3h6.5v6.5" />
+      <path d="M13 3 7 9" />
+    </svg>
+  );
 }

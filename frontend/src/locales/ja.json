@@ -310,7 +310,8 @@
       "title": "概要",
       "description": "Asspp Web — Appleアプリとライセンスの管理。",
       "buildCommit": "ビルドコミット",
-      "buildDate": "ビルド日時"
+      "buildDate": "ビルド日時",
+      "copyCommit": "コミットをコピー"
     }
   },
   "countries": {
