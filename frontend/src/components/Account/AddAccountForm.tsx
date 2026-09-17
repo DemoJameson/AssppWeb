@@ -61,7 +61,7 @@ export default function AddAccountForm() {
   return (
     <PageContainer title={t("accounts.addForm.title")}>
       <div className="max-w-2xl">
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="relative space-y-6">
           <SapStatus />
           <section className="space-y-5 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-6">
             <div>
