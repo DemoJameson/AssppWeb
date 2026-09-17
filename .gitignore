@@ -146,3 +146,13 @@ frontend/src/apple/sap/vendor/unicorn-dbg.*
 
 # Local agent workspace
 .video_agent/
+# Backend build output and runtime data
+backend/public/
+backend/data/
+
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# Agent memory and settings
+.workbuddy/
+.arts/

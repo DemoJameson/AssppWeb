@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PackageQuickActions from '../../src/components/Download/PackageQuickActions';
@@ -88,7 +88,7 @@ describe('PackageQuickActions', () => {
       screen.getByRole('button', { name: 'downloads.package.share' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'downloads.package.downloadIpa' }),
+      screen.getByRole('link', { name: 'downloads.package.downloadIpa' }),
     ).toBeInTheDocument();
   });
 
@@ -135,7 +135,7 @@ describe('PackageQuickActions', () => {
       screen.getByRole('button', { name: 'downloads.package.share' }),
     );
     await user.click(
-      screen.getByRole('button', { name: 'downloads.package.downloadIpa' }),
+      screen.getByRole('link', { name: 'downloads.package.downloadIpa' }),
     );
 
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -153,7 +153,7 @@ describe('PackageQuickActions', () => {
     );
   });
 
-  it('hands a real package to the browser as a native download', async () => {
+  it('prefetches the download URL on hover so the link carries it for IDM interception', async () => {
     const user = userEvent.setup();
     const downloadUrl =
       '/api/packages/real-download-task/file?accountHash=account-hash-123&exp=123&sig=abc';
@@ -161,17 +161,81 @@ describe('PackageQuickActions', () => {
       ok: true,
       json: () => Promise.resolve({ url: downloadUrl }),
     } as Response);
-    let clickedAnchor: HTMLAnchorElement | undefined;
-    const anchorClick = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(function captureAnchor(this: HTMLAnchorElement) {
-        clickedAnchor = this;
-      });
     sessionStorage.setItem('auth-token', 'test-access-token');
 
     render(<PackageQuickActions task={createTask()} />);
-    await user.click(
-      screen.getByRole('button', { name: 'downloads.package.downloadIpa' }),
+
+    const link = screen.getByRole('link', { name: 'downloads.package.downloadIpa' });
+    await user.hover(link);
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/packages/real-download-task/file-url?accountHash=account-hash-123',
+        { headers: { 'X-Access-Token': 'test-access-token' } },
+      );
+    });
+    await waitFor(() => {
+      expect(link).toHaveAttribute(
+        'href',
+        new URL(downloadUrl, 'http://localhost:8080').href,
+      );
+    });
+    expect(link).toHaveAttribute('download', 'Utility-App_3.4.5.ipa');
+  });
+
+  it('refetches when the prefetched link has expired', async () => {
+    const user = userEvent.setup();
+    const expiredUrl =
+      '/api/packages/real-download-task/file?accountHash=account-hash-123&exp=1&sig=abc';
+    const freshUrl =
+      '/api/packages/real-download-task/file?accountHash=account-hash-123&exp=9999999999999&sig=def';
+    let callCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      callCount++;
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({ url: callCount === 1 ? expiredUrl : freshUrl }),
+      } as Response);
+    });
+    sessionStorage.setItem('auth-token', 'test-access-token');
+
+    render(<PackageQuickActions task={createTask()} />);
+
+    const link = screen.getByRole('link', { name: 'downloads.package.downloadIpa' });
+    await user.hover(link);
+    await waitFor(() => {
+      expect(link).toHaveAttribute(
+        'href',
+        new URL(expiredUrl, 'http://localhost:8080').href,
+      );
+    });
+
+    await user.click(link);
+    await waitFor(() => {
+      expect(callCount).toBe(2);
+    });
+    expect(useToastStore.getState().toasts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: 'downloads.package.downloadFailed',
+        }),
+      ]),
+    );
+  });
+
+  it('fetches the download URL on click without a prior hover', async () => {
+    const downloadUrl =
+      '/api/packages/real-download-task/file?accountHash=account-hash-123&exp=123&sig=abc';
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ url: downloadUrl }),
+    } as Response);
+    sessionStorage.setItem('auth-token', 'test-access-token');
+
+    render(<PackageQuickActions task={createTask()} />);
+    fireEvent.click(
+      screen.getByRole('link', { name: 'downloads.package.downloadIpa' }),
     );
 
     await waitFor(() => {
@@ -179,10 +243,16 @@ describe('PackageQuickActions', () => {
         '/api/packages/real-download-task/file-url?accountHash=account-hash-123',
         { headers: { 'X-Access-Token': 'test-access-token' } },
       );
-      expect(anchorClick).toHaveBeenCalledOnce();
     });
-    expect(clickedAnchor?.getAttribute('href')).toBe(downloadUrl);
-    expect(clickedAnchor?.download).toBe('Utility-App_3.4.5.ipa');
+    await waitFor(() => {
+      expect(useToastStore.getState().toasts).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            message: 'downloads.package.downloadFailed',
+          }),
+        ]),
+      );
+    });
   });
 
   it('surfaces a toast when the download URL cannot be issued', async () => {
@@ -195,7 +265,7 @@ describe('PackageQuickActions', () => {
 
     render(<PackageQuickActions task={createTask()} />);
     await user.click(
-      screen.getByRole('button', { name: 'downloads.package.downloadIpa' }),
+      screen.getByRole('link', { name: 'downloads.package.downloadIpa' }),
     );
 
     await waitFor(() => {

@@ -1,4 +1,4 @@
-import { type MouseEvent } from 'react';
+import { type MouseEvent, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
 import { isPreviewDownloadTask } from './previewTasks';
@@ -14,12 +14,19 @@ interface PackageQuickActionsProps {
 
 const iconClassName = 'h-4 w-4 shrink-0';
 
+export function dangerButtonClass(size: 'compact' | 'default' = 'default'): string {
+  const minH = size === 'compact' ? 'min-h-10' : 'min-h-11';
+  const border = size === 'compact' ? 'border-red-200' : 'border-red-300';
+  return `${minH} min-w-0 inline-flex items-center justify-center rounded-lg ${border} border px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40`;
+}
+
 export default function PackageQuickActions({
   task,
   size = 'default',
 }: PackageQuickActionsProps) {
   const { t } = useTranslation();
   const addToast = useToastStore((state) => state.addToast);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
 
   if (task.status !== 'completed' || !task.hasFile) return null;
 
@@ -83,8 +90,19 @@ export default function PackageQuickActions({
     }
   }
 
-  async function handleDownload() {
+  function handleMouseEnter() {
+    if (isPreview) return;
+    const params = new URLSearchParams({ accountHash: task.accountHash });
+    apiGet<{ url: string }>(
+      `/api/packages/${task.id}/file-url?${params}`,
+    )
+      .then(({ url }) => setDownloadUrl(resolveDownloadUrl(url)))
+      .catch(() => {});
+  }
+
+  async function handleDownloadClick(event: MouseEvent<HTMLAnchorElement>) {
     if (isPreview) {
+      event.preventDefault();
       showPreviewNotice();
       return;
     }
@@ -95,21 +113,20 @@ export default function PackageQuickActions({
       t('toast.title.downloadIpaStarted'),
     );
 
+    // If the URL was prefetched on hover and is still valid, let the browser
+    // navigate — IDM and other download extensions intercept the <a> click.
+    if (downloadUrl && !isUrlExpired(downloadUrl)) return;
+
+    // URL missing, expired, or no prior hover: fetch a fresh one and navigate.
+    // res.download sets Content-Disposition: attachment, so the browser
+    // downloads rather than leaves the page.
+    event.preventDefault();
     try {
       const params = new URLSearchParams({ accountHash: task.accountHash });
       const { url } = await apiGet<{ url: string }>(
         `/api/packages/${task.id}/file-url?${params}`,
       );
-
-      // A plain navigation hands the transfer to the browser: the download
-      // starts immediately and streams to disk, unlike the old fetch-to-blob
-      // path, which buffered the whole IPA before showing anything.
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = packageFileName(task);
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
+      window.location.assign(resolveDownloadUrl(url));
     } catch {
       addToast(
         t('downloads.package.downloadFailed'),
@@ -167,15 +184,17 @@ export default function PackageQuickActions({
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={handleDownload}
+      <a
+        href={downloadUrl || '#'}
+        onClick={handleDownloadClick}
+        onMouseEnter={handleMouseEnter}
+        download={downloadUrl ? packageFileName(task) : undefined}
         className={secondaryButton}
         aria-label={t('downloads.package.downloadIpa')}
       >
         <DownloadIcon />
         <span className="truncate">{t('downloads.package.downloadShort')}</span>
-      </button>
+      </a>
     </div>
   );
 }
@@ -201,6 +220,23 @@ function packageFileName(task: DownloadTask): string {
   const unsafeName = `${task.software.name}_${task.software.version}`;
   const safeName = unsafeName.replace(/[\\/:*?"<>|]/g, '-');
   return `${safeName}.ipa`;
+}
+
+function isUrlExpired(url: string): boolean {
+  try {
+    const exp = new URL(url, window.location.origin).searchParams.get('exp');
+    if (!exp) return false;
+    return Number(exp) < Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function resolveDownloadUrl(url: string): string {
+  const base = import.meta.env.DEV
+    ? 'http://localhost:8080'
+    : window.location.origin;
+  return new URL(url, base).href;
 }
 
 function InstallIcon() {

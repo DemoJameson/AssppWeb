@@ -6,7 +6,7 @@ import AppIcon from '../common/AppIcon';
 import Badge from '../common/Badge';
 import Modal from '../common/Modal';
 import ProgressBar from '../common/ProgressBar';
-import PackageQuickActions from './PackageQuickActions';
+import PackageQuickActions, { dangerButtonClass } from './PackageQuickActions';
 import {
   isDownloadPreviewEnabled,
   isPreviewDownloadTask,
@@ -334,7 +334,7 @@ export default function PackageDetail() {
             </p>
           )}
 
-          <div className="mt-3 grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="mt-3 grid min-w-0 grid-cols-2 gap-2">
             {isCompleted && (
               <button
                 type="button"
@@ -368,7 +368,7 @@ export default function PackageDetail() {
             <button
               type="button"
               onClick={handleDelete}
-              className="min-h-11 min-w-0 rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+              className={dangerButtonClass()}
             >
               {t('downloads.package.delete')}
             </button>

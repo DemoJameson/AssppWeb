@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import AppIcon from '../common/AppIcon';
 import Badge from '../common/Badge';
 import ProgressBar from '../common/ProgressBar';
-import PackageQuickActions from './PackageQuickActions';
+import PackageQuickActions, { dangerButtonClass } from './PackageQuickActions';
 import { formatBytes } from '../../utils/format';
 import { taskIconUrl } from '../../utils/icon';
 import { PLATFORM_LABELS } from '../../apple/platform';
@@ -135,7 +135,7 @@ export default function DownloadItem({
         <button
           type="button"
           onClick={() => onDelete(task.id)}
-          className="min-h-10 min-w-0 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+          className={dangerButtonClass('compact')}
         >
           {t('downloads.package.delete')}
         </button>
