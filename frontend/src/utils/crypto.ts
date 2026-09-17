@@ -22,7 +22,7 @@ async function getPasswordKey(password: string): Promise<CryptoKey> {
  */
 async function deriveKey(
   passwordKey: CryptoKey,
-  salt: Uint8Array,
+  salt: Uint8Array<ArrayBuffer>,
 ): Promise<CryptoKey> {
   return await crypto.subtle.deriveKey(
     {

@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import { storeIdToCountry } from "../apple/config";
 import type { Account } from "../types";
 
@@ -23,10 +24,7 @@ export function firstAccountCountry(accounts: Account[]): string | undefined {
   return undefined;
 }
 
-export function accountSelectLabel(
-  account: Account,
-  t: (key: string, fallback?: string) => string,
-): string {
+export function accountSelectLabel(account: Account, t: TFunction): string {
   const cc = accountStoreCountry(account);
   const countryLabel = cc ? t(`countries.${cc}`, cc) : "";
   const name = `${account.firstName} ${account.lastName} (${account.email})`;
