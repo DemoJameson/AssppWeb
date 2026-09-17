@@ -17,6 +17,7 @@ import { lookupAppById } from "../../api/search";
 import { parsePlatform, PLATFORM_LABELS } from "../../apple/platform";
 import { storeIdToCountry } from "../../apple/config";
 import { accountSelectLabel } from "../../utils/account";
+import { formatBytes } from "../../utils/format";
 import type { Platform, Software } from "../../types";
 
 export default function ProductDetail() {
@@ -286,7 +287,7 @@ export default function ProductDetail() {
             </dt>
             <dd className="text-gray-900 dark:text-gray-200">
               {app.fileSizeBytes
-                ? `${(parseInt(app.fileSizeBytes) / 1024 / 1024).toFixed(1)} MB`
+                ? formatBytes(app.fileSizeBytes)
                 : "N/A"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">

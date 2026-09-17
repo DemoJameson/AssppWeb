@@ -6,15 +6,28 @@ import { MIN_ACCOUNT_HASH_LENGTH } from "../config.js";
 import { getAllTasks } from "../services/downloadManager.js";
 import { getIdParam } from "../utils/route.js";
 import { createDownloadTicket } from "../utils/downloadTicket.js";
-import type { PackageInfo } from "../types/index.js";
+import type { PackageInfo, Platform } from "../types/index.js";
 
 const router = Router();
+
+const PLATFORM_SUFFIX: Record<Platform, string> = {
+  ios: "iOS",
+  ipad: "iPadOS",
+  tvos: "tvOS",
+  visionos: "visionOS",
+  macos: "macOS",
+};
 
 // File names that browsers will save verbatim: strip characters that are
 // illegal on common filesystems; the header itself is encoded by
 // `res.download` (RFC 5987), so Unicode names survive intact.
-function packageDownloadName(name: string, version: string): string {
-  const base = `${name}_${version}`
+function packageDownloadName(
+  name: string,
+  version: string,
+  platform?: Platform,
+): string {
+  const suffix = platform ? PLATFORM_SUFFIX[platform] : "iOS";
+  const base = `${name}_${version}_${suffix}`
     .replace(/[\\/:*?"<>|\x00-\x1f\x7f]/g, "-")
     .slice(0, 170);
   return `${base}.ipa`;
@@ -125,6 +138,7 @@ router.get("/packages/:id/file", (req: Request, res: Response) => {
   const fileName = packageDownloadName(
     task.software.name,
     task.software.version,
+    task.software.platform,
   );
   res.download(resolvedPath, fileName, (err) => {
     if (err && !res.headersSent) {
