@@ -769,9 +769,10 @@ async function startDownload(task: DownloadTask) {
       writeTaskIcon(task, icon);
     }
 
-    if (!task.software.fileSizeBytes) {
-      task.software.fileSizeBytes = String(fs.statSync(filePath).size);
-    }
+    // Apple's fileSizeBytes is the installed (uncompressed) size, not the
+    // IPA file size. Overwrite it with the real on-disk size so the UI shows
+    // what the user actually downloads.
+    task.software.fileSizeBytes = String(fs.statSync(filePath).size);
 
     task.status = "completed";
     task.progress = 100;
