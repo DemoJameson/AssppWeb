@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
 import { isPreviewDownloadTask } from './previewTasks';
 import { useToastStore } from '../../store/toast';
-import { authHeaders } from '../../api/client';
+import { apiGet } from '../../api/client';
 import { getInstallInfo } from '../../api/install';
 import type { DownloadTask } from '../../types';
 
@@ -97,20 +97,19 @@ export default function PackageQuickActions({
 
     try {
       const params = new URLSearchParams({ accountHash: task.accountHash });
-      const response = await fetch(`/api/packages/${task.id}/file?${params}`, {
-        headers: authHeaders(),
-      });
-      if (!response.ok) throw new Error('Download failed');
+      const { url } = await apiGet<{ url: string }>(
+        `/api/packages/${task.id}/file-url?${params}`,
+      );
 
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
+      // A plain navigation hands the transfer to the browser: the download
+      // starts immediately and streams to disk, unlike the old fetch-to-blob
+      // path, which buffered the whole IPA before showing anything.
       const anchor = document.createElement('a');
-      anchor.href = blobUrl;
+      anchor.href = url;
       anchor.download = packageFileName(task);
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      URL.revokeObjectURL(blobUrl);
     } catch {
       addToast(
         t('downloads.package.downloadFailed'),

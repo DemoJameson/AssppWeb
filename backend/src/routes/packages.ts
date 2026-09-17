@@ -5,18 +5,19 @@ import { config } from "../config.js";
 import { MIN_ACCOUNT_HASH_LENGTH } from "../config.js";
 import { getAllTasks } from "../services/downloadManager.js";
 import { getIdParam } from "../utils/route.js";
+import { createDownloadTicket } from "../utils/downloadTicket.js";
 import type { PackageInfo } from "../types/index.js";
 
 const router = Router();
 
-// Sanitize filename for Content-Disposition to prevent header injection
-function sanitizeFilename(name: string): string {
-  // Remove control characters, quotes, backslashes, and non-ASCII
-  return name
-    .replace(/[^\x20-\x7E]/g, "_")
-    .replace(/["\\]/g, "_")
-    .replace(/[\r\n]/g, "")
-    .slice(0, 200);
+// File names that browsers will save verbatim: strip characters that are
+// illegal on common filesystems; the header itself is encoded by
+// `res.download` (RFC 5987), so Unicode names survive intact.
+function packageDownloadName(name: string, version: string): string {
+  const base = `${name}_${version}`
+    .replace(/[\\/:*?"<>|\x00-\x1f\x7f]/g, "-")
+    .slice(0, 170);
+  return `${base}.ipa`;
 }
 
 // List packages filtered by account hashes
@@ -53,7 +54,42 @@ router.get("/packages", (req: Request, res: Response) => {
   res.json(packages);
 });
 
-// Stream IPA file (requires accountHash)
+// Issues the URL a browser-native download should open for the file below.
+// Safe to navigate to without headers: when the instance password is set, the
+// URL carries a short-lived exp+sig pair instead of the access token.
+router.get("/packages/:id/file-url", (req: Request, res: Response) => {
+  const accountHash = req.query.accountHash as string;
+  if (!accountHash || accountHash.length < MIN_ACCOUNT_HASH_LENGTH) {
+    res.status(400).json({ error: "Missing or invalid accountHash" });
+    return;
+  }
+
+  const id = getIdParam(req) ?? "";
+  const task = getAllTasks().find(
+    (t) => t.id === id && t.status === "completed",
+  );
+
+  if (!task || !task.filePath || !fs.existsSync(task.filePath)) {
+    res.status(404).json({ error: "Package not found" });
+    return;
+  }
+
+  if (task.accountHash !== accountHash) {
+    res.status(403).json({ error: "Access denied" });
+    return;
+  }
+
+  const params = new URLSearchParams({ accountHash });
+  const ticket = createDownloadTicket(id, accountHash);
+  if (ticket) {
+    params.set("exp", ticket.exp);
+    params.set("sig", ticket.sig);
+  }
+
+  res.json({ url: `/api/packages/${encodeURIComponent(id)}/file?${params}` });
+});
+
+// Stream IPA file (requires accountHash; accessAuth also accepts signed links)
 router.get("/packages/:id/file", (req: Request, res: Response) => {
   const accountHash = req.query.accountHash as string;
   if (!accountHash || accountHash.length < MIN_ACCOUNT_HASH_LENGTH) {
@@ -84,17 +120,17 @@ router.get("/packages/:id/file", (req: Request, res: Response) => {
     return;
   }
 
-  const safeName = sanitizeFilename(task.software.name);
-  const safeVersion = sanitizeFilename(task.software.version);
-  const fileName = `${safeName}_${safeVersion}.ipa`;
-  res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-  res.setHeader("Content-Type", "application/octet-stream");
-
-  const stats = fs.statSync(resolvedPath);
-  res.setHeader("Content-Length", stats.size);
-
-  const stream = fs.createReadStream(resolvedPath);
-  stream.pipe(res);
+  // res.download streams with Range support (downloads can pause and resume)
+  // and encodes the filename per RFC 5987, so Unicode names survive intact.
+  const fileName = packageDownloadName(
+    task.software.name,
+    task.software.version,
+  );
+  res.download(resolvedPath, fileName, (err) => {
+    if (err && !res.headersSent) {
+      res.status(500).json({ error: "Failed to send package" });
+    }
+  });
 });
 
 // Delete a package (requires accountHash)

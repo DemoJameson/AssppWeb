@@ -17,14 +17,6 @@ const originalClipboard = Object.getOwnPropertyDescriptor(
   'clipboard',
 );
 const originalShare = Object.getOwnPropertyDescriptor(navigator, 'share');
-const originalCreateObjectURL = Object.getOwnPropertyDescriptor(
-  URL,
-  'createObjectURL',
-);
-const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(
-  URL,
-  'revokeObjectURL',
-);
 
 function createTask(
   overrides: Partial<DownloadTask> = {},
@@ -82,8 +74,6 @@ describe('PackageQuickActions', () => {
     vi.restoreAllMocks();
     restoreProperty(navigator, 'clipboard', originalClipboard);
     restoreProperty(navigator, 'share', originalShare);
-    restoreProperty(URL, 'createObjectURL', originalCreateObjectURL);
-    restoreProperty(URL, 'revokeObjectURL', originalRevokeObjectURL);
     useToastStore.setState({ toasts: [] });
   });
 
@@ -163,26 +153,14 @@ describe('PackageQuickActions', () => {
     );
   });
 
-  it('downloads a real package through the authenticated API as a blob', async () => {
+  it('hands a real package to the browser as a native download', async () => {
     const user = userEvent.setup();
-    const ipaBlob = new Blob(['ipa contents'], {
-      type: 'application/octet-stream',
-    });
-    const responseBlob = vi.fn().mockResolvedValue(ipaBlob);
+    const downloadUrl =
+      '/api/packages/real-download-task/file?accountHash=account-hash-123&exp=123&sig=abc';
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      blob: responseBlob,
+      json: () => Promise.resolve({ url: downloadUrl }),
     } as Response);
-    const createObjectURL = vi.fn().mockReturnValue('blob:mock-ipa');
-    const revokeObjectURL = vi.fn();
-    Object.defineProperty(URL, 'createObjectURL', {
-      configurable: true,
-      value: createObjectURL,
-    });
-    Object.defineProperty(URL, 'revokeObjectURL', {
-      configurable: true,
-      value: revokeObjectURL,
-    });
     let clickedAnchor: HTMLAnchorElement | undefined;
     const anchorClick = vi
       .spyOn(HTMLAnchorElement.prototype, 'click')
@@ -198,15 +176,36 @@ describe('PackageQuickActions', () => {
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
-        '/api/packages/real-download-task/file?accountHash=account-hash-123',
+        '/api/packages/real-download-task/file-url?accountHash=account-hash-123',
         { headers: { 'X-Access-Token': 'test-access-token' } },
       );
       expect(anchorClick).toHaveBeenCalledOnce();
     });
-    expect(responseBlob).toHaveBeenCalledOnce();
-    expect(createObjectURL).toHaveBeenCalledWith(ipaBlob);
-    expect(clickedAnchor?.href).toBe('blob:mock-ipa');
+    expect(clickedAnchor?.getAttribute('href')).toBe(downloadUrl);
     expect(clickedAnchor?.download).toBe('Utility-App_3.4.5.ipa');
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-ipa');
+  });
+
+  it('surfaces a toast when the download URL cannot be issued', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      text: () => Promise.resolve('nope'),
+    } as Response);
+    sessionStorage.setItem('auth-token', 'test-access-token');
+
+    render(<PackageQuickActions task={createTask()} />);
+    await user.click(
+      screen.getByRole('button', { name: 'downloads.package.downloadIpa' }),
+    );
+
+    await waitFor(() => {
+      expect(useToastStore.getState().toasts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            message: 'downloads.package.downloadFailed',
+          }),
+        ]),
+      );
+    });
   });
 });
