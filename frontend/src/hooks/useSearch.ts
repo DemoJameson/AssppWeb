@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import type { Platform, Software } from "../types";
 import { searchApps, lookupApp } from "../api/search";
+import { looksLikeBundleId } from "../utils/bundleId";
+import type { Platform, Software } from "../types";
 
 interface SearchState {
   term: string;
@@ -32,8 +33,16 @@ export const useSearch = create<SearchState>((set) => ({
   search: async (term, country, platform) => {
     set({ loading: true, error: null, term, country, platform });
     try {
-      const apps = await searchApps(term, country, platform);
-      set({ results: apps });
+      // A bundle id is not a search term: Apple's fuzzy search answers it with
+      // unrelated apps. Route it through the exact lookup instead — the same
+      // path the AddDownload page uses; a miss stays an empty result, not noise.
+      if (looksLikeBundleId(term)) {
+        const app = await lookupApp(term.trim(), country, platform);
+        set({ results: app ? [app] : [] });
+      } else {
+        const apps = await searchApps(term, country, platform);
+        set({ results: apps });
+      }
     } catch (e) {
       set({
         error: e instanceof Error ? e.message : "Search failed",

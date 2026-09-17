@@ -455,6 +455,7 @@ The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using No
 - `utils/toast.ts` — toast helpers (pairs with `ToastContainer`)
 - `utils/version.ts` — numeric dot-separated version string comparison
 - `utils/versionLabels.ts` — `versionOptionLabel` / `versionRowLabel`: render a cached display version in the version pickers (uncached entries keep the raw id)
+- `utils/bundleId.ts` — `looksLikeBundleId(term)`: search terms that read as bundle identifiers are routed to the exact lookup (Apple's fuzzy search answers them with unrelated apps)
 
 ### Import Ordering Convention
 
