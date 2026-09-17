@@ -1,8 +1,10 @@
 name: Build and Push Docker Image
 
+# The fork publishes from its development branch: pushes to `improve` (the
+# default branch) and version tags drive the images, including `latest`.
 on:
   push:
-    branches: [main]
+    branches: [improve]
     tags: ["v*"]
 
 env:
