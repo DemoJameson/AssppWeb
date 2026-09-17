@@ -532,7 +532,7 @@ Test credentials, if ever needed, belong in environment variables (`TEST_EMAIL`,
 ### Docker Compose (self-host)
 
 ```bash
-docker compose up -d   # Runs prebuilt image ghcr.io/lakr233/assppweb:latest on port 8080
+docker compose up -d   # Runs prebuilt image ghcr.io/demojameson/assppweb:latest on port 8080
 ```
 
 `compose.yml` pulls the published image (no local build), mounts `./mnt/asspp-data:/data` for `DATA_DIR`, and supports `ACCESS_PASSWORD` / `DOWNLOAD_THREADS` env vars. The `Dockerfile` at the repo root is what CI builds and publishes that image.

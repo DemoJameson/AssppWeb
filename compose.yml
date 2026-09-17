@@ -1,6 +1,6 @@
 services:
   asspp:
-    image: ghcr.io/lakr233/assppweb:latest
+    image: ghcr.io/demojameson/assppweb:latest
     ports:
       - "8080:8080"
     volumes:
