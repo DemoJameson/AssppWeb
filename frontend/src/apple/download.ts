@@ -138,6 +138,10 @@ async function interpretReply(
   // download (no storefront lookup) relies on for its install manifest.
   const bundleID = metadata.softwareVersionBundleId;
 
+  // The id of the build Apple actually served (after any catalogue pin) — the
+  // backend records it so later version queries can fall back to it.
+  const externalVersionId = metadata.softwareVersionExternalIdentifier;
+
   return {
     output: {
       downloadURL: url,
@@ -145,6 +149,10 @@ async function interpretReply(
       bundleShortVersionString: version,
       bundleVersion,
       bundleID: typeof bundleID === "string" && bundleID !== "" ? bundleID : undefined,
+      externalVersionId:
+        externalVersionId === undefined || externalVersionId === null
+          ? undefined
+          : String(externalVersionId),
       iTunesMetadata,
     },
     updatedCookies: session.cookies,

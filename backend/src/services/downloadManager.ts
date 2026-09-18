@@ -13,6 +13,7 @@ import {
   initVersionMetadataCache,
   seedVersionMetadata,
 } from "./versionMetadataCache.js";
+import { initVersionPinStore, recordVersionPin } from "./versionPinStore.js";
 import { ChunkedDownloader, removePartFiles } from "./chunkedDownloader.js";
 import type { DownloadTask, Software, Sinf } from "../types/index.js";
 
@@ -350,6 +351,10 @@ function initOnStartup() {
   // it from finished packages.
   initVersionMetadataCache();
 
+  // Load the recorded version pins before the repair pass tops them up from
+  // finished packages.
+  initVersionPinStore();
+
   // Load completed tasks from previous run
   if (fs.existsSync(TASKS_FILE)) {
     try {
@@ -440,6 +445,11 @@ async function repairFinishedPackages(): Promise<void> {
 
     if (applyPackageMetadata(task.software, info.metadata)) changed++;
     seedVersionMetadata(task.software.id, info.metadata);
+    recordVersionPin(
+      task.software.id,
+      task.software.platform,
+      task.software.externalVersionId,
+    );
 
     const stored = iconPathFor(task);
     const { icon } = info;
@@ -806,6 +816,15 @@ async function startDownload(task: DownloadTask) {
     // IPA file size. Overwrite it with the real on-disk size so the UI shows
     // what the user actually downloads.
     task.software.fileSizeBytes = String(fs.statSync(filePath).size);
+
+    // The finished package is the last place a delisted app's version id is
+    // still readable; record it so later version queries have a pin to fall
+    // back to.
+    recordVersionPin(
+      task.software.id,
+      task.software.platform,
+      task.software.externalVersionId,
+    );
 
     task.status = "completed";
     task.progress = 100;

@@ -66,7 +66,14 @@ export function useDownloadAction() {
     const hash = await accountHash(account);
 
     await apiPost("/api/downloads", {
-      software: { ...app, bundleID, version: output.bundleShortVersionString },
+      software: {
+        ...app,
+        bundleID,
+        version: output.bundleShortVersionString,
+        // The id of the build Apple served; the backend records it as the
+        // app+platform's last-known pin for future version queries.
+        externalVersionId: output.externalVersionId ?? app.externalVersionId,
+      },
       accountHash: hash,
       downloadURL: output.downloadURL,
       sinfs: output.sinfs,

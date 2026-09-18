@@ -411,6 +411,7 @@ The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using No
 - Bag proxy for `init.itunes.apple.com`
 - SAP asset extraction service (xar + bzip2 + cpio) with digest pinning; routes under `/api/sap-assets`
 - Shared version metadata cache (read-only, passively seeded — see the Version Metadata Cache section below)
+- Shared version pin store (read-only, passively seeded — see the Version Pin Store section below)
 
 ### Backend Shared Utilities
 
@@ -420,6 +421,10 @@ The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using No
 ### Version Metadata Cache
 
 `services/versionMetadataCache.ts` + `routes/versionMetadata.ts` serve a read-only, instance-wide `(appId, versionId) -> (displayVersion, releaseDate)` directory via `GET /api/version-metadata/:appId`. Entries are seeded **passively only** — the download pipeline records what compiled packages read back (the two `applyPackageMetadata` sites in downloadManager, including the startup `repairFinishedPackages` pass). There is no client write-back and the server never queries Apple itself (it holds no credentials), so the zero-trust invariant is untouched; the data is storefront-public and carries no account binding, but reads still ride `accessAuth`. Entries are immutable (a version id names a fixed build), capped at `VERSION_METADATA_MAX_ENTRIES` (oldest evicted first), and persisted to `DATA_DIR/version-metadata.json`. The frontend consumes the cache best-effort (`api/versionMetadata.ts`, `hooks/useVersionMetadata.ts`, `utils/versionLabels.ts`) and falls back to the live Apple exchange for uncached versions.
+
+### Version Pin Store
+
+`services/versionPinStore.ts` + `routes/versionPins.ts` serve a read-only, instance-wide `(appId, platform) -> externalVersionId` record via `GET /api/version-pins/:appId`. It exists because listing versions for tvOS / visionOS / macOS requires pinning the download-product exchange to a version id that exists for that platform — and the catalogue lookup that normally supplies it has no answer left for **delisted apps**. A past download of the app left the id behind in its finished package, so recording it keeps those apps queryable. Seeded **passively only** (the completion and `repairFinishedPackages` paths of the download pipeline; no client write-back, no server-side Apple queries), the newest (largest) id per app+platform wins, and the store persists to `DATA_DIR/version-pins.json`. The frontend consumes it best-effort in `apple/versionPins.ts` (`recordedVersionIdFor` / `withRecordedFallback`): the live catalogue lookup stays first; the recorded pin is the fallback for both version listing (`apple/versionFinder.ts`, which also accepts a caller-provided pin) and the download flow's pin resolution (`apple/downloadProduct.ts`). The by-ID page passes a hand-entered version id as the exchange pin directly.
 
 ## Frontend
 

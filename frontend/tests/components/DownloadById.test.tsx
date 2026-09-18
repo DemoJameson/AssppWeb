@@ -312,4 +312,42 @@ describe('DownloadById', () => {
     expect(select.tagName).toBe('SELECT');
     expect(select.value).toBe('890964826');
   });
+
+  it('pins the version load with an entered version id', async () => {
+    renderPage();
+
+    fireEvent.change(appIdInput(), { target: { value: '1492142120' } });
+    fireEvent.change(versionIdInput(), { target: { value: '818970197' } });
+    fireEvent.click(loadVersionsButton());
+
+    await waitFor(() => {
+      expect(mocks.listVersions).toHaveBeenCalledTimes(1);
+    });
+    expect(mocks.listVersions.mock.calls[0][2]).toBe('818970197');
+  });
+
+  it('clears the loaded list and version id when the platform changes', async () => {
+    renderPage();
+
+    fireEvent.change(appIdInput(), { target: { value: '1492142120' } });
+    fireEvent.click(loadVersionsButton());
+    await waitFor(() => {
+      expect(mocks.listVersions).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      (screen.getByLabelText('downloads.byId.versionId') as HTMLSelectElement)
+        .tagName,
+    ).toBe('SELECT');
+
+    fireEvent.change(
+      screen.getByRole('combobox', { name: 'downloads.platform.label' }),
+      { target: { value: 'tvos' } },
+    );
+
+    const field = screen.getByLabelText(
+      'downloads.byId.versionId',
+    ) as HTMLInputElement;
+    expect(field.tagName).toBe('INPUT');
+    expect(field.value).toBe('');
+  });
 });

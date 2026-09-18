@@ -18,6 +18,7 @@ import {
   lookupLatestExternalVersionId,
   lookupLatestMacOSVersionId,
 } from "./platformVersion";
+import { withRecordedFallback } from "./versionPins";
 import i18n from "../i18n";
 
 export interface VersionListOutput {
@@ -37,10 +38,14 @@ export interface VersionListOutput {
  * (pkg/appstore/appstore_list_versions.go). It drives the same
  * download-product exchange the download flow uses, which is what makes the
  * endpoint fallbacks apply here too.
+ *
+ * A caller-provided version id pins the exchange directly, skipping the
+ * platform lookup — the path that reaches a delisted app's version list.
  */
 export async function listVersions(
   account: Account,
   app: Software,
+  pinnedVersionId?: string,
 ): Promise<VersionListOutput & { updatedCookies: typeof account.cookies }> {
   const session = createDownloadSession(account, app);
 
@@ -48,7 +53,8 @@ export async function listVersions(
   // version list reflects the requested platform, not the account's default
   // device class (iOS). iOS/iPad pass an empty pin and let the exchange resolve
   // one itself when it falls back.
-  const pin = await platformVersionPin(session);
+  const requestedPin = pinnedVersionId?.trim();
+  const pin = requestedPin ? requestedPin : await platformVersionPin(session);
 
   const reply = await requestDownloadProduct(session, pin);
 
@@ -78,6 +84,9 @@ export async function listVersions(
  * Mirrors ipatool's `ListVersions`: macOS/tvOS/visionOS pin before the
  * exchange so the listed versions belong to the requested platform; iOS/iPad
  * pass an empty pin and let the exchange resolve one on fallback.
+ *
+ * When the catalogue cannot name a version — a delisted app is the case this
+ * exists for — the pin recorded from a previous download is used instead.
  */
 async function platformVersionPin(
   session: ReturnType<typeof createDownloadSession>,
@@ -88,23 +97,24 @@ async function platformVersionPin(
   }
 
   const country = storeIdToCountry(session.account.store) ?? "us";
-  let versionId: string | undefined;
-
-  if (platform === "macos") {
-    versionId = await lookupLatestMacOSVersionId(
-      session.app.id,
-      country,
-      session.app.bundleID || undefined,
-      session.cookies,
-    );
-  } else {
-    versionId = await lookupLatestExternalVersionId(
-      session.app.id,
-      country,
-      platform,
-      session.cookies,
-    );
-  }
+  const versionId = await withRecordedFallback(
+    () =>
+      platform === "macos"
+        ? lookupLatestMacOSVersionId(
+            session.app.id,
+            country,
+            session.app.bundleID || undefined,
+            session.cookies,
+          )
+        : lookupLatestExternalVersionId(
+            session.app.id,
+            country,
+            platform,
+            session.cookies,
+          ),
+    session.app.id,
+    platform,
+  );
 
   if (!versionId) {
     throw new DownloadError(i18n.t("errors.download.missingVersion"));

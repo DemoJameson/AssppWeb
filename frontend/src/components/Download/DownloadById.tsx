@@ -86,6 +86,13 @@ export default function DownloadById() {
     }
   }, [accounts, selectedAccount]);
 
+  // A loaded version list — and a hand-entered version id — belongs to the app
+  // and platform it was entered for; changing either invalidates both.
+  useEffect(() => {
+    setVersions([]);
+    setVersionId("");
+  }, [platform, appId]);
+
   const account = accounts.find((a) => a.email === selectedAccount);
   const country = account
     ? (accountStoreCountry(account) ?? defaultCountry)
@@ -96,6 +103,10 @@ export default function DownloadById() {
    * field with the newest one. The catalogue lookup is best effort — the
    * version exchange only needs the numeric id, so a miss must not block it
    * (same as the download flow).
+   *
+   * A version id already in the field pins the exchange directly: that is the
+   * path that reaches a delisted app's list when the platform lookup has no
+   * answer left. Empty or invalid input leaves the lookup in charge.
    */
   async function handleLoadVersions() {
     if (!account || !appIdValid || loadingVersions) return;
@@ -109,7 +120,11 @@ export default function DownloadById() {
       const target = resolved
         ? { ...resolved, platform }
         : placeholderSoftware(id, platform);
-      const result = await listVersions(account, target);
+      const pin =
+        versionIdValid && versionId.trim() !== ""
+          ? versionId.trim()
+          : undefined;
+      const result = await listVersions(account, target, pin);
       setVersions(result.versions);
       setVersionId(result.versions[0] || "");
       await ensureLoaded(target.id);

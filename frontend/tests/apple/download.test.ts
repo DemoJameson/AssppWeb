@@ -3,6 +3,7 @@ import { buildPlist } from "../../src/apple/plist";
 import { getDownloadInfo } from "../../src/apple/download";
 import { appleRequest } from "../../src/apple/request";
 import { fetchBag } from "../../src/apple/bag";
+import { apiGet } from "../../src/api/client";
 import type { Account, Software } from "../../src/types";
 
 vi.mock("../../src/apple/request", () => ({
@@ -11,6 +12,10 @@ vi.mock("../../src/apple/request", () => ({
 
 vi.mock("../../src/apple/bag", () => ({
   fetchBag: vi.fn(),
+}));
+
+vi.mock("../../src/api/client", () => ({
+  apiGet: vi.fn(),
 }));
 
 const LOOKUP_HOST = "uclient-api.itunes.apple.com";
@@ -127,6 +132,8 @@ describe("apple/download", () => {
 
     downloadReplies = [];
     lookupBody = lookupDoc("891042628");
+
+    vi.mocked(apiGet).mockResolvedValue({ pins: [] });
 
     withBag({
       redownloadEndpoint: `https://${DISPATCH_HOST}/r/redownload`,
@@ -358,5 +365,32 @@ describe("apple/download", () => {
     await expect(getDownloadInfo(account, app)).rejects.toThrow();
     // The redownload hop is never sent without a version.
     expect(downloadCalls()).toHaveLength(1);
+  });
+
+  it("reports the external version id of the build Apple served", async () => {
+    downloadReplies = [
+      reply(downloadDoc({ softwareVersionExternalIdentifier: 891042628 })),
+    ];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.externalVersionId).toBe("891042628");
+  });
+
+  it("pins the dispatch fallback with the recorded pin when the catalogue cannot name one", async () => {
+    lookupBody = offersMissingDoc();
+    vi.mocked(apiGet).mockResolvedValue({
+      pins: [{ platform: "ios", versionId: "555444" }],
+    });
+    downloadReplies = [reply(purchaseDoc()), reply(downloadDoc())];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[1].body).toContain(
+      "<key>appExtVrsId</key><string>555444</string>",
+    );
   });
 });

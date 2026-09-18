@@ -15,6 +15,7 @@ import {
   lookupLatestExternalVersionId,
   lookupLatestMacOSVersionId,
 } from "./platformVersion";
+import { withRecordedFallback } from "./versionPins";
 import {
   REDOWNLOAD_PRODUCT_PATH,
   UPDATE_PRODUCT_PATH,
@@ -393,27 +394,32 @@ function needsPlatformPin(platform?: Platform): boolean {
  * need. A failure is fatal here, as in ipatool: an unpinned redownload can
  * return a tvOS build for a universal app, and the rest of the flow has no way
  * to tell that apart from the requested download.
+ *
+ * When the catalogue cannot name one — delisted apps — the pin recorded from
+ * a previous download of the same app+platform is used instead.
  */
 async function pinnedLatestVersionId(session: DownloadSession): Promise<string> {
   const country = storeIdToCountry(session.account.store) ?? "us";
   const platform = session.app.platform;
 
-  let versionId: string | undefined;
-  if (platform === "macos") {
-    versionId = await lookupLatestMacOSVersionId(
-      session.app.id,
-      country,
-      session.app.bundleID || undefined,
-      session.cookies,
-    );
-  } else {
-    versionId = await lookupLatestExternalVersionId(
-      session.app.id,
-      country,
-      platform,
-      session.cookies,
-    );
-  }
+  const versionId = await withRecordedFallback(
+    () =>
+      platform === "macos"
+        ? lookupLatestMacOSVersionId(
+            session.app.id,
+            country,
+            session.app.bundleID || undefined,
+            session.cookies,
+          )
+        : lookupLatestExternalVersionId(
+            session.app.id,
+            country,
+            platform,
+            session.cookies,
+          ),
+    session.app.id,
+    platform,
+  );
 
   if (!versionId) {
     throw new DownloadError(i18n.t("errors.download.missingVersion"));

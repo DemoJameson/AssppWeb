@@ -3,6 +3,7 @@ import { buildPlist } from "../../src/apple/plist";
 import { listVersions } from "../../src/apple/versionFinder";
 import { appleRequest } from "../../src/apple/request";
 import { fetchBag } from "../../src/apple/bag";
+import { apiGet } from "../../src/api/client";
 import i18n from "../../src/i18n";
 import type { Account, Software } from "../../src/types";
 
@@ -12,6 +13,10 @@ vi.mock("../../src/apple/request", () => ({
 
 vi.mock("../../src/apple/bag", () => ({
   fetchBag: vi.fn(),
+}));
+
+vi.mock("../../src/api/client", () => ({
+  apiGet: vi.fn(),
 }));
 
 const LOOKUP_HOST = "uclient-api.itunes.apple.com";
@@ -76,6 +81,7 @@ const lookupDoc = (externalId: string) =>
 type RequestOptions = { host: string; path: string; body?: string };
 
 let downloadReplies: Reply[] = [];
+let lookupReply = lookupDoc("891042628");
 
 const allCalls = () => vi.mocked(appleRequest).mock.calls.map((call) => call[0] as RequestOptions);
 const downloadCalls = () => allCalls().filter((options) => options.host !== LOOKUP_HOST);
@@ -88,6 +94,9 @@ describe("apple/versionFinder", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
     downloadReplies = [];
+    lookupReply = lookupDoc("891042628");
+
+    vi.mocked(apiGet).mockResolvedValue({ pins: [] });
 
     vi.mocked(fetchBag).mockResolvedValue({
       authURL: "https://auth.example",
@@ -97,7 +106,7 @@ describe("apple/versionFinder", () => {
 
     vi.mocked(appleRequest).mockImplementation(async (options: RequestOptions) => {
       if (options.host === LOOKUP_HOST) {
-        return reply(lookupDoc("891042628"));
+        return reply(lookupReply);
       }
       const next = downloadReplies.shift();
       if (!next) {
@@ -220,5 +229,46 @@ describe("apple/versionFinder", () => {
 
     expect(result.versions).toEqual(["222", "111"]);
     expect(result.latestExternalVersionId).toBeUndefined();
+  });
+
+  it("uses a caller-provided version id as the pin and skips the catalogue", async () => {
+    const tvosApp = { ...app, platform: "tvos" } as Software;
+    downloadReplies = [reply(versionsDoc([111, 222]))];
+
+    const result = await listVersions(account, tvosApp, "777888999");
+
+    expect(result.versions).toEqual(["222", "111"]);
+    expect(allCalls().some((options) => options.host === LOOKUP_HOST)).toBe(false);
+    expect(downloadCalls()).toHaveLength(1);
+    expect(downloadCalls()[0].body).toContain(
+      "<key>externalVersionId</key><string>777888999</string>",
+    );
+  });
+
+  it("falls back to the recorded pin when the catalogue cannot name a version", async () => {
+    const tvosApp = { ...app, platform: "tvos" } as Software;
+    lookupReply = JSON.stringify({ results: { "1492142120": { offers: [] } } });
+    vi.mocked(apiGet).mockResolvedValue({
+      pins: [{ platform: "tvos", versionId: "999888" }],
+    });
+    downloadReplies = [reply(versionsDoc([111, 222]))];
+
+    const result = await listVersions(account, tvosApp);
+
+    expect(result.versions).toEqual(["222", "111"]);
+    expect(downloadCalls()[0].body).toContain(
+      "<key>externalVersionId</key><string>999888</string>",
+    );
+  });
+
+  it("reports the missing pin when neither the catalogue nor the store has one", async () => {
+    const tvosApp = { ...app, platform: "tvos" } as Software;
+    lookupReply = JSON.stringify({ results: { "1492142120": { offers: [] } } });
+    vi.mocked(apiGet).mockResolvedValue({ pins: [] });
+
+    await expect(listVersions(account, tvosApp)).rejects.toThrow(
+      i18n.t("errors.download.missingVersion"),
+    );
+    expect(downloadCalls()).toHaveLength(0);
   });
 });

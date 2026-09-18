@@ -81,6 +81,12 @@ export interface DownloadOutput {
    * storefront metadata (by-ID download) still produce a usable manifest.
    */
   bundleID?: string;
+  /**
+   * The external version identifier of the build Apple served. The backend
+   * records it as the app+platform's last-known pin, which is what keeps
+   * delisted apps — and platforms whose lookup has no answer left — queryable.
+   */
+  externalVersionId?: string;
   iTunesMetadata?: string;
 }
 
