@@ -110,4 +110,127 @@ describe("versionMetadataCache", () => {
     expect(fresh.getVersionMetadataForApp(6503940939)).toHaveLength(1);
     fresh.flushVersionMetadataCache();
   });
+
+  it("saves client metadata and refreshes it on later saves", () => {
+    const clientApp = 785858585;
+    expect(
+      cache.saveClientVersionMetadata(
+        clientApp,
+        "5001",
+        "5.0.0",
+        "2026-02-02T00:00:00.000Z",
+      ).saved,
+    ).toBe(true);
+    expect(cache.getVersionMetadataForApp(clientApp)).toEqual([
+      {
+        versionId: "5001",
+        displayVersion: "5.0.0",
+        releaseDate: "2026-02-02T00:00:00.000Z",
+      },
+    ]);
+
+    expect(
+      cache.saveClientVersionMetadata(
+        clientApp,
+        "5001",
+        "5.0.1",
+        "2026-02-03T00:00:00.000Z",
+      ).saved,
+    ).toBe(true);
+    expect(cache.getVersionMetadataForApp(clientApp)[0].displayVersion).toBe(
+      "5.0.1",
+    );
+  });
+
+  it("rejects invalid client payloads", () => {
+    expect(cache.saveClientVersionMetadata("abc", "1", "v", "d").saved).toBe(
+      false,
+    );
+    expect(cache.saveClientVersionMetadata(1, "x", "v", "d").saved).toBe(false);
+    expect(cache.saveClientVersionMetadata(1, "2", "", "d").saved).toBe(false);
+    expect(cache.saveClientVersionMetadata(1, "2", "v", undefined).saved).toBe(
+      false,
+    );
+  });
+
+  it("lets a package seed replace a client entry, and refuses the reverse", () => {
+    const clientApp = 785858585;
+    cache.seedVersionMetadata(
+      clientApp,
+      pkg({
+        externalVersionId: "5001",
+        version: "9.9.9",
+        releaseDate: "2026-03-03T00:00:00.000Z",
+      }),
+    );
+    expect(cache.getVersionMetadataForApp(clientApp)[0].displayVersion).toBe(
+      "9.9.9",
+    );
+
+    const rejected = cache.saveClientVersionMetadata(
+      clientApp,
+      "5001",
+      "1.1.1",
+      "2026-01-01T00:00:00.000Z",
+    );
+    expect(rejected.saved).toBe(false);
+    expect(rejected.entry?.displayVersion).toBe("9.9.9");
+    expect(cache.getVersionMetadataForApp(clientApp)[0].displayVersion).toBe(
+      "9.9.9",
+    );
+  });
+
+  it("persists the source alongside each entry", () => {
+    const clientApp = 785858585;
+    cache.saveClientVersionMetadata(
+      clientApp,
+      "5002",
+      "6.0.0",
+      "2026-04-04T00:00:00.000Z",
+    );
+    cache.flushVersionMetadataCache();
+
+    const raw = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8")) as {
+      entries: Record<
+        string,
+        Record<string, { displayVersion: string; source?: string }>
+      >;
+    };
+    expect(raw.entries[String(clientApp)]["5001"].source).toBe("package");
+    expect(raw.entries[String(clientApp)]["5002"].source).toBe("client");
+  });
+
+  it("treats entries without a source as package entries (legacy files)", async () => {
+    fs.writeFileSync(
+      CACHE_FILE,
+      JSON.stringify({
+        schema: 1,
+        entries: {
+          "6503940939": {
+            "3001": {
+              versionId: "3001",
+              displayVersion: "3.0.0",
+              releaseDate: "2026-01-01T00:00:00.000Z",
+              seededAt: 1,
+            },
+          },
+        },
+      }),
+    );
+
+    vi.resetModules();
+    const fresh = await import("../src/services/versionMetadataCache.js");
+    fresh.initVersionMetadataCache();
+
+    // A client write cannot displace it — proving it loaded as a package entry.
+    const result = fresh.saveClientVersionMetadata(
+      6503940939,
+      "3001",
+      "0.0.1",
+      "2026-01-01T00:00:00.000Z",
+    );
+    expect(result.saved).toBe(false);
+    expect(result.entry?.displayVersion).toBe("3.0.0");
+    fresh.flushVersionMetadataCache();
+  });
 });

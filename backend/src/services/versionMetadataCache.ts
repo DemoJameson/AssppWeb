@@ -5,19 +5,24 @@ import type { PackageMetadata } from "./sinfInjector.js";
 
 /**
  * The instance-wide version metadata cache: `appId -> versionId -> entry`,
- * served read-only to every client of this instance.
+ * served to every client of this instance.
  *
- * It is populated passively — only with what the download pipeline reads back
- * from compiled packages (the `seedVersionMetadata` call sites in
- * downloadManager) — never by client write-back, and never by the server
- * fetching Apple itself (it holds no credentials). Entries are immutable: a
- * version id names a fixed build, so nothing here ever needs invalidation.
+ * Entries come from two sources. The download pipeline seeds what compiled
+ * packages read back (the `seedVersionMetadata` call sites in downloadManager),
+ * and clients may save metadata they fetched live from Apple through
+ * `saveClientVersionMetadata` — the server itself never contacts Apple (it
+ * holds no credentials). Package-sourced entries are immutable and always win
+ * over client-saved ones: the IPA is the authority on the build it contains.
  */
+
+export type VersionMetadataSource = "package" | "client";
 
 export interface VersionMetadataEntry {
   versionId: string;
   displayVersion: string;
   releaseDate: string;
+  /** `package` = read back from a compiled IPA; `client` = saved by a browser. */
+  source: VersionMetadataSource;
   /** Kept for eviction ordering; not part of the API response. */
   seededAt: number;
 }
@@ -75,8 +80,8 @@ export function initVersionMetadataCache(): void {
 /**
  * Records what a compiled package knows about the version it contains. Only
  * displayable entries pass the gate (numeric ids plus both display fields);
- * anything else is silently skipped, and an id already present is never
- * rewritten.
+ * anything else is silently skipped. A package entry is never rewritten, but
+ * it does replace a client-saved entry — the IPA is the authority.
  */
 export function seedVersionMetadata(
   appId: string | number,
@@ -93,7 +98,8 @@ export function seedVersionMetadata(
   if (!displayVersion || !releaseDate) return;
 
   let bucket = apps.get(appKey);
-  if (bucket?.has(versionId)) return;
+  const existing = bucket?.get(versionId);
+  if (existing?.source === "package") return;
   if (!bucket) {
     bucket = new Map<string, VersionMetadataEntry>();
     apps.set(appKey, bucket);
@@ -103,11 +109,60 @@ export function seedVersionMetadata(
     versionId,
     displayVersion,
     releaseDate,
+    source: "package",
     seededAt: Date.now(),
   });
 
   evictOldest();
   schedulePersist();
+}
+
+/**
+ * Saves metadata a client fetched live from Apple. It fills gaps and refreshes
+ * earlier client-saved values, but never displaces a package entry — callers
+ * get `saved: false` plus the entry that stays authoritative instead.
+ */
+export function saveClientVersionMetadata(
+  appId: string | number,
+  versionId: string,
+  displayVersion: unknown,
+  releaseDate: unknown,
+): {
+  saved: boolean;
+  entry?: { versionId: string; displayVersion: string; releaseDate: string };
+} {
+  initVersionMetadataCache();
+
+  const appKey = String(appId).trim();
+  const versionKey = String(versionId).trim();
+  const display = cleanValue(displayVersion);
+  const release = cleanValue(releaseDate);
+
+  if (!isNumericId(appKey) || !isNumericId(versionKey)) return { saved: false };
+  if (!display || !release) return { saved: false };
+
+  let bucket = apps.get(appKey);
+  const existing = bucket?.get(versionKey);
+  if (existing?.source === "package") {
+    return { saved: false, entry: publicEntry(existing) };
+  }
+  if (!bucket) {
+    bucket = new Map<string, VersionMetadataEntry>();
+    apps.set(appKey, bucket);
+  }
+
+  const entry: VersionMetadataEntry = {
+    versionId: versionKey,
+    displayVersion: display,
+    releaseDate: release,
+    source: "client",
+    seededAt: Date.now(),
+  };
+  bucket.set(versionKey, entry);
+
+  evictOldest();
+  schedulePersist();
+  return { saved: true, entry: publicEntry(entry) };
 }
 
 /** Read access for the route: storefront-public fields only. */
@@ -117,13 +172,19 @@ export function getVersionMetadataForApp(
   const bucket = apps.get(String(appId).trim());
   if (!bucket) return [];
 
-  return Array.from(bucket.values()).map(
-    ({ versionId, displayVersion, releaseDate }) => ({
-      versionId,
-      displayVersion,
-      releaseDate,
-    }),
-  );
+  return Array.from(bucket.values()).map(publicEntry);
+}
+
+function publicEntry({
+  versionId,
+  displayVersion,
+  releaseDate,
+}: VersionMetadataEntry): {
+  versionId: string;
+  displayVersion: string;
+  releaseDate: string;
+} {
+  return { versionId, displayVersion, releaseDate };
 }
 
 /** Writes the cache immediately, skipping the debounce (tests, shutdown). */
@@ -159,12 +220,16 @@ function validateEntry(
   const releaseDate = cleanValue(record.releaseDate);
   if (!displayVersion || !releaseDate) return undefined;
 
+  // Files written before sources existed came from packages only.
+  const source: VersionMetadataSource =
+    record.source === "client" ? "client" : "package";
+
   const seededAt =
     typeof record.seededAt === "number" && Number.isFinite(record.seededAt)
       ? record.seededAt
       : Date.now();
 
-  return { versionId, displayVersion, releaseDate, seededAt };
+  return { versionId, displayVersion, releaseDate, source, seededAt };
 }
 
 /** Evicts oldest-seeded entries until the directory fits the configured cap. */

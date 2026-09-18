@@ -17,6 +17,7 @@ const cache = await import("../src/services/versionMetadataCache.js");
 
 function createApp() {
   const app = express();
+  app.use(express.json());
   app.use("/api", versionMetadataRoutes);
   return app;
 }
@@ -63,5 +64,62 @@ describe("Version Metadata Route", () => {
       ],
     });
     expect(JSON.stringify(res.body)).not.toContain("seededAt");
+  });
+
+  it("saves client metadata for a version", async () => {
+    const res = await request(createApp())
+      .put("/api/version-metadata/6503940939/900000001")
+      .send({
+        displayVersion: "2.0.0",
+        releaseDate: "2026-08-01T00:00:00.000Z",
+      });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      saved: true,
+      entry: {
+        versionId: "900000001",
+        displayVersion: "2.0.0",
+        releaseDate: "2026-08-01T00:00:00.000Z",
+      },
+    });
+
+    const list = await request(createApp()).get(
+      "/api/version-metadata/6503940939",
+    );
+    expect(list.body.entries).toHaveLength(2);
+  });
+
+  it("declines to displace a package entry, returning it instead", async () => {
+    const res = await request(createApp())
+      .put("/api/version-metadata/6503940939/888154622")
+      .send({
+        displayVersion: "0.0.1",
+        releaseDate: "2020-01-01T00:00:00.000Z",
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.saved).toBe(false);
+    expect(res.body.entry.displayVersion).toBe("1.3.18");
+  });
+
+  it("validates ids and payloads", async () => {
+    const badApp = await request(createApp())
+      .put("/api/version-metadata/abc/1")
+      .send({ displayVersion: "1", releaseDate: "d" });
+    expect(badApp.status).toBe(400);
+
+    const badVersion = await request(createApp())
+      .put("/api/version-metadata/1/x")
+      .send({ displayVersion: "1", releaseDate: "d" });
+    expect(badVersion.status).toBe(400);
+
+    const missingBody = await request(createApp())
+      .put("/api/version-metadata/1/2")
+      .send({});
+    expect(missingBody.status).toBe(400);
+
+    const blankValue = await request(createApp())
+      .put("/api/version-metadata/1/2")
+      .send({ displayVersion: "", releaseDate: "d" });
+    expect(blankValue.status).toBe(400);
   });
 });
