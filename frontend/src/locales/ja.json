@@ -278,6 +278,13 @@
       "platform": "デフォルトのプラットフォーム",
       "platformChanged": "デフォルトのプラットフォームを更新しました"
     },
+    "automation": {
+      "title": "自動化",
+      "autoVersionInfo": "バージョン情報を自動取得",
+      "autoVersionInfoDesc": "バージョン一覧の読み込み後、不足しているバージョン情報をバックグラウンドで最大20件まで補完します。",
+      "autoLicense": "ライセンスを自動取得",
+      "autoLicenseDesc": "ダウンロードやバージョン確認でライセンスが見つからない場合、自動で取得して一度再試行します。"
+    },
     "server": {
       "title": "サーバー",
       "uptime": "稼働時間",

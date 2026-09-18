@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import AppIcon from "../common/AppIcon";
 import PlatformSelect from "../common/PlatformSelect";
+import Select from "../common/Select";
+import StableLabel from "../common/StableLabel";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useSelectedAccount } from "../../hooks/useSelectedAccount";
@@ -10,7 +12,6 @@ import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
 import { useSettingsStore } from "../../store/settings";
 import { useToastStore } from "../../store/toast";
 import { lookupAppById } from "../../api/search";
-import { listVersions } from "../../apple/versionFinder";
 import { accountSelectLabel, accountStoreCountry } from "../../utils/account";
 import { getErrorMessage } from "../../utils/error";
 import { versionOptionLabel } from "../../utils/versionLabels";
@@ -54,11 +55,13 @@ function placeholderSoftware(id: string, platform: Platform): Software {
  * as the regular new-download page.
  */
 export default function DownloadById() {
-  const { accounts, updateAccount } = useAccounts();
+  const { accounts } = useAccounts();
   const { defaultCountry, defaultPlatform } = useSettingsStore();
   const { t } = useTranslation();
-  const { startDownload, toastDownloadError } = useDownloadAction();
-  const { versionMeta, ensureLoaded } = useVersionMetadataMap();
+  const { startDownload, toastDownloadError, listVersionsWithLicense } =
+    useDownloadAction();
+  const { versionMeta, ensureLoaded, prefetchMissing } =
+    useVersionMetadataMap();
   const addToast = useToastStore((s) => s.addToast);
 
   const [appId, setAppId] = useState("");
@@ -112,11 +115,12 @@ export default function DownloadById() {
         versionIdValid && versionId.trim() !== ""
           ? versionId.trim()
           : undefined;
-      const result = await listVersions(account, target, pin);
+      const result = await listVersionsWithLicense(account, target, pin);
       setVersions(result.versions);
       setVersionId(result.versions[0] || "");
       await ensureLoaded(target.id);
-      await updateAccount({ ...account, cookies: result.updatedCookies });
+      // Fill the missing labels silently in the background.
+      prefetchMissing(account, target, result.versions);
     } catch (err) {
       addToast(
         getErrorMessage(err, t("downloads.byId.versionsFailed")),
@@ -160,8 +164,8 @@ export default function DownloadById() {
           onSubmit={handleDownload}
           className="min-w-0 space-y-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-5"
         >
-          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-start">
-            <div className="min-w-0">
+          <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-start">
+            <div className="col-span-2 min-w-0 sm:col-span-1">
               <label
                 htmlFor="by-id-app-id"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
@@ -184,7 +188,7 @@ export default function DownloadById() {
                 </p>
               )}
             </div>
-            <div className="min-w-0">
+            <div className="col-span-2 min-w-0 sm:col-span-1">
               <label
                 htmlFor="by-id-version-id"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
@@ -192,19 +196,17 @@ export default function DownloadById() {
                 {t("downloads.byId.versionId")}
               </label>
               {versions.length > 0 ? (
-                <select
+                <Select
                   id="by-id-version-id"
                   value={versionId}
-                  onChange={(e) => setVersionId(e.target.value)}
-                  className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
+                  onChange={setVersionId}
+                  options={versions.map((v) => ({
+                    value: v,
+                    label: versionOptionLabel(v, versionMeta[v]),
+                  }))}
                   disabled={loading || loadingVersions}
-                >
-                  {versions.map((v) => (
-                    <option key={v} value={v}>
-                      {versionOptionLabel(v, versionMeta[v])}
-                    </option>
-                  ))}
-                </select>
+                  className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
+                />
               ) : (
                 <input
                   id="by-id-version-id"
@@ -227,7 +229,7 @@ export default function DownloadById() {
             </div>
             <div className="min-w-0">
               <label
-                className="invisible block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                className="hidden sm:block sm:invisible text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
               >
 
                 {t("downloads.byId.download")}
@@ -236,16 +238,18 @@ export default function DownloadById() {
                 type="button"
                 onClick={handleLoadVersions}
                 disabled={loadingVersions || loading || !account || !appIdValid}
-                className="min-h-11 w-full min-w-0 whitespace-normal break-words rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                className="min-h-11 w-full min-w-0 whitespace-normal break-words rounded-full bg-orange-50 px-6 py-2 text-sm font-semibold text-orange-600 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 dark:hover:bg-orange-950 sm:w-auto"
               >
-                {loadingVersions
-                  ? t("downloads.byId.loadingVersions")
-                  : t("downloads.byId.loadVersions")}
+                <StableLabel
+                  idle={t("downloads.byId.loadVersions")}
+                  busy={t("downloads.byId.loadingVersions")}
+                  busyActive={loadingVersions}
+                />
               </button>
             </div>
             <div className="min-w-0">
               <label
-                className="invisible block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                className="hidden sm:block sm:invisible text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
               >
                 {t("downloads.byId.download")}
               </label>
@@ -254,38 +258,42 @@ export default function DownloadById() {
                 disabled={loading || !account || !appIdValid || !versionIdValid}
                 className="min-h-11 w-full min-w-0 whitespace-normal break-words rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
-                {loading
-                  ? t("downloads.byId.processing")
-                  : t("downloads.byId.download")}
+                <StableLabel
+                  idle={t("downloads.byId.download")}
+                  busy={t("downloads.byId.processing")}
+                  busyActive={loading}
+                />
               </button>
             </div>
           </div>
 
-          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-3 border-t border-gray-100 pt-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,3fr)] dark:border-gray-800">
             <PlatformSelect
               value={platform}
               onChange={setPlatform}
               disabled={loading}
               className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
             />
-            <select
+            <Select
               value={selectedAccount}
-              onChange={(e) => selectAccount(e.target.value)}
-              className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
+              onChange={selectAccount}
+              options={
+                accounts.length > 0
+                  ? accounts.map((a) => ({
+                      value: a.email,
+                      label: accountSelectLabel(a, t),
+                    }))
+                  : [
+                      {
+                        value: "",
+                        label: t("downloads.byId.noAccountsForRegion"),
+                      },
+                    ]
+              }
+              ariaLabel={t("search.product.account")}
               disabled={loading || accounts.length === 0}
-            >
-              {accounts.length > 0 ? (
-                accounts.map((a) => (
-                  <option key={a.email} value={a.email}>
-                    {accountSelectLabel(a, t)}
-                  </option>
-                ))
-              ) : (
-                <option value="">
-                  {t("downloads.byId.noAccountsForRegion")}
-                </option>
-              )}
-            </select>
+              className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
+            />
           </div>
         </form>
 

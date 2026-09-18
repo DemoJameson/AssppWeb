@@ -9,6 +9,8 @@ describe("store/settings", () => {
       defaultCountry: "US",
       defaultPlatform: "ios",
       defaultAccount: "",
+      autoFetchVersionInfo: true,
+      autoAcquireLicense: true,
     });
   });
 
@@ -39,6 +41,18 @@ describe("store/settings", () => {
   it("should remember the selected account", () => {
     useSettingsStore.getState().setDefaultAccount("dev@example.test");
     expect(useSettingsStore.getState().defaultAccount).toBe("dev@example.test");
+  });
+
+  it("should enable the automation switches by default", () => {
+    expect(useSettingsStore.getState().autoFetchVersionInfo).toBe(true);
+    expect(useSettingsStore.getState().autoAcquireLicense).toBe(true);
+  });
+
+  it("should toggle the automation switches", () => {
+    useSettingsStore.getState().setAutoFetchVersionInfo(false);
+    useSettingsStore.getState().setAutoAcquireLicense(false);
+    expect(useSettingsStore.getState().autoFetchVersionInfo).toBe(false);
+    expect(useSettingsStore.getState().autoAcquireLicense).toBe(false);
   });
 
   it("should migrate the v0 entity preference to a platform", () => {

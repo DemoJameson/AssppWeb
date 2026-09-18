@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DownloadById from '../../src/components/Download/DownloadById';
+import { useVersionMetadataStore } from '../../src/store/versionMetadata';
 import type { Account, Software } from '../../src/types';
 
 const mocks = vi.hoisted(() => ({
@@ -32,6 +33,7 @@ vi.mock('../../src/hooks/useAccounts', () => ({
 vi.mock('../../src/hooks/useDownloadAction', () => ({
   useDownloadAction: () => ({
     startDownload: mocks.startDownload,
+    listVersionsWithLicense: mocks.listVersions,
     toastDownloadError: mocks.toastDownloadError,
   }),
 }));
@@ -46,30 +48,45 @@ vi.mock('../../src/api/search', () => ({
   lookupApp: vi.fn(),
 }));
 
-vi.mock('../../src/apple/versionFinder', () => ({
-  listVersions: mocks.listVersions,
+// Prefetch reaches for live metadata after loading versions; the module is
+// stubbed so the libcurl-backed exchange never enters the import graph.
+vi.mock('../../src/apple/versionLookup', () => ({
+  getVersionMetadata: vi.fn(),
 }));
 
-// The settings store is read without a selector in the page, and with one in
-// the account-selection hook.
-vi.mock('../../src/store/settings', () => ({
-  useSettingsStore: (
-    selector?: (state: {
-      defaultCountry: string;
-      defaultPlatform: string;
-      defaultAccount: string;
-      setDefaultAccount: (account: string) => void;
-    }) => unknown,
-  ) => {
-    const state = {
-      defaultCountry: 'US',
-      defaultPlatform: 'ios',
-      defaultAccount: mocks.defaultAccount,
-      setDefaultAccount: mocks.setDefaultAccount,
-    };
-    return selector ? selector(state) : state;
-  },
-}));
+// The settings store is read as a hook by the page and store-side by the
+// version-metadata prefetch, so both call styles have to work.
+vi.mock('../../src/store/settings', () => {
+  const useSettingsStore = Object.assign(
+    (
+      selector?: (state: {
+        defaultCountry: string;
+        defaultPlatform: string;
+        defaultAccount: string;
+        setDefaultAccount: (account: string) => void;
+        autoFetchVersionInfo: boolean;
+        autoAcquireLicense: boolean;
+      }) => unknown,
+    ) => {
+      const state = {
+        defaultCountry: 'US',
+        defaultPlatform: 'ios',
+        defaultAccount: mocks.defaultAccount,
+        setDefaultAccount: mocks.setDefaultAccount,
+        autoFetchVersionInfo: true,
+        autoAcquireLicense: true,
+      };
+      return selector ? selector(state) : state;
+    },
+    {
+      getState: () => ({
+        autoFetchVersionInfo: true,
+        autoAcquireLicense: true,
+      }),
+    },
+  );
+  return { useSettingsStore };
+});
 
 const account: Account = {
   email: 'developer@example.test',
@@ -115,6 +132,12 @@ function renderPage() {
 
 const appIdInput = () => screen.getByLabelText('downloads.byId.appId');
 const versionIdInput = () => screen.getByLabelText('downloads.byId.versionId');
+
+const platformCombo = () =>
+  screen.getByRole('combobox', { name: 'downloads.platform.label' });
+
+const accountCombo = () =>
+  screen.getByRole('combobox', { name: 'search.product.account' });
 const downloadButton = () =>
   screen.getByRole('button', { name: 'downloads.byId.download' });
 const loadVersionsButton = () =>
@@ -123,6 +146,7 @@ const loadVersionsButton = () =>
 describe('DownloadById', () => {
   beforeEach(() => {
     mocks.accounts = [account];
+    useVersionMetadataStore.setState({ entries: {} });
     mocks.defaultAccount = '';
     mocks.setDefaultAccount.mockReset();
     mocks.startDownload.mockReset();
@@ -154,12 +178,14 @@ describe('DownloadById', () => {
     expect(versionIdInput()).toBeTruthy();
 
     await waitFor(() => {
-      expect(
-        screen.getByRole('option', {
-          name: 'countries.US - Example Developer (developer@example.test)',
-        }),
-      ).toBeTruthy();
+      expect(accountCombo()).toHaveTextContent('developer@example.test');
     });
+    fireEvent.click(accountCombo());
+    expect(
+      screen.getByRole('option', {
+        name: 'countries.US - Example Developer (developer@example.test)',
+      }),
+    ).toBeTruthy();
   });
 
   it('keeps the download button disabled until a numeric app id is entered', () => {
@@ -262,13 +288,15 @@ describe('DownloadById', () => {
     });
 
     expect(mocks.lookupAppById).toHaveBeenCalledWith('1492142120', 'US', 'ios');
-    const select = screen.getByLabelText(
+    const combo = screen.getByLabelText(
       'downloads.byId.versionId',
-    ) as HTMLSelectElement;
-    expect(select.tagName).toBe('SELECT');
-    expect(select.value).toBe('890964826');
+    ) as HTMLButtonElement;
+    expect(combo.tagName).toBe('BUTTON');
+    expect(combo).toHaveTextContent('890964826');
+
+    fireEvent.click(combo);
     expect(screen.getByRole('option', { name: '890657720' })).toBeTruthy();
-    expect(mocks.updateAccount).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('option', { name: '890964826' })).toBeTruthy();
   });
 
   it('downloads the version picked from the loaded list', async () => {
@@ -280,7 +308,8 @@ describe('DownloadById', () => {
       expect(mocks.listVersions).toHaveBeenCalledTimes(1);
     });
 
-    fireEvent.change(versionIdInput(), { target: { value: '890657720' } });
+    fireEvent.click(versionIdInput());
+    fireEvent.click(screen.getByRole('option', { name: '890657720' }));
     fireEvent.click(downloadButton());
 
     await waitFor(() => {
@@ -321,11 +350,11 @@ describe('DownloadById', () => {
     expect(calledApp.bundleID).toBe('');
     expect(calledApp.platform).toBe('ios');
 
-    const select = screen.getByLabelText(
+    const combo = screen.getByLabelText(
       'downloads.byId.versionId',
-    ) as HTMLSelectElement;
-    expect(select.tagName).toBe('SELECT');
-    expect(select.value).toBe('890964826');
+    ) as HTMLButtonElement;
+    expect(combo.tagName).toBe('BUTTON');
+    expect(combo).toHaveTextContent('890964826');
   });
 
   it('pins the version load with an entered version id', async () => {
@@ -350,14 +379,12 @@ describe('DownloadById', () => {
       expect(mocks.listVersions).toHaveBeenCalledTimes(1);
     });
     expect(
-      (screen.getByLabelText('downloads.byId.versionId') as HTMLSelectElement)
+      (screen.getByLabelText('downloads.byId.versionId') as HTMLElement)
         .tagName,
-    ).toBe('SELECT');
+    ).toBe('BUTTON');
 
-    fireEvent.change(
-      screen.getByRole('combobox', { name: 'downloads.platform.label' }),
-      { target: { value: 'tvos' } },
-    );
+    fireEvent.click(platformCombo());
+    fireEvent.click(screen.getByRole('option', { name: 'tvOS' }));
 
     const field = screen.getByLabelText(
       'downloads.byId.versionId',
@@ -371,15 +398,10 @@ describe('DownloadById', () => {
     mocks.defaultAccount = 'second@example.test';
     renderPage();
 
-    const accountSelect = () =>
-      screen
-        .getAllByRole('combobox')
-        .find(
-          (el) => el.getAttribute('aria-label') !== 'downloads.platform.label',
-        ) as HTMLSelectElement;
+    const accountSelect = () => accountCombo();
 
     await waitFor(() => {
-      expect(accountSelect().value).toBe('second@example.test');
+      expect(accountSelect()).toHaveTextContent('second@example.test');
     });
   });
 
@@ -387,14 +409,10 @@ describe('DownloadById', () => {
     mocks.accounts = [account, { ...account, email: 'second@example.test' }];
     renderPage();
 
-    const accountSelect = screen
-      .getAllByRole('combobox')
-      .find(
-        (el) => el.getAttribute('aria-label') !== 'downloads.platform.label',
-      ) as HTMLSelectElement;
-    fireEvent.change(accountSelect, {
-      target: { value: 'second@example.test' },
-    });
+    fireEvent.click(accountCombo());
+    fireEvent.click(
+      screen.getByRole('option', { name: /second@example\.test/ }),
+    );
 
     expect(mocks.setDefaultAccount).toHaveBeenCalledWith(
       'second@example.test',

@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import AppIcon from "../common/AppIcon";
 import PlatformSelect from "../common/PlatformSelect";
+import Select from "../common/Select";
+import StableLabel from "../common/StableLabel";
 
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
@@ -11,14 +13,13 @@ import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
 import { useSettingsStore } from "../../store/settings";
 import { useToastStore } from "../../store/toast";
 import { lookupApp } from "../../api/search";
-import { listVersions } from "../../apple/versionFinder";
 import { accountSelectLabel, accountStoreCountry } from "../../utils/account";
 import { getErrorMessage } from "../../utils/error";
 import { versionOptionLabel } from "../../utils/versionLabels";
 import type { Platform, Software } from "../../types";
 
 export default function AddDownload() {
-  const { accounts, updateAccount } = useAccounts();
+  const { accounts } = useAccounts();
   const { defaultCountry, defaultPlatform } = useSettingsStore();
   const { t } = useTranslation();
   const addToast = useToastStore((s) => s.addToast);
@@ -27,8 +28,10 @@ export default function AddDownload() {
     acquireLicense,
     toastDownloadError,
     toastLicenseError,
+    listVersionsWithLicense,
   } = useDownloadAction();
-  const { versionMeta, ensureLoaded } = useVersionMetadataMap();
+  const { versionMeta, ensureLoaded, prefetchMissing } =
+    useVersionMetadataMap();
 
   const [bundleId, setBundleId] = useState("");
   const [platform, setPlatform] = useState<Platform>(defaultPlatform);
@@ -84,11 +87,12 @@ export default function AddDownload() {
     if (!account || !app) return;
     setLoadingAction("versions");
     try {
-      const result = await listVersions(account, app);
+      const result = await listVersionsWithLicense(account, app);
       setVersions(result.versions);
       setSelectedVersion(result.versions[0] || "");
       await ensureLoaded(app.id);
-      await updateAccount({ ...account, cookies: result.updatedCookies });
+      // Fill the missing labels silently in the background.
+      prefetchMissing(account, app, result.versions);
       setStep("versions");
     } catch (e) {
       addToast(getErrorMessage(e, t("downloads.add.versionsFailed")), "error");
@@ -138,37 +142,41 @@ export default function AddDownload() {
                 disabled={isLoading || !bundleId.trim()}
                 className="min-h-11 w-full min-w-0 whitespace-normal break-words rounded-full bg-blue-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
               >
-                {loadingAction === "lookup"
-                  ? t("downloads.add.lookingUp")
-                  : t("downloads.add.lookup")}
+                <StableLabel
+                  idle={t("downloads.add.lookup")}
+                  busy={t("downloads.add.lookingUp")}
+                  busyActive={loadingAction === "lookup"}
+                />
               </button>
             </div>
           </div>
-          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-3 border-t border-gray-100 pt-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,3fr)] dark:border-gray-800">
             <PlatformSelect
               value={platform}
               onChange={setPlatform}
               disabled={isLoading}
               className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
             />
-            <select
+            <Select
               value={selectedAccount}
-              onChange={(e) => selectAccount(e.target.value)}
-              className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
+              onChange={selectAccount}
+              options={
+                accounts.length > 0
+                  ? accounts.map((a) => ({
+                      value: a.email,
+                      label: accountSelectLabel(a, t),
+                    }))
+                  : [
+                      {
+                        value: "",
+                        label: t("downloads.add.noAccountsForRegion"),
+                      },
+                    ]
+              }
+              ariaLabel={t("search.product.account")}
               disabled={isLoading || accounts.length === 0}
-            >
-              {accounts.length > 0 ? (
-                accounts.map((a) => (
-                  <option key={a.email} value={a.email}>
-                    {accountSelectLabel(a, t)}
-                  </option>
-                ))
-              ) : (
-                <option value="">
-                  {t("downloads.add.noAccountsForRegion")}
-                </option>
-              )}
-            </select>
+              className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
+            />
           </div>
         </form>
 
@@ -230,17 +238,16 @@ export default function AddDownload() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   {t("downloads.add.versionOptional")}
                 </label>
-                <select
+                <Select
                   value={selectedVersion}
-                  onChange={(e) => setSelectedVersion(e.target.value)}
+                  onChange={setSelectedVersion}
+                  options={versions.map((v) => ({
+                    value: v,
+                    label: versionOptionLabel(v, versionMeta[v]),
+                  }))}
+                  ariaLabel={t("downloads.add.versionOptional")}
                   className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
-                >
-                  {versions.map((v) => (
-                    <option key={v} value={v}>
-                      {versionOptionLabel(v, versionMeta[v])}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
             )}
 
@@ -251,20 +258,24 @@ export default function AddDownload() {
                   disabled={isLoading || !account}
                   className="min-h-11 min-w-0 whitespace-normal break-words rounded-full bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-600 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto dark:bg-blue-950/60 dark:text-blue-400"
                 >
-                  {loadingAction === "license"
-                    ? t("downloads.add.processing")
-                    : t("downloads.add.getLicense")}
+                  <StableLabel
+                    idle={t("downloads.add.getLicense")}
+                    busy={t("downloads.add.processing")}
+                    busyActive={loadingAction === "license"}
+                  />
                 </button>
               )}
               {step !== "versions" && (
                 <button
                   onClick={handleLoadVersions}
                   disabled={isLoading || !account}
-                  className="min-h-11 min-w-0 whitespace-normal break-words rounded-full bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                  className="min-h-11 min-w-0 whitespace-normal break-words rounded-full bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-600 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 dark:hover:bg-orange-950 sm:w-auto"
                 >
-                  {loadingAction === "versions"
-                    ? t("downloads.add.processing")
-                    : t("downloads.add.selectVersion")}
+                  <StableLabel
+                    idle={t("downloads.add.selectVersion")}
+                    busy={t("downloads.add.processing")}
+                    busyActive={loadingAction === "versions"}
+                  />
                 </button>
               )}
               <button
@@ -272,9 +283,11 @@ export default function AddDownload() {
                 disabled={isLoading || !account}
                 className="min-h-11 min-w-0 whitespace-normal break-words rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
-                {loadingAction === "download"
-                  ? t("downloads.add.processing")
-                  : t("downloads.add.download")}
+                <StableLabel
+                  idle={t("downloads.add.download")}
+                  busy={t("downloads.add.processing")}
+                  busyActive={loadingAction === "download"}
+                />
               </button>
             </div>
           </div>

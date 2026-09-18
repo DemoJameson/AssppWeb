@@ -5,6 +5,7 @@ import PageContainer from "../Layout/PageContainer";
 import AppIcon from "../common/AppIcon";
 import CountrySelect from "../common/CountrySelect";
 import PlatformSelect from "../common/PlatformSelect";
+import StableLabel from "../common/StableLabel";
 
 import { useSearch } from "../../hooks/useSearch";
 import { useAccounts } from "../../hooks/useAccounts";
@@ -84,22 +85,27 @@ export default function SearchPage() {
             disabled={loading || !term.trim()}
             className="min-h-11 whitespace-nowrap rounded-full bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? t("search.searching") : t("search.button")}
+            <StableLabel
+              idle={t("search.button")}
+              busy={t("search.searching")}
+              busyActive={loading}
+            />
           </button>
         </div>
-        <div className="flex w-full gap-3 overflow-hidden border-t border-gray-100 pt-3 dark:border-gray-800">
+        <div className="flex w-full gap-3 border-t border-gray-100 pt-3 dark:border-gray-800">
           <PlatformSelect
             value={activePlatform}
             onChange={(p) => setSearchParam({ platform: p })}
-
-            className="min-h-11 w-1/2 truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 dark:bg-gray-800 dark:text-white"
+            wrapperClassName="w-1/2"
+            className="min-h-11 w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 dark:bg-gray-800 dark:text-white"
           />
           <CountrySelect
             value={activeCountry}
             onChange={(c) => setSearchParam({ country: c })}
             availableCountryCodes={availableCountryCodes}
             allCountryCodes={allCountryCodes}
-            className="w-1/2 truncate border-0 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white"
+            wrapperClassName="w-1/2"
+            className="truncate border-0 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white"
           />
         </div>
       </form>

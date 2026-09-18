@@ -278,6 +278,13 @@
       "platform": "기본 플랫폼",
       "platformChanged": "기본 플랫폼이 업데이트되었습니다"
     },
+    "automation": {
+      "title": "자동화",
+      "autoVersionInfo": "버전 정보 자동 조회",
+      "autoVersionInfoDesc": "버전 목록을 불러온 뒤 누락된 버전 정보를 백그라운드에서 최대 20개까지 채웁니다.",
+      "autoLicense": "라이선스 자동 획득",
+      "autoLicenseDesc": "다운로드나 버전 조회 시 라이선스가 없으면 자동으로 획득하고 한 번 재시도합니다."
+    },
     "server": {
       "title": "서버",
       "uptime": "가동 시간",

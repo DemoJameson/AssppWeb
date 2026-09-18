@@ -2,24 +2,26 @@ import type { VersionMetadata } from "../types";
 
 /**
  * Option text for the download version pickers (AddDownload, DownloadById):
- * the external id stays first because it is the value the picker submits; a
- * cached display version is appended in parentheses.
+ * the display version leads, followed by its release date; the external id
+ * stays in parentheses because it is the value the picker submits.
  */
 export function versionOptionLabel(
   versionId: string,
   meta?: VersionMetadata,
 ): string {
-  return meta ? `${versionId} (v${meta.displayVersion})` : versionId;
+  if (!meta) return versionId;
+  const date = meta.releaseDate.slice(0, 10);
+  return `v${meta.displayVersion} · ${date} (${versionId})`;
 }
 
 /**
  * Row text for version browsing (VersionHistory, PackageDetail): the display
  * version leads, with the external id in parentheses when cached; uncached
- * rows keep the historical `ID:` placeholder.
+ * rows show the raw id.
  */
 export function versionRowLabel(
   versionId: string,
   meta?: VersionMetadata,
 ): string {
-  return meta ? `v${meta.displayVersion} (${versionId})` : `ID: ${versionId}`;
+  return meta ? `v${meta.displayVersion} (${versionId})` : versionId;
 }

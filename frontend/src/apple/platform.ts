@@ -21,7 +21,7 @@ export const PLATFORMS: Platform[] = [
 /** Brand names, not translatable — every locale shows these verbatim. */
 export const PLATFORM_LABELS: Record<Platform, string> = {
   ios: "iOS",
-  ipad: "iPad",
+  ipad: "iPadOS",
   tvos: "tvOS",
   visionos: "visionOS",
   macos: "macOS",

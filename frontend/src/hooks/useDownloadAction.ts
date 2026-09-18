@@ -2,9 +2,12 @@ import { useTranslation } from "react-i18next";
 import { useAccounts } from "./useAccounts";
 import { useToastStore } from "../store/toast";
 import { useDownloadsStore } from "../store/downloads";
-import { getDownloadInfo } from "../apple/download";
+import { useSettingsStore } from "../store/settings";
+import { DownloadError, getDownloadInfo } from "../apple/download";
 import { purchaseApp } from "../apple/purchase";
 import { authenticate } from "../apple/authenticate";
+import { FAILURE_LICENSE_NOT_FOUND } from "../apple/config";
+import { listVersions } from "../apple/versionFinder";
 import { apiPost, apiGet } from "../api/client";
 import { accountHash } from "../utils/account";
 import { getErrorMessage } from "../utils/error";
@@ -50,12 +53,33 @@ export function useDownloadAction() {
       // Settings fetch failed — backend will still enforce the limit
     }
 
-    const { output, updatedCookies } = await getDownloadInfo(
-      account,
-      app,
-      versionId,
-    );
-    await updateAccount({ ...account, cookies: updatedCookies });
+    // If Apple answers that the account has no license for this app yet,
+    // acquire one and retry the download once before giving up.
+    let currentAccount = account;
+    let download: Awaited<ReturnType<typeof getDownloadInfo>>;
+    try {
+      download = await getDownloadInfo(currentAccount, app, versionId);
+    } catch (err) {
+      if (
+        !(err instanceof DownloadError) ||
+        err.code !== FAILURE_LICENSE_NOT_FOUND ||
+        !useSettingsStore.getState().autoAcquireLicense
+      ) {
+        throw err;
+      }
+
+      currentAccount = await acquireLicenseFor(currentAccount, app);
+      addToast(
+        t("toast.msg", { appName, ...ctx }),
+        "success",
+        t("toast.title.licenseSuccess"),
+      );
+
+      download = await getDownloadInfo(currentAccount, app, versionId);
+    }
+
+    const { output, updatedCookies } = download;
+    await updateAccount({ ...currentAccount, cookies: updatedCookies });
 
     // The app id is the identity here (ipatool's `App.ID`); the bundle id is
     // whatever the storefront or the download item reports. When neither knows
@@ -63,7 +87,7 @@ export function useDownloadAction() {
     // reads it out of the compiled package.
     const bundleID = app.bundleID || output.bundleID || "";
 
-    const hash = await accountHash(account);
+    const hash = await accountHash(currentAccount);
 
     await apiPost("/api/downloads", {
       software: {
@@ -89,13 +113,18 @@ export function useDownloadAction() {
     );
   }
 
-  async function acquireLicense(account: Account, app: Software) {
-    const ctx = getAccountContext(account, t);
-    const appName = app.name;
-
-    // Silently renew the password token before purchasing.
-    // This prevents "token expired" (2034/2042) errors that would
-    // otherwise require the user to manually re-authenticate.
+  /**
+   * Acquires the app's license, silently renewing the password token first (a
+   * stale token would fail the purchase). Returns the account with the fresh
+   * cookies so the caller can keep using the same session.
+   */
+  async function acquireLicenseFor(
+    account: Account,
+    app: Software,
+  ): Promise<Account> {
+    // Silently renew the password token before purchasing. This prevents
+    // "token expired" (2034/2042) errors that would otherwise require the
+    // user to manually re-authenticate.
     let currentAccount = account;
     try {
       const renewed = await authenticate(
@@ -112,13 +141,61 @@ export function useDownloadAction() {
     }
 
     const result = await purchaseApp(currentAccount, app);
-    await updateAccount({ ...currentAccount, cookies: result.updatedCookies });
+    const updated = { ...currentAccount, cookies: result.updatedCookies };
+    await updateAccount(updated);
+    return updated;
+  }
+
+  async function acquireLicense(account: Account, app: Software) {
+    const ctx = getAccountContext(account, t);
+    const appName = app.name;
+
+    await acquireLicenseFor(account, app);
 
     addToast(
       t("toast.msg", { appName, ...ctx }),
       "success",
       t("toast.title.licenseSuccess"),
     );
+  }
+
+  /**
+   * Lists an app's versions, acquiring the license first when Apple reports
+   * that the account has none yet — the version exchange requires a license
+   * just like a download does. The refreshed session cookies are stored on
+   * the account either way, and the list is returned to the caller.
+   */
+  async function listVersionsWithLicense(
+    account: Account,
+    app: Software,
+    pinnedVersionId?: string,
+  ): Promise<Awaited<ReturnType<typeof listVersions>>> {
+    let currentAccount = account;
+    let result: Awaited<ReturnType<typeof listVersions>>;
+    try {
+      result = await listVersions(currentAccount, app, pinnedVersionId);
+    } catch (err) {
+      if (
+        !(err instanceof DownloadError) ||
+        err.code !== FAILURE_LICENSE_NOT_FOUND ||
+        !useSettingsStore.getState().autoAcquireLicense
+      ) {
+        throw err;
+      }
+
+      const ctx = getAccountContext(account, t);
+      currentAccount = await acquireLicenseFor(currentAccount, app);
+      addToast(
+        t("toast.msg", { appName: app.name, ...ctx }),
+        "success",
+        t("toast.title.licenseSuccess"),
+      );
+
+      result = await listVersions(currentAccount, app, pinnedVersionId);
+    }
+
+    await updateAccount({ ...currentAccount, cookies: result.updatedCookies });
+    return result;
   }
 
   function toastDownloadError(account: Account, app: Software, error: unknown) {
@@ -150,6 +227,7 @@ export function useDownloadAction() {
   return {
     startDownload,
     acquireLicense,
+    listVersionsWithLicense,
     toastDownloadError,
     toastLicenseError,
   };

@@ -278,6 +278,13 @@
       "platform": "Default Platform",
       "platformChanged": "Default platform updated"
     },
+    "automation": {
+      "title": "Automation",
+      "autoVersionInfo": "Fetch version info automatically",
+      "autoVersionInfoDesc": "After a version list loads, fill in missing version details in the background (up to 20 at a time).",
+      "autoLicense": "Acquire licenses automatically",
+      "autoLicenseDesc": "When a download or version query reports a missing license, acquire it and retry once."
+    },
     "server": {
       "title": "Server",
       "uptime": "Uptime",

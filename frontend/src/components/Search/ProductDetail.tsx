@@ -5,6 +5,7 @@ import PageContainer from "../Layout/PageContainer";
 import Alert from '../common/Alert';
 import AppIcon from "../common/AppIcon";
 import PlatformSelect from '../common/PlatformSelect';
+import Select from '../common/Select';
 import Spinner from '../common/Spinner';
 import {
   isProductPreviewEnabled,
@@ -196,7 +197,7 @@ export default function ProductDetail() {
               <span className="rounded-full bg-gray-100 px-3 py-1 dark:bg-gray-800">
                 v{app.version}
               </span>
-              <span>
+              <span className="inline-flex items-center">
                 ★ {app.averageUserRating.toFixed(1)} ({app.userRatingCount}{" "}
                 {t("search.product.ratings")})
               </span>
@@ -213,26 +214,24 @@ export default function ProductDetail() {
           </div>
         ) : (
           <section className="space-y-4 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10">
-            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]">
               <PlatformSelect
                 value={platform}
                 onChange={setPlatform}
                 disabled={loadingAction !== null}
                 className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
               />
-              <select
-                aria-label={t("search.product.account")}
+              <Select
                 value={selectedAccount}
-                onChange={(e) => handleAccountChange(e.target.value)}
-                className="min-h-11 w-full min-w-0 rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 dark:bg-gray-800 dark:text-white"
+                onChange={handleAccountChange}
+                options={productAccounts.map((a) => ({
+                  value: a.email,
+                  label: accountSelectLabel(a, t),
+                }))}
+                ariaLabel={t("search.product.account")}
                 disabled={loadingAction !== null}
-              >
-                {productAccounts.map((a) => (
-                  <option key={a.email} value={a.email}>
-                    {accountSelectLabel(a, t)}
-                  </option>
-                ))}
-              </select>
+                className="min-h-11 w-full min-w-0 rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
+              />
             </div>
             <div className="grid min-w-0 grid-flow-col auto-cols-fr gap-2 sm:gap-3">
               {(app.price === undefined || app.price === 0) && (
@@ -267,9 +266,9 @@ export default function ProductDetail() {
                 <span>{t("search.product.download")}</span>
               </button>
               <Link
-                to={`/search/${app.id}/versions${app.platform ? `?platform=${app.platform}` : ''}`}
-                state={{ app, country }}
-                className="inline-flex min-h-10 w-full min-w-0 items-center justify-center rounded-full bg-gray-100 px-2 py-2 text-center text-xs font-semibold leading-tight text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:px-5 sm:text-sm"
+                to={`/search/${app.id}/versions${platform ? `?platform=${platform}` : ''}`}
+                state={{ app, country, account: selectedAccount, platform }}
+                className="inline-flex min-h-10 w-full min-w-0 items-center justify-center rounded-full bg-orange-50 px-2 py-2 text-center text-orange-600 transition-colors hover:bg-orange-100 dark:bg-orange-950/60 dark:text-orange-400 dark:hover:bg-orange-950 sm:px-5"
               >
                 {t("search.product.versionHistory")}
               </Link>

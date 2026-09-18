@@ -3,11 +3,13 @@ import { useParams, useLocation, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import AppIcon from "../common/AppIcon";
+import PlatformSelect from "../common/PlatformSelect";
+import Select from "../common/Select";
+import StableLabel from "../common/StableLabel";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useSelectedAccount } from "../../hooks/useSelectedAccount";
 import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
-import { listVersions } from "../../apple/versionFinder";
 import { storeIdToCountry } from "../../apple/config";
 import { getVersionMetadata } from "../../apple/versionLookup";
 import { lookupAppById } from "../../api/search";
@@ -24,15 +26,26 @@ export default function VersionHistory() {
   const { accounts, updateAccount } = useAccounts();
   const { t } = useTranslation();
   const addToast = useToastStore((s) => s.addToast);
-  const { startDownload, toastDownloadError } = useDownloadAction();
+  const { startDownload, toastDownloadError, listVersionsWithLicense } =
+    useDownloadAction();
 
-  const stateApp = (location.state as { app?: Software; country?: string })
-    ?.app;
-  const stateCountry = (location.state as { country?: string })?.country;
+  const routeState = location.state as {
+    app?: Software;
+    country?: string;
+    account?: string;
+    platform?: Platform;
+  } | null;
+  const stateApp = routeState?.app;
+  const stateCountry = routeState?.country;
+  const stateAccount = routeState?.account;
   const country = stateCountry ?? "US";
   const [searchParams] = useSearchParams();
-  const platform: Platform | undefined =
-    stateApp?.platform ?? parsePlatform(searchParams.get("platform"));
+  // This page only reflects the choices made on the previous page.
+  const platform: Platform =
+    routeState?.platform ??
+    stateApp?.platform ??
+    parsePlatform(searchParams.get("platform")) ??
+    "ios";
 
   const [app, setApp] = useState<Software | null>(stateApp ?? null);
   const [loadingApp, setLoadingApp] = useState(!stateApp);
@@ -41,10 +54,10 @@ export default function VersionHistory() {
     () => accounts.filter((a) => storeIdToCountry(a.store) === country),
     [accounts, country],
   );
-  const { selectedAccount, selectAccount } =
-    useSelectedAccount(filteredAccounts);
+  const { selectedAccount } = useSelectedAccount(filteredAccounts);
   const [versions, setVersions] = useState<string[]>([]);
-  const { versionMeta, putEntry, ensureLoaded } = useVersionMetadataMap();
+  const { versionMeta, ensureLoaded, recordMetadata, prefetchMissing } =
+    useVersionMetadataMap();
   const [loading, setLoading] = useState(false);
   const [loadingMeta, setLoadingMeta] = useState<Record<string, boolean>>({});
   const [downloadingVersion, setDownloadingVersion] = useState<string | null>(
@@ -65,16 +78,22 @@ export default function VersionHistory() {
     }
   }, [appId, stateApp, country, platform]);
 
-  const account = filteredAccounts.find((a) => a.email === selectedAccount);
+  // The account comes in from the previous page; fall back to the usual pick
+  // when the page is opened directly.
+  const account =
+    (stateAccount
+      ? accounts.find((a) => a.email === stateAccount)
+      : undefined) ?? accounts.find((a) => a.email === selectedAccount);
 
   async function handleLoadVersions() {
     if (!account || !app) return;
     setLoading(true);
     try {
-      const result = await listVersions(account, app);
+      const result = await listVersionsWithLicense(account, app);
       setVersions(result.versions);
       await ensureLoaded(app.id);
-      await updateAccount({ ...account, cookies: result.updatedCookies });
+      // Fill the missing labels silently in the background.
+      prefetchMissing(account, app, result.versions);
     } catch (e) {
       addToast(getErrorMessage(e, t("search.versions.loadFailed")), "error");
     } finally {
@@ -87,7 +106,7 @@ export default function VersionHistory() {
     setLoadingMeta((prev) => ({ ...prev, [versionId]: true }));
     try {
       const result = await getVersionMetadata(account, app, versionId);
-      putEntry(versionId, result.metadata);
+      recordMetadata(app.id, versionId, result.metadata);
       await updateAccount({ ...account, cookies: result.updatedCookies });
     } catch {
       // Silently fail for individual version metadata
@@ -143,37 +162,40 @@ export default function VersionHistory() {
           </div>
         </div>
 
-        {accounts.length > 0 && filteredAccounts.length === 0 ? (
+        {accounts.length > 0 && !account ? (
           <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-700 [overflow-wrap:anywhere] dark:border-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
             {t("search.product.noAccountsForRegion")}
           </div>
         ) : (
-          filteredAccounts.length > 0 && (
-            <div className="flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-end">
-              <div className="min-w-0 flex-1">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  {t("search.versions.account")}
-                </label>
-                <select
-                  value={selectedAccount}
-                  onChange={(e) => selectAccount(e.target.value)}
-                  className="w-full min-w-0 rounded-md border border-gray-300 bg-white px-3 py-2 text-base text-gray-900 transition-colors focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                >
-                  {filteredAccounts.map((a) => (
-                    <option key={a.email} value={a.email}>
-                      {accountSelectLabel(a, t)}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          account && (
+            <div className="flex min-w-0 flex-col items-stretch gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,3fr)_auto] sm:items-end">
+              <PlatformSelect
+                value={platform}
+                onChange={() => {}}
+                disabled
+                className="min-h-11 w-full min-w-0 max-w-full truncate rounded-md border border-gray-300 bg-white px-3 py-2 text-base text-gray-900 transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              />
+              <Select
+                value={account.email}
+                onChange={() => {}}
+                options={accounts.map((a) => ({
+                  value: a.email,
+                  label: accountSelectLabel(a, t),
+                }))}
+                ariaLabel={t("search.versions.account")}
+                disabled
+                className="min-h-11 w-full min-w-0 max-w-full truncate rounded-md border border-gray-300 bg-white px-3 py-2 text-base text-gray-900 transition-colors disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              />
               <button
                 onClick={handleLoadVersions}
                 disabled={loading || !account}
-                className="w-full shrink-0 whitespace-normal rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 sm:w-auto sm:whitespace-nowrap"
+                className="min-h-11 w-full shrink-0 whitespace-normal rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 sm:w-auto sm:whitespace-nowrap"
               >
-                {loading
-                  ? t("search.versions.loading")
-                  : t("search.versions.load")}
+                <StableLabel
+                  idle={t("search.versions.load")}
+                  busy={t("search.versions.loading")}
+                  busyActive={loading}
+                />
               </button>
             </div>
           )
@@ -192,24 +214,24 @@ export default function VersionHistory() {
                   className="flex min-w-0 items-center justify-between gap-3 p-4"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-gray-900 [overflow-wrap:anywhere] dark:text-white">
+                    <p className="text-base font-medium text-gray-900 [overflow-wrap:anywhere] dark:text-white">
                       {versionRowLabel(versionId, meta)}
                     </p>
                     {meta && (
-                      <p className="text-xs text-gray-500 [overflow-wrap:anywhere] dark:text-gray-400">
+                      <p className="text-sm text-gray-500 [overflow-wrap:anywhere] dark:text-gray-400">
                         {new Date(meta.releaseDate).toLocaleDateString()}
                       </p>
                     )}
                     {!meta && !isLoadingMeta && (
                       <button
                         onClick={() => handleLoadMeta(versionId)}
-                        className="max-w-full py-1 text-left text-xs text-blue-600 [overflow-wrap:anywhere] transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                        className="max-w-full py-1 text-left text-sm text-blue-600 [overflow-wrap:anywhere] transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
                       >
                         {t("search.versions.loadDetails")}
                       </button>
                     )}
                     {isLoadingMeta && (
-                      <span className="text-xs text-gray-400 [overflow-wrap:anywhere] dark:text-gray-500">
+                      <span className="text-sm text-gray-400 [overflow-wrap:anywhere] dark:text-gray-500">
                         {t("search.versions.loading")}
                       </span>
                     )}
@@ -219,9 +241,11 @@ export default function VersionHistory() {
                     disabled={isDownloading || downloadingVersion !== null}
                     className="max-w-[45%] shrink-0 rounded-md bg-blue-600 px-3 py-2 text-center text-sm font-medium leading-tight text-white [overflow-wrap:anywhere] transition-colors hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {isDownloading
-                      ? t("search.versions.downloading")
-                      : t("search.versions.download")}
+                    <StableLabel
+                      idle={t("search.versions.download")}
+                      busy={t("search.versions.downloading")}
+                      busyActive={isDownloading}
+                    />
                   </button>
                 </div>
               );

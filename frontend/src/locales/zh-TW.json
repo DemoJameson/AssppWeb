@@ -278,6 +278,13 @@
       "platform": "預設平台",
       "platformChanged": "預設平台已更新"
     },
+    "automation": {
+      "title": "自動化",
+      "autoVersionInfo": "自動查詢版本資訊",
+      "autoVersionInfoDesc": "載入版本列表後，於背景靜默補齊缺少的版本資訊（最多 20 筆）。",
+      "autoLicense": "自動取得授權",
+      "autoLicenseDesc": "下載或查詢版本缺少授權時，自動取得並重試一次。"
+    },
     "server": {
       "title": "伺服器",
       "uptime": "運行時間",

@@ -278,6 +278,13 @@
       "platform": "默认平台",
       "platformChanged": "默认平台已更新"
     },
+    "automation": {
+      "title": "自动化",
+      "autoVersionInfo": "自动查询版本信息",
+      "autoVersionInfoDesc": "加载版本列表后，在后台静默补全缺失的版本信息（最多 20 条）。",
+      "autoLicense": "自动获取许可证",
+      "autoLicenseDesc": "下载或查询版本缺少许可证时，自动获取并重试一次。"
+    },
     "server": {
       "title": "服务器",
       "uptime": "运行时间",

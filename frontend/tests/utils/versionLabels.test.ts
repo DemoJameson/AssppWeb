@@ -11,8 +11,10 @@ const meta: VersionMetadata = {
 };
 
 describe("versionOptionLabel", () => {
-  it("keeps the id first and appends the display version when cached", () => {
-    expect(versionOptionLabel("894041913", meta)).toBe("894041913 (v8.2.1)");
+  it("leads with the display version and release date when cached", () => {
+    expect(versionOptionLabel("894041913", meta)).toBe(
+      "v8.2.1 · 2025-06-12 (894041913)",
+    );
   });
 
   it("keeps the raw id when not cached", () => {
@@ -25,7 +27,7 @@ describe("versionRowLabel", () => {
     expect(versionRowLabel("889912345", meta)).toBe("v8.2.1 (889912345)");
   });
 
-  it("falls back to the ID: placeholder when not cached", () => {
-    expect(versionRowLabel("894041877")).toBe("ID: 894041877");
+  it("falls back to showing the raw id when not cached", () => {
+    expect(versionRowLabel("894041877")).toBe("894041877");
   });
 });

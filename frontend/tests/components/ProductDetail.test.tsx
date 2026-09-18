@@ -1,5 +1,5 @@
 import { Profiler } from 'react';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -157,7 +157,7 @@ describe('ProductDetail download action', () => {
     const accountSelect = screen.getByRole('combobox', {
       name: 'search.product.account',
     });
-    await waitFor(() => expect(accountSelect).toHaveValue(account.email));
+    await waitFor(() => expect(accountSelect).toHaveTextContent(account.email));
 
     const downloadButton = screen.getByRole('button', {
       name: 'search.product.download',
@@ -289,7 +289,7 @@ describe('ProductDetail download action', () => {
     const accountSelect = screen.getByRole('combobox', {
       name: 'search.product.account',
     });
-    expect(accountSelect).toHaveValue('developer@preview.asspp.invalid');
+    expect(accountSelect).toHaveTextContent('developer@preview.asspp.invalid');
     const downloadButton = screen.getByRole('button', {
       name: 'search.product.download',
     });
@@ -352,9 +352,10 @@ describe('ProductDetail download action', () => {
     const accountSelect = screen.getByRole('combobox', {
       name: 'search.product.account',
     });
-    await waitFor(() => expect(accountSelect).toHaveValue(account.email));
+    await waitFor(() => expect(accountSelect).toHaveTextContent(account.email));
+    fireEvent.click(accountSelect);
     expect(
-      within(accountSelect).getByRole('option', { name: /jp@example\.test/ }),
+      screen.getByRole('option', { name: /jp@example\.test/ }),
     ).toBeInTheDocument();
   });
 
@@ -375,9 +376,10 @@ describe('ProductDetail download action', () => {
     const accountSelect = screen.getByRole('combobox', {
       name: 'search.product.account',
     });
-    await waitFor(() => expect(accountSelect).toHaveValue(account.email));
+    await waitFor(() => expect(accountSelect).toHaveTextContent(account.email));
 
-    fireEvent.change(accountSelect, { target: { value: 'jp@example.test' } });
+    fireEvent.click(accountSelect);
+    fireEvent.click(screen.getByRole('option', { name: /jp@example\.test/ }));
 
     await waitFor(() => {
       expect(mocks.lookupApp).toHaveBeenCalledWith(String(app.id), 'JP', 'ios');
@@ -394,9 +396,10 @@ describe('ProductDetail download action', () => {
     const accountSelect = screen.getByRole('combobox', {
       name: 'search.product.account',
     });
-    await waitFor(() => expect(accountSelect).toHaveValue(account.email));
+    await waitFor(() => expect(accountSelect).toHaveTextContent(account.email));
 
-    fireEvent.change(platformSelect, { target: { value: 'tvos' } });
+    fireEvent.click(platformSelect);
+    fireEvent.click(screen.getByRole('option', { name: 'tvOS' }));
 
     await waitFor(() => {
       expect(mocks.lookupApp).toHaveBeenCalledWith(String(app.id), 'US', 'tvos');

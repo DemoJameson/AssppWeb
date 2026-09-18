@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import Select from "./Select";
 import { PLATFORMS, PLATFORM_LABELS } from "../../apple/platform";
 import type { Platform } from "../../types";
 
@@ -7,6 +8,8 @@ interface PlatformSelectProps {
   onChange: (value: Platform) => void;
   disabled?: boolean;
   className?: string;
+  /** Layout styling for the wrapper (e.g. widths inside flex rows). */
+  wrapperClassName?: string;
   /** Lets a caller's <label> point at this select. */
   id?: string;
 }
@@ -20,24 +23,24 @@ export default function PlatformSelect({
   onChange,
   disabled,
   className,
+  wrapperClassName,
   id,
 }: PlatformSelectProps) {
   const { t } = useTranslation();
 
   return (
-    <select
+    <Select
       id={id}
       value={value}
-      onChange={(event) => onChange(event.target.value as Platform)}
+      onChange={(next) => onChange(next as Platform)}
+      options={PLATFORMS.map((platform) => ({
+        value: platform,
+        label: PLATFORM_LABELS[platform],
+      }))}
       disabled={disabled}
       className={className}
-      aria-label={t("downloads.platform.label")}
-    >
-      {PLATFORMS.map((platform) => (
-        <option key={platform} value={platform}>
-          {PLATFORM_LABELS[platform]}
-        </option>
-      ))}
-    </select>
+      wrapperClassName={wrapperClassName}
+      ariaLabel={t("downloads.platform.label")}
+    />
   );
 }

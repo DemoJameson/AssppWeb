@@ -1,4 +1,4 @@
-import { apiGet } from "./client";
+import { apiGet, apiPut } from "./client";
 import type { VersionMetadata } from "../types";
 
 interface VersionMetadataResponse {
@@ -34,5 +34,26 @@ export async function fetchVersionMetadata(
     return map;
   } catch {
     return {};
+  }
+}
+
+/**
+ * Saves metadata the frontend fetched live from Apple into the backend's
+ * shared cache. Best effort: failures resolve silently because the live value
+ * is already on screen — the server may also decline (saved: false) when a
+ * compiled package already knows better.
+ */
+export async function saveVersionMetadata(
+  appId: string | number,
+  versionId: string,
+  metadata: VersionMetadata,
+): Promise<void> {
+  try {
+    await apiPut(
+      `/api/version-metadata/${encodeURIComponent(String(appId))}/${encodeURIComponent(versionId)}`,
+      metadata,
+    );
+  } catch {
+    // Silent — the entry stays local for this session.
   }
 }

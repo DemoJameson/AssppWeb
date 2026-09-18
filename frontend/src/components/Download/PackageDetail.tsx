@@ -16,8 +16,8 @@ import { useAccounts } from '../../hooks/useAccounts';
 import { useDownloadAction } from '../../hooks/useDownloadAction';
 import { useDownloads } from '../../hooks/useDownloads';
 import { useVersionMetadataMap } from '../../hooks/useVersionMetadata';
+import Select from '../common/Select';
 import { useToastStore } from '../../store/toast';
-import { listVersions } from '../../apple/versionFinder';
 import { lookupApp } from '../../api/search';
 import { getErrorMessage } from '../../utils/error';
 import { formatBytes } from '../../utils/format';
@@ -37,7 +37,7 @@ export default function PackageDetail() {
   const { tasks, deleteDownload, pauseDownload, resumeDownload, hashToEmail } =
     useDownloads();
   const { accounts } = useAccounts();
-  const { startDownload } = useDownloadAction();
+  const { startDownload, listVersionsWithLicense } = useDownloadAction();
   const addToast = useToastStore((state) => state.addToast);
 
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -47,7 +47,8 @@ export default function PackageDetail() {
   const [latestApp, setLatestApp] = useState<Software | null>(null);
   const [availableVersions, setAvailableVersions] = useState<string[]>([]);
   const [selectedVersion, setSelectedVersion] = useState('');
-  const { versionMeta, ensureLoaded } = useVersionMetadataMap();
+  const { versionMeta, ensureLoaded, prefetchMissing } =
+    useVersionMetadataMap();
 
   const previewEnabled = isDownloadPreviewEnabled(location.search);
   const taskPool = previewEnabled ? previewDownloadTasks : tasks;
@@ -150,10 +151,12 @@ export default function PackageDetail() {
 
       if (app && isNewerVersion(app.version, currentVersion)) {
         setLatestApp(app);
-        const result = await listVersions(account, app);
+        const result = await listVersionsWithLicense(account, app);
         setAvailableVersions(result.versions);
         setSelectedVersion(result.versions[0] || '');
         await ensureLoaded(app.id);
+        // Fill the missing labels silently in the background.
+        prefetchMissing(account, app, result.versions);
         setShowUpdateModal(true);
       } else {
         addToast(t('downloads.package.noUpdate'), 'info');
@@ -443,17 +446,16 @@ export default function PackageDetail() {
               <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 {t('downloads.package.selectVersion')}
               </label>
-              <select
+              <Select
                 value={selectedVersion}
-                onChange={(event) => setSelectedVersion(event.target.value)}
+                onChange={setSelectedVersion}
+                options={availableVersions.map((version) => ({
+                  value: version,
+                  label: versionRowLabel(version, versionMeta[version]),
+                }))}
+                ariaLabel={t('downloads.package.selectVersion')}
                 className="min-h-11 w-full min-w-0 max-w-full truncate rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-              >
-                {availableVersions.map((version) => (
-                  <option key={version} value={version}>
-                    {versionRowLabel(version, versionMeta[version])}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
           )}
           <div className="mt-6 grid min-w-0 grid-cols-2 gap-2">

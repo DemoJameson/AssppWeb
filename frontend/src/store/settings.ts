@@ -14,10 +14,16 @@ interface SettingsState {
    * setups do not have to re-pick on each page.
    */
   defaultAccount: string;
+  /** Fill missing version metadata silently after a version list loads. */
+  autoFetchVersionInfo: boolean;
+  /** Acquire a missing license automatically, then retry once. */
+  autoAcquireLicense: boolean;
   theme: ThemeType;
   setDefaultCountry: (country: string) => void;
   setDefaultPlatform: (platform: Platform) => void;
   setDefaultAccount: (account: string) => void;
+  setAutoFetchVersionInfo: (enabled: boolean) => void;
+  setAutoAcquireLicense: (enabled: boolean) => void;
   setTheme: (theme: ThemeType) => void;
 }
 
@@ -27,10 +33,15 @@ export const useSettingsStore = create<SettingsState>()(
       defaultCountry: "US",
       defaultPlatform: "ios",
       defaultAccount: "",
+      autoFetchVersionInfo: true,
+      autoAcquireLicense: true,
       theme: "light",
       setDefaultCountry: (country) => set({ defaultCountry: country }),
       setDefaultPlatform: (platform) => set({ defaultPlatform: platform }),
       setDefaultAccount: (account) => set({ defaultAccount: account }),
+      setAutoFetchVersionInfo: (enabled) =>
+        set({ autoFetchVersionInfo: enabled }),
+      setAutoAcquireLicense: (enabled) => set({ autoAcquireLicense: enabled }),
       setTheme: (theme) => set({ theme }),
     }),
     {

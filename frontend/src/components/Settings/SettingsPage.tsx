@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import Modal from "../common/Modal";
+import Select from "../common/Select";
 import { useAccountsStore } from "../../store/accounts";
 import { useSettingsStore } from "../../store/settings";
 import { useToastStore } from "../../store/toast";
@@ -36,6 +37,10 @@ export default function SettingsPage() {
     setDefaultCountry,
     defaultPlatform,
     setDefaultPlatform,
+    autoFetchVersionInfo,
+    setAutoFetchVersionInfo,
+    autoAcquireLicense,
+    setAutoAcquireLicense,
   } = useSettingsStore();
   const addToast = useToastStore((s) => s.addToast);
 
@@ -206,23 +211,23 @@ export default function SettingsPage() {
               >
                 {t("settings.language.label")}
               </label>
-              <select
+              <Select
                 id="language"
                 value={i18n.resolvedLanguage || "en-US"}
-                onChange={async (e) => {
-                  const newLang = e.target.value;
-                  await i18n.changeLanguage(newLang);
+                onChange={async (value) => {
+                  await i18n.changeLanguage(value);
                   addToast(t("settings.language.changed"), "success");
                 }}
+                options={[
+                  { value: "en-US", label: "English (US)" },
+                  { value: "zh-CN", label: "简体中文" },
+                  { value: "zh-TW", label: "繁體中文" },
+                  { value: "ja", label: "日本語" },
+                  { value: "ko", label: "한국어" },
+                  { value: "ru", label: "Русский" },
+                ]}
                 className="block min-w-0 max-w-full w-full truncate rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-              >
-                <option value="en-US">English (US)</option>
-                <option value="zh-CN">简体中文</option>
-                <option value="zh-TW">繁體中文</option>
-                <option value="ja">日本語</option>
-                <option value="ko">한국어</option>
-                <option value="ru">Русский</option>
-              </select>
+              />
             </div>
           </div>
         </section>
@@ -239,21 +244,19 @@ export default function SettingsPage() {
               >
                 {t("settings.defaults.country")}
               </label>
-              <select
+              <Select
                 id="country"
                 value={defaultCountry}
-                onChange={(e) => {
-                  setDefaultCountry(e.target.value);
+                onChange={(value) => {
+                  setDefaultCountry(value);
                   addToast(t("settings.defaults.countryChanged"), "success");
                 }}
+                options={sortedCountries.map((code) => ({
+                  value: code,
+                  label: `${t(`countries.${code}`, code)} (${code})`,
+                }))}
                 className="block min-w-0 max-w-full w-full truncate rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-              >
-                {sortedCountries.map((code) => (
-                  <option key={code} value={code}>
-                    {t(`countries.${code}`, code)} ({code})
-                  </option>
-                ))}
-              </select>
+              />
             </div>
             <div>
               <label
@@ -262,22 +265,40 @@ export default function SettingsPage() {
               >
                 {t("settings.defaults.platform")}
               </label>
-              <select
+              <Select
                 id="platform"
                 value={defaultPlatform}
-                onChange={(e) => {
-                  setDefaultPlatform(e.target.value as typeof defaultPlatform);
+                onChange={(value) => {
+                  setDefaultPlatform(value as typeof defaultPlatform);
                   addToast(t("settings.defaults.platformChanged"), "success");
                 }}
+                options={PLATFORMS.map((platform) => ({
+                  value: platform,
+                  label: PLATFORM_LABELS[platform],
+                }))}
                 className="block min-w-0 max-w-full w-full truncate rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-              >
-                {PLATFORMS.map((platform) => (
-                  <option key={platform} value={platform}>
-                    {PLATFORM_LABELS[platform]}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
+          </div>
+        </section>
+
+        <section className="min-w-0 rounded-lg border border-gray-200 bg-white p-4 sm:p-6 dark:border-gray-800 dark:bg-gray-900">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            {t("settings.automation.title")}
+          </h2>
+          <div className="space-y-4">
+            <SettingsToggle
+              label={t("settings.automation.autoVersionInfo")}
+              description={t("settings.automation.autoVersionInfoDesc")}
+              checked={autoFetchVersionInfo}
+              onChange={setAutoFetchVersionInfo}
+            />
+            <SettingsToggle
+              label={t("settings.automation.autoLicense")}
+              description={t("settings.automation.autoLicenseDesc")}
+              checked={autoAcquireLicense}
+              onChange={setAutoAcquireLicense}
+            />
           </div>
         </section>
 
@@ -589,6 +610,50 @@ export default function SettingsPage() {
         </div>
       </Modal>
     </PageContainer>
+  );
+}
+
+function SettingsToggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className="flex w-full min-w-0 items-start justify-between gap-4 text-left"
+    >
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          {label}
+        </span>
+        <span className="mt-0.5 block text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+          {description}
+        </span>
+      </span>
+      <span
+        aria-hidden="true"
+        className={`flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors ${
+          checked ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-700"
+        }`}
+      >
+        <span
+          className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${
+            checked ? "translate-x-5" : "translate-x-0"
+          }`}
+        />
+      </span>
+    </button>
   );
 }
 
