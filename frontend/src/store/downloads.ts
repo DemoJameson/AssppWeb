@@ -2,6 +2,20 @@ import { create } from "zustand";
 import type { DownloadTask, Software, Sinf } from "../types";
 import * as downloadsApi from "../api/downloads";
 
+/**
+ * Statuses that count as "downloading" wherever the UI asks: queued, actively
+ * transferring, or being compiled. Paused and terminal states do not count.
+ */
+const ACTIVE_DOWNLOAD_STATUSES: ReadonlySet<DownloadTask["status"]> = new Set([
+  "pending",
+  "downloading",
+  "injecting",
+]);
+
+export function isActiveDownload(task: DownloadTask): boolean {
+  return ACTIVE_DOWNLOAD_STATUSES.has(task.status);
+}
+
 interface DownloadsState {
   tasks: DownloadTask[];
   loading: boolean;
@@ -43,12 +57,7 @@ export const useDownloadsStore = create<DownloadsState>((set, get) => ({
       });
       set({ tasks, loading: false });
 
-      const hasActive = tasks.some(
-        (t) =>
-          t.status === "downloading" ||
-          t.status === "pending" ||
-          t.status === "injecting",
-      );
+      const hasActive = tasks.some(isActiveDownload);
       if (hasActive && !pollInterval) {
         pollInterval = setInterval(() => {
           get().fetchTasks();

@@ -11,6 +11,7 @@ import {
   SystemIcon,
 } from '../common/icons';
 import { useSettingsStore } from '../../store/settings';
+import { useActiveDownloadCount } from '../../hooks/useActiveDownloadCount';
 
 const navItems = [
   { to: '/', label: 'home', icon: HomeIcon },
@@ -22,6 +23,7 @@ const navItems = [
 
 export default function Sidebar() {
   const { t } = useTranslation();
+  const activeDownloadCount = useActiveDownloadCount();
 
   return (
     <aside className="sticky top-0 z-30 hidden h-screen h-[100dvh] w-[17rem] flex-col border-r border-gray-200/80 bg-white/75 shadow-[1px_0_0_rgba(255,255,255,0.7),8px_0_32px_rgba(28,28,30,0.035)] backdrop-blur-2xl backdrop-saturate-150 transition-colors duration-200 dark:border-gray-800/80 dark:bg-gray-900/80 dark:shadow-[1px_0_0_rgba(255,255,255,0.025),8px_0_32px_rgba(0,0,0,0.15)] md:flex">
@@ -52,8 +54,25 @@ export default function Sidebar() {
               }`
             }
           >
-            <item.icon className="h-5 w-5 shrink-0" />
-            {t(`nav.${item.label}`)}
+            {({ isActive }) => (
+              <>
+                <item.icon className="h-5 w-5 shrink-0" />
+                {t(`nav.${item.label}`)}
+                {item.to === '/downloads' && activeDownloadCount > 0 && (
+                  <span
+                    aria-hidden="true"
+                    data-testid="downloads-tab-badge"
+                    className={`ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1.5 text-[11px] font-semibold leading-none ${
+                      isActive
+                        ? 'bg-white text-blue-600'
+                        : 'bg-blue-600 text-white'
+                    }`}
+                  >
+                    {activeDownloadCount}
+                  </span>
+                )}
+              </>
+            )}
           </NavLink>
         ))}
       </nav>

@@ -7,6 +7,7 @@ import {
   SearchIcon,
   SettingsIcon,
 } from '../common/icons';
+import { useActiveDownloadCount } from '../../hooks/useActiveDownloadCount';
 
 const navItems = [
   { to: '/', label: 'home', icon: HomeIcon },
@@ -18,6 +19,7 @@ const navItems = [
 
 export default function MobileNav() {
   const { t } = useTranslation();
+  const activeDownloadCount = useActiveDownloadCount();
 
   return (
     <nav className="safe-bottom fixed bottom-0 left-0 right-0 z-50 border-t border-gray-200/70 bg-gray-50/84 shadow-[0_-8px_28px_rgba(28,28,30,0.045)] backdrop-blur-2xl backdrop-saturate-150 transition-colors duration-200 dark:border-gray-800/80 dark:bg-gray-950/84 dark:shadow-[0_-8px_28px_rgba(0,0,0,0.22)] md:hidden">
@@ -35,7 +37,18 @@ export default function MobileNav() {
               }`
             }
           >
-            <item.icon className="h-[22px] w-[22px] shrink-0" />
+            <span className="relative">
+              <item.icon className="h-[22px] w-[22px] shrink-0" />
+              {item.to === '/downloads' && activeDownloadCount > 0 && (
+                <span
+                  aria-hidden="true"
+                  data-testid="downloads-tab-badge"
+                  className="absolute -right-2 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-semibold leading-none text-white"
+                >
+                  {activeDownloadCount}
+                </span>
+              )}
+            </span>
             <span className="max-w-full truncate px-1">
               {t(`nav.${item.label}`)}
             </span>
