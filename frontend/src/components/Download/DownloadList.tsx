@@ -204,7 +204,7 @@ export default function DownloadList() {
 
   return (
     <PageContainer>
-      <div className="mb-6 grid grid-cols-2 items-start gap-2 text-[15px] min-[360px]:grid-cols-3 sm:mb-7 sm:grid-cols-6">
+      <div className="mb-4 grid grid-cols-2 items-start gap-2 text-[15px] min-[360px]:grid-cols-3 sm:mb-7 sm:grid-cols-6">
         <h1 className="col-span-2 min-w-0 text-[2rem] font-semibold leading-[1.12] tracking-[-0.035em] text-gray-900 min-[360px]:col-span-3 sm:col-span-3 sm:text-[2.125rem] dark:text-white">
           {t("downloads.title")}
         </h1>
@@ -233,7 +233,7 @@ export default function DownloadList() {
       </div>
 
       <div
-        className="mb-5 grid grid-cols-2 gap-2 min-[360px]:grid-cols-3 sm:grid-cols-6"
+        className="mb-5 grid grid-cols-2 gap-2 border-t border-gray-100 pt-4 text-[15px] min-[360px]:grid-cols-3 sm:grid-cols-6 sm:border-t-0 sm:pt-0 dark:border-gray-800"
         role="group"
         aria-label={t("downloads.title")}
       >
