@@ -580,6 +580,13 @@ npx wrangler deploy
 - **Status badges**: Muted tones — `green` (completed), `blue` (downloading), `yellow` (paused), `purple` (injecting), `red` (failed), `gray` (pending)
 - **Alerts**: `red-50`/`red-700` (error), `amber-50`/`amber-700` (warning), `green-50`/`green-700` (success)
 
+### Styling Mechanics (gotchas)
+
+- `index.css` overrides the Tailwind palette with iOS-flavored values: `blue-600` = `#007aff` (system blue) and a full iOS gray ramp. `orange` is **not** overridden (stock Tailwind). In computed styles, overridden hex colors surface as `rgb(...)` while stock Tailwind v4 colors surface as `oklch(...)` — assert accordingly in tests.
+- `button, input, select, textarea { font: inherit }` is declared **unlayered**, so it beats Tailwind v4's `@layer utilities`: any `text-*` / `font-*` utility on a `<button>` is silently ignored (buttons render at the inherited 16px / 400). Links (`<a>`) are unaffected.
+  - Consequence: to make an `<a>` styled as a button (e.g. 「历史版本」 next to 「下载」) match its button siblings, leave the font utilities OFF it so both sides inherit identically.
+- Secondary-action pattern (low presence, mirrors 「获取许可证」): tinted background + colored text, e.g. `bg-orange-50 text-orange-600 hover:bg-orange-100` with `dark:bg-orange-950/60 dark:text-orange-400 dark:hover:bg-orange-950`. Use for version-action buttons (选择版本 / 查询版本 / 历史版本); solid `bg-blue-600` stays for primary download actions.
+
 ### Typography
 
 - System font stack (Inter / SF Pro fallback)

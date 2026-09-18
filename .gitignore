@@ -153,6 +153,10 @@ backend/data/
 # Playwright MCP artifacts
 .playwright-mcp/
 
+# Playwright CLI and Trae workspace artifacts
+.playwright-cli/
+.trae/
+
 # Agent memory and settings
 .workbuddy/
 .arts/
