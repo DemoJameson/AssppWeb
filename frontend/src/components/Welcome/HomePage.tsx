@@ -12,24 +12,40 @@ interface Stats {
   packages: number;
 }
 
+/**
+ * The last computed stats, kept for the lifetime of the page session so that
+ * revisiting the home page shows the real numbers immediately instead of
+ * flashing zeros while the counts are recomputed. Reset by a full reload.
+ */
+let cachedStats: Stats | null = null;
+
+/** Test helper: clears the module-level cache between cases. */
+export function resetHomeStatsCache(): void {
+  cachedStats = null;
+}
+
 export default function HomePage() {
   const { t } = useTranslation();
-  const { accounts } = useAccounts();
-  const [stats, setStats] = useState<Stats>({
-    accounts: 0,
-    downloads: 0,
-    packages: 0,
-  });
+  const { accounts, loading: accountsLoading } = useAccounts();
+  const [stats, setStats] = useState<Stats | null>(cachedStats);
 
   useEffect(() => {
-    setStats((prev) => ({ ...prev, accounts: accounts.length }));
-
-    if (accounts.length === 0) {
-      setStats((prev) => ({ ...prev, downloads: 0, packages: 0 }));
-      return;
-    }
+    // Counting before the account store settles would publish a premature zero.
+    if (accountsLoading) return;
 
     let cancelled = false;
+
+    const publish = (next: Stats) => {
+      cachedStats = next;
+      if (!cancelled) setStats(next);
+    };
+
+    if (accounts.length === 0) {
+      publish({ accounts: 0, downloads: 0, packages: 0 });
+      return () => {
+        cancelled = true;
+      };
+    }
 
     (async () => {
       const hashes = await Promise.all(accounts.map((a) => accountHash(a)));
@@ -40,23 +56,28 @@ export default function HomePage() {
       });
 
       const [downloads, packages] = await Promise.all([
-        apiGet<any[]>(`/api/downloads?${params}`).catch(() => []),
-        apiGet<any[]>(`/api/packages?${params}`).catch(() => []),
+        apiGet<unknown[]>(`/api/downloads?${params}`).catch(() => null),
+        apiGet<unknown[]>(`/api/packages?${params}`).catch(() => null),
       ]);
 
       if (cancelled) return;
 
-      setStats((prev) => ({
-        ...prev,
-        downloads: Array.isArray(downloads) ? downloads.length : 0,
-        packages: Array.isArray(packages) ? packages.length : 0,
-      }));
+      publish({
+        accounts: accounts.length,
+        // A failed fetch keeps the previous numbers rather than claiming zero.
+        downloads: Array.isArray(downloads)
+          ? downloads.length
+          : cachedStats?.downloads ?? 0,
+        packages: Array.isArray(packages)
+          ? packages.length
+          : cachedStats?.packages ?? 0,
+      });
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [accounts]);
+  }, [accounts, accountsLoading]);
 
   const primaryAction =
     accounts.length === 0
@@ -129,19 +150,19 @@ export default function HomePage() {
             icon={<AccountGlyph className="h-5 w-5" />}
             iconClassName="bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
             label={t('home.stats.accounts')}
-            value={stats.accounts}
+            value={stats?.accounts ?? null}
           />
           <StatCard
             icon={<DownloadGlyph className="h-5 w-5" />}
             iconClassName="bg-purple-50 text-purple-600 dark:bg-purple-950 dark:text-purple-400"
             label={t('home.stats.downloads')}
-            value={stats.downloads}
+            value={stats?.downloads ?? null}
           />
           <StatCard
             icon={<PackageGlyph className="h-5 w-5" />}
             iconClassName="bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400"
             label={t('home.stats.packages')}
-            value={stats.packages}
+            value={stats?.packages ?? null}
           />
         </section>
 
@@ -182,7 +203,7 @@ function StatCard({
   icon: ReactNode;
   iconClassName: string;
   label: string;
-  value: number;
+  value: number | null;
 }) {
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
@@ -191,9 +212,16 @@ function StatCard({
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
             {label}
           </p>
-          <p className="mt-1 text-3xl font-semibold tracking-tight text-gray-900 dark:text-white">
-            {value}
-          </p>
+          {value === null ? (
+            <span
+              aria-hidden="true"
+              className="mt-1 inline-block h-9 w-12 animate-pulse rounded-lg bg-gray-200/80 dark:bg-gray-800"
+            />
+          ) : (
+            <p className="mt-1 text-3xl font-semibold tracking-tight text-gray-900 dark:text-white">
+              {value}
+            </p>
+          )}
         </div>
         <div
           aria-hidden="true"
