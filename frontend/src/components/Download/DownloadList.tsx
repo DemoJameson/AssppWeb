@@ -204,7 +204,7 @@ export default function DownloadList() {
 
   return (
     <PageContainer>
-      <div className="mb-6 grid grid-cols-2 items-start gap-2 min-[360px]:grid-cols-3 sm:mb-7 sm:grid-cols-6">
+      <div className="mb-6 grid grid-cols-2 items-start gap-2 text-[15px] min-[360px]:grid-cols-3 sm:mb-7 sm:grid-cols-6">
         <h1 className="col-span-2 min-w-0 text-[2rem] font-semibold leading-[1.12] tracking-[-0.035em] text-gray-900 min-[360px]:col-span-3 sm:col-span-3 sm:text-[2.125rem] dark:text-white">
           {t("downloads.title")}
         </h1>
@@ -219,14 +219,14 @@ export default function DownloadList() {
         </button>
         <Link
           to="/downloads/add"
-          className="flex h-9 w-full min-w-0 items-center justify-center rounded-full bg-blue-600 px-2.5 text-center text-[clamp(0.75rem,3.6vw,0.875rem)] font-semibold leading-tight text-white transition-colors hover:bg-blue-700"
+          className="flex h-9 w-full min-w-0 items-center justify-center rounded-full bg-blue-600 px-2.5 text-center leading-tight text-white transition-colors hover:bg-blue-700"
         >
           {t("downloads.new")}
         </Link>
         <Link
           to="/downloads/by-id"
           title={t("downloads.byId.hint")}
-          className="flex h-9 w-full min-w-0 items-center justify-center rounded-full bg-red-600/90 px-2.5 text-center text-[clamp(0.75rem,3.6vw,0.875rem)] font-semibold leading-tight text-white transition-colors hover:bg-red-700/90"
+          className="flex h-9 w-full min-w-0 items-center justify-center rounded-full bg-orange-600 px-2.5 text-center leading-tight text-white transition-colors hover:bg-orange-700"
         >
           {t("downloads.byId.button")}
         </Link>

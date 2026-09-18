@@ -358,7 +358,7 @@ export default function PackageDetail() {
             </p>
           )}
 
-          <div className="mt-3 grid min-w-0 grid-cols-2 gap-2">
+          <div className="mt-3 grid min-w-0 grid-cols-2 gap-2 text-[15px]">
             {isCompleted && (
               <button
                 type="button"

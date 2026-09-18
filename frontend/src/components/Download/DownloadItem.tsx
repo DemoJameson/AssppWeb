@@ -107,7 +107,7 @@ export default function DownloadItem({
         </div>
       )}
 
-      <div className="mt-3 grid min-w-0 grid-cols-2 gap-2">
+      <div className="mt-3 grid min-w-0 grid-cols-2 gap-2 text-[15px]">
         {isActive ? (
           <button
             type="button"
@@ -127,7 +127,7 @@ export default function DownloadItem({
         ) : (
           <Link
             to={detailsHref}
-            className="inline-flex min-h-10 min-w-0 items-center justify-center rounded-lg border border-gray-300 px-3 py-2 text-center text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            className="inline-flex min-h-10 min-w-0 items-center justify-center rounded-lg border border-gray-300 px-3 py-2 text-center text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
           >
             {t('downloads.package.title')}
           </Link>

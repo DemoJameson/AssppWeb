@@ -32,11 +32,14 @@ export default function PackageQuickActions({
 
   const installInfo = getInstallInfo(task.id);
   const isPreview = isPreviewDownloadTask(task);
+  // No font-size utility here on purpose: the app's unlayered
+  // `font: inherit` beats Tailwind on <button>, so the <a> and <button>
+  // twins only stay identical when both sides inherit one size.
   const buttonSize =
     size === 'compact'
-      ? 'min-h-10 px-2 text-sm'
-      : 'min-h-11 px-3 text-base';
-  const secondaryButton = `${buttonSize} inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white font-medium text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800`;
+      ? 'min-h-10 px-2'
+      : 'min-h-11 px-3';
+  const secondaryButton = `${buttonSize} inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800`;
 
   function showPreviewNotice() {
     addToast(
@@ -138,14 +141,14 @@ export default function PackageQuickActions({
 
   return (
     <div
-      className="grid min-w-0 grid-cols-3 gap-2"
+      className="grid min-w-0 grid-cols-3 gap-2 text-[15px]"
       aria-label={t('downloads.package.quickActions')}
       data-testid="package-quick-actions"
     >
       <a
         href={installInfo.installUrl}
         onClick={handleInstall}
-        className={`${buttonSize} inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg bg-blue-600 font-medium text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900`}
+        className={`${buttonSize} inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900`}
         aria-label={t('downloads.package.install')}
       >
         <InstallIcon />
