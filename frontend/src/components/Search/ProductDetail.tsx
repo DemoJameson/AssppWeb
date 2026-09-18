@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation, useSearchParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import Alert from '../common/Alert';
 import AppIcon from "../common/AppIcon";
+import PlatformSelect from '../common/PlatformSelect';
 import Spinner from '../common/Spinner';
 import {
   isProductPreviewEnabled,
@@ -16,8 +17,7 @@ import { useSelectedAccount } from "../../hooks/useSelectedAccount";
 import { useToastStore } from '../../store/toast';
 import { lookupAppById } from "../../api/search";
 import { parsePlatform, PLATFORM_LABELS } from "../../apple/platform";
-import { storeIdToCountry } from "../../apple/config";
-import { accountSelectLabel } from "../../utils/account";
+import { accountSelectLabel, accountStoreCountry } from "../../utils/account";
 import { formatBytes } from "../../utils/format";
 import type { Platform, Software } from "../../types";
 
@@ -44,41 +44,50 @@ export default function ProductDetail() {
   const stateCountry = previewEnabled ? 'US' : routeState?.country;
   const [searchParams] = useSearchParams();
   // The app in the router state carries its platform; a direct visit falls
-  // back to the query the search results attached.
-  const platform: Platform | undefined =
-    stateApp?.platform ?? parsePlatform(searchParams.get("platform"));
-  const [country] = useState(stateCountry ?? "US");
+  // back to the query the search results attached. The selector below can
+  // change it afterwards.
+  const [platform, setPlatform] = useState<Platform>(
+    stateApp?.platform ?? parsePlatform(searchParams.get("platform")) ?? "ios",
+  );
+  const [country, setCountry] = useState(stateCountry ?? "US");
   const [app, setApp] = useState<Software | null>(stateApp ?? null);
   const [loading, setLoading] = useState(!stateApp);
+  const [reloadToken, setReloadToken] = useState(0);
   const [loadingAction, setLoadingAction] = useState<
     "purchase" | "download" | null
   >(null);
 
-  const filteredAccounts = useMemo(
-    () =>
-      productAccounts.filter((a) => storeIdToCountry(a.store) === country),
-    [productAccounts, country],
-  );
+  const { selectedAccount, selectAccount } = useSelectedAccount(productAccounts);
 
-  const { selectedAccount, selectAccount } =
-    useSelectedAccount(filteredAccounts);
-
-  const account = filteredAccounts.find((a) => a.email === selectedAccount);
+  const account = productAccounts.find((a) => a.email === selectedAccount);
   const isDownloading = loadingAction === 'download';
 
+  /**
+   * Reloads the app for the current storefront and platform. The navigation
+   * state is used as-is on first render; afterwards any account pick (which
+   * moves `country` to that account's storefront) or platform change
+   * refetches, so the page always reflects the selection.
+   */
+  const lastLookupKeyRef = useRef<string | null>(
+    stateApp ? `${appId}|${stateCountry ?? "US"}|${platform}|0` : null,
+  );
+
   useEffect(() => {
-    if (!stateApp && appId) {
-      setLoading(true);
-      lookupAppById(appId, country, platform)
-        .then((result) => {
-          setApp(result);
-          setLoading(false);
-        })
-        .catch(() => {
-          setLoading(false);
-        });
-    }
-  }, [appId, stateApp, country, platform]);
+    if (!appId) return;
+    const lookupKey = `${appId}|${country}|${platform}|${reloadToken}`;
+    if (lookupKey === lastLookupKeyRef.current) return;
+    lastLookupKeyRef.current = lookupKey;
+
+    setLoading(true);
+    lookupAppById(appId, country, platform)
+      .then((result) => {
+        setApp(result);
+        setLoading(false);
+      })
+      .catch(() => {
+        setLoading(false);
+      });
+  }, [appId, stateApp, country, platform, reloadToken]);
 
   if (loading) {
     return (
@@ -94,6 +103,19 @@ export default function ProductDetail() {
         <p className="text-gray-500">{t("search.product.notFound")}</p>
       </PageContainer>
     );
+  }
+
+  /**
+   * Picking an account moves the view to that account's storefront: the
+   * country follows the account, and the reload token forces a refetch even
+   * when the storefront did not change.
+   */
+  function handleAccountChange(email: string) {
+    selectAccount(email);
+    const next = productAccounts.find((a) => a.email === email);
+    const nextCountry = accountStoreCountry(next);
+    if (nextCountry) setCountry(nextCountry);
+    setReloadToken((token) => token + 1);
   }
 
   async function handlePurchase() {
@@ -189,23 +211,23 @@ export default function ProductDetail() {
             </Link>{" "}
             {t("search.product.addAccountPrompt")}
           </div>
-        ) : filteredAccounts.length === 0 ? (
-          <div className="rounded-2xl bg-yellow-50 p-4 text-sm text-yellow-800 ring-1 ring-yellow-200/70 dark:bg-yellow-950/30 dark:text-yellow-300 dark:ring-yellow-800/50">
-            {t("search.product.noAccountsForRegion")}
-          </div>
         ) : (
           <section className="space-y-4 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10">
-            <div className="min-w-0">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {t("search.product.account")}
-              </label>
+            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+              <PlatformSelect
+                value={platform}
+                onChange={setPlatform}
+                disabled={loadingAction !== null}
+                className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
+              />
               <select
+                aria-label={t("search.product.account")}
                 value={selectedAccount}
-                onChange={(e) => selectAccount(e.target.value)}
+                onChange={(e) => handleAccountChange(e.target.value)}
                 className="min-h-11 w-full min-w-0 rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 dark:bg-gray-800 dark:text-white"
                 disabled={loadingAction !== null}
               >
-                {filteredAccounts.map((a) => (
+                {productAccounts.map((a) => (
                   <option key={a.email} value={a.email}>
                     {accountSelectLabel(a, t)}
                   </option>

@@ -1,5 +1,5 @@
 import { Profiler } from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -39,6 +39,7 @@ vi.mock('../../src/hooks/useDownloadAction', () => ({
 
 vi.mock('../../src/api/search', () => ({
   lookupApp: mocks.lookupApp,
+  lookupAppById: mocks.lookupApp,
 }));
 
 const app: Software = {
@@ -153,7 +154,9 @@ describe('ProductDetail download action', () => {
     const user = userEvent.setup();
 
     const { rerender } = renderProductDetail();
-    const accountSelect = screen.getByRole('combobox');
+    const accountSelect = screen.getByRole('combobox', {
+      name: 'search.product.account',
+    });
     await waitFor(() => expect(accountSelect).toHaveValue(account.email));
 
     const downloadButton = screen.getByRole('button', {
@@ -283,7 +286,9 @@ describe('ProductDetail download action', () => {
     expect(
       screen.getByRole('heading', { name: 'Signal Canvas' }),
     ).toBeInTheDocument();
-    const accountSelect = screen.getByRole('combobox');
+    const accountSelect = screen.getByRole('combobox', {
+      name: 'search.product.account',
+    });
     expect(accountSelect).toHaveValue('developer@preview.asspp.invalid');
     const downloadButton = screen.getByRole('button', {
       name: 'search.product.download',
@@ -329,5 +334,72 @@ describe('ProductDetail download action', () => {
         type: 'success',
       }),
     ]);
+  });
+
+  it('offers every account regardless of its storefront', async () => {
+    mocks.accounts = [
+      account,
+      {
+        ...account,
+        email: 'jp@example.test',
+        store: '143462',
+        firstName: 'Jp',
+        lastName: 'User',
+      },
+    ];
+    renderProductDetail();
+
+    const accountSelect = screen.getByRole('combobox', {
+      name: 'search.product.account',
+    });
+    await waitFor(() => expect(accountSelect).toHaveValue(account.email));
+    expect(
+      within(accountSelect).getByRole('option', { name: /jp@example\.test/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('refetches for the picked account storefront', async () => {
+    mocks.accounts = [
+      account,
+      {
+        ...account,
+        email: 'jp@example.test',
+        store: '143462',
+        firstName: 'Jp',
+        lastName: 'User',
+      },
+    ];
+    mocks.lookupApp.mockResolvedValue(app);
+    renderProductDetail();
+
+    const accountSelect = screen.getByRole('combobox', {
+      name: 'search.product.account',
+    });
+    await waitFor(() => expect(accountSelect).toHaveValue(account.email));
+
+    fireEvent.change(accountSelect, { target: { value: 'jp@example.test' } });
+
+    await waitFor(() => {
+      expect(mocks.lookupApp).toHaveBeenCalledWith(String(app.id), 'JP', 'ios');
+    });
+  });
+
+  it('refetches for the picked platform', async () => {
+    mocks.lookupApp.mockResolvedValue(app);
+    renderProductDetail();
+
+    const platformSelect = screen.getByRole('combobox', {
+      name: 'downloads.platform.label',
+    });
+    const accountSelect = screen.getByRole('combobox', {
+      name: 'search.product.account',
+    });
+    await waitFor(() => expect(accountSelect).toHaveValue(account.email));
+
+    fireEvent.change(platformSelect, { target: { value: 'tvos' } });
+
+    await waitFor(() => {
+      expect(mocks.lookupApp).toHaveBeenCalledWith(String(app.id), 'US', 'tvos');
+    });
   });
 });
