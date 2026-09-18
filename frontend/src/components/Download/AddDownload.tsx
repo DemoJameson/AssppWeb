@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import AppIcon from "../common/AppIcon";
@@ -6,6 +6,7 @@ import PlatformSelect from "../common/PlatformSelect";
 
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
+import { useSelectedAccount } from "../../hooks/useSelectedAccount";
 import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
 import { useSettingsStore } from "../../store/settings";
 import { useToastStore } from "../../store/toast";
@@ -31,7 +32,7 @@ export default function AddDownload() {
 
   const [bundleId, setBundleId] = useState("");
   const [platform, setPlatform] = useState<Platform>(defaultPlatform);
-  const [selectedAccount, setSelectedAccount] = useState("");
+  const { selectedAccount, selectAccount } = useSelectedAccount(accounts);
   const [app, setApp] = useState<Software | null>(null);
   const [versions, setVersions] = useState<string[]>([]);
   const [selectedVersion, setSelectedVersion] = useState("");
@@ -41,19 +42,6 @@ export default function AddDownload() {
   >(null);
 
   const isLoading = loadingAction !== null;
-
-  useEffect(() => {
-    if (accounts.length > 0) {
-      if (
-        !selectedAccount ||
-        !accounts.find((a) => a.email === selectedAccount)
-      ) {
-        setSelectedAccount(accounts[0].email);
-      }
-    } else if (selectedAccount !== "") {
-      setSelectedAccount("");
-    }
-  }, [accounts, selectedAccount]);
 
   const account = accounts.find((a) => a.email === selectedAccount);
   const country = account
@@ -165,7 +153,7 @@ export default function AddDownload() {
             />
             <select
               value={selectedAccount}
-              onChange={(e) => setSelectedAccount(e.target.value)}
+              onChange={(e) => selectAccount(e.target.value)}
               className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
               disabled={isLoading || accounts.length === 0}
             >

@@ -6,12 +6,14 @@ import type { Account, Software } from '../../src/types';
 
 const mocks = vi.hoisted(() => ({
   accounts: [] as Account[],
+  defaultAccount: '' as string,
   startDownload: vi.fn(),
   toastDownloadError: vi.fn(),
   lookupAppById: vi.fn(),
   listVersions: vi.fn(),
   updateAccount: vi.fn(),
   addToast: vi.fn(),
+  setDefaultAccount: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -48,12 +50,23 @@ vi.mock('../../src/apple/versionFinder', () => ({
   listVersions: mocks.listVersions,
 }));
 
-// The settings store is read without a selector, mirroring AddDownload.
+// The settings store is read without a selector in the page, and with one in
+// the account-selection hook.
 vi.mock('../../src/store/settings', () => ({
   useSettingsStore: (
-    selector?: (state: { defaultCountry: string; defaultPlatform: string }) => unknown,
+    selector?: (state: {
+      defaultCountry: string;
+      defaultPlatform: string;
+      defaultAccount: string;
+      setDefaultAccount: (account: string) => void;
+    }) => unknown,
   ) => {
-    const state = { defaultCountry: 'US', defaultPlatform: 'ios' };
+    const state = {
+      defaultCountry: 'US',
+      defaultPlatform: 'ios',
+      defaultAccount: mocks.defaultAccount,
+      setDefaultAccount: mocks.setDefaultAccount,
+    };
     return selector ? selector(state) : state;
   },
 }));
@@ -110,6 +123,8 @@ const loadVersionsButton = () =>
 describe('DownloadById', () => {
   beforeEach(() => {
     mocks.accounts = [account];
+    mocks.defaultAccount = '';
+    mocks.setDefaultAccount.mockReset();
     mocks.startDownload.mockReset();
     mocks.startDownload.mockResolvedValue(undefined);
     mocks.toastDownloadError.mockReset();
@@ -349,5 +364,40 @@ describe('DownloadById', () => {
     ) as HTMLInputElement;
     expect(field.tagName).toBe('INPUT');
     expect(field.value).toBe('');
+  });
+
+  it('starts on the remembered account when it is still available', async () => {
+    mocks.accounts = [account, { ...account, email: 'second@example.test' }];
+    mocks.defaultAccount = 'second@example.test';
+    renderPage();
+
+    const accountSelect = () =>
+      screen
+        .getAllByRole('combobox')
+        .find(
+          (el) => el.getAttribute('aria-label') !== 'downloads.platform.label',
+        ) as HTMLSelectElement;
+
+    await waitFor(() => {
+      expect(accountSelect().value).toBe('second@example.test');
+    });
+  });
+
+  it('remembers the account picked for later visits', () => {
+    mocks.accounts = [account, { ...account, email: 'second@example.test' }];
+    renderPage();
+
+    const accountSelect = screen
+      .getAllByRole('combobox')
+      .find(
+        (el) => el.getAttribute('aria-label') !== 'downloads.platform.label',
+      ) as HTMLSelectElement;
+    fireEvent.change(accountSelect, {
+      target: { value: 'second@example.test' },
+    });
+
+    expect(mocks.setDefaultAccount).toHaveBeenCalledWith(
+      'second@example.test',
+    );
   });
 });

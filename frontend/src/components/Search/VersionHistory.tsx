@@ -5,6 +5,7 @@ import PageContainer from "../Layout/PageContainer";
 import AppIcon from "../common/AppIcon";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
+import { useSelectedAccount } from "../../hooks/useSelectedAccount";
 import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
 import { listVersions } from "../../apple/versionFinder";
 import { storeIdToCountry } from "../../apple/config";
@@ -35,12 +36,13 @@ export default function VersionHistory() {
 
   const [app, setApp] = useState<Software | null>(stateApp ?? null);
   const [loadingApp, setLoadingApp] = useState(!stateApp);
-  const [selectedAccount, setSelectedAccount] = useState("");
 
   const filteredAccounts = useMemo(
     () => accounts.filter((a) => storeIdToCountry(a.store) === country),
     [accounts, country],
   );
+  const { selectedAccount, selectAccount } =
+    useSelectedAccount(filteredAccounts);
   const [versions, setVersions] = useState<string[]>([]);
   const { versionMeta, putEntry, ensureLoaded } = useVersionMetadataMap();
   const [loading, setLoading] = useState(false);
@@ -62,15 +64,6 @@ export default function VersionHistory() {
         });
     }
   }, [appId, stateApp, country, platform]);
-
-  useEffect(() => {
-    if (
-      filteredAccounts.length > 0 &&
-      !filteredAccounts.some((a) => a.email === selectedAccount)
-    ) {
-      setSelectedAccount(filteredAccounts[0].email);
-    }
-  }, [filteredAccounts, selectedAccount]);
 
   const account = filteredAccounts.find((a) => a.email === selectedAccount);
 
@@ -163,7 +156,7 @@ export default function VersionHistory() {
                 </label>
                 <select
                   value={selectedAccount}
-                  onChange={(e) => setSelectedAccount(e.target.value)}
+                  onChange={(e) => selectAccount(e.target.value)}
                   className="w-full min-w-0 rounded-md border border-gray-300 bg-white px-3 py-2 text-base text-gray-900 transition-colors focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                 >
                   {filteredAccounts.map((a) => (

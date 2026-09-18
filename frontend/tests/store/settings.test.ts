@@ -8,6 +8,7 @@ describe("store/settings", () => {
     useSettingsStore.setState({
       defaultCountry: "US",
       defaultPlatform: "ios",
+      defaultAccount: "",
     });
   });
 
@@ -29,6 +30,15 @@ describe("store/settings", () => {
   it("should update default platform", () => {
     useSettingsStore.getState().setDefaultPlatform("tvos");
     expect(useSettingsStore.getState().defaultPlatform).toBe("tvos");
+  });
+
+  it("should default to no remembered account", () => {
+    expect(useSettingsStore.getState().defaultAccount).toBe("");
+  });
+
+  it("should remember the selected account", () => {
+    useSettingsStore.getState().setDefaultAccount("dev@example.test");
+    expect(useSettingsStore.getState().defaultAccount).toBe("dev@example.test");
   });
 
   it("should migrate the v0 entity preference to a platform", () => {

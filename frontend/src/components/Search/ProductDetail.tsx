@@ -12,6 +12,7 @@ import {
 } from './productPreview';
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
+import { useSelectedAccount } from "../../hooks/useSelectedAccount";
 import { useToastStore } from '../../store/toast';
 import { lookupAppById } from "../../api/search";
 import { parsePlatform, PLATFORM_LABELS } from "../../apple/platform";
@@ -49,7 +50,6 @@ export default function ProductDetail() {
   const [country] = useState(stateCountry ?? "US");
   const [app, setApp] = useState<Software | null>(stateApp ?? null);
   const [loading, setLoading] = useState(!stateApp);
-  const [selectedAccount, setSelectedAccount] = useState("");
   const [loadingAction, setLoadingAction] = useState<
     "purchase" | "download" | null
   >(null);
@@ -59,6 +59,9 @@ export default function ProductDetail() {
       productAccounts.filter((a) => storeIdToCountry(a.store) === country),
     [productAccounts, country],
   );
+
+  const { selectedAccount, selectAccount } =
+    useSelectedAccount(filteredAccounts);
 
   const account = filteredAccounts.find((a) => a.email === selectedAccount);
   const isDownloading = loadingAction === 'download';
@@ -76,15 +79,6 @@ export default function ProductDetail() {
         });
     }
   }, [appId, stateApp, country, platform]);
-
-  useEffect(() => {
-    if (
-      filteredAccounts.length > 0 &&
-      !filteredAccounts.some((a) => a.email === selectedAccount)
-    ) {
-      setSelectedAccount(filteredAccounts[0].email);
-    }
-  }, [filteredAccounts, selectedAccount]);
 
   if (loading) {
     return (
@@ -207,7 +201,7 @@ export default function ProductDetail() {
               </label>
               <select
                 value={selectedAccount}
-                onChange={(e) => setSelectedAccount(e.target.value)}
+                onChange={(e) => selectAccount(e.target.value)}
                 className="min-h-11 w-full min-w-0 rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 dark:bg-gray-800 dark:text-white"
                 disabled={loadingAction !== null}
               >
