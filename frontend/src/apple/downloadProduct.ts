@@ -18,6 +18,8 @@ import {
 } from "./platformVersion";
 import { withRecordedFallback } from "./versionPins";
 import { needsPlatformPin } from "./platform";
+import { needsVersionExchange } from "../utils/software";
+
 import {
   REDOWNLOAD_PRODUCT_PATH,
   UPDATE_PRODUCT_PATH,
@@ -319,6 +321,23 @@ export function itemsOf(reply: DownloadReply): Record<string, any>[] {
 }
 
 /**
+ * Apple's version identifiers from a download-product reply, newest first. It
+ * returns them oldest first; the version pickers (ProductDetail, PackageDetail)
+ * render the array in order, so the reversal happens here rather than in each
+ * caller.
+ */
+export function versionIdentifiersFromReply(reply: DownloadReply): string[] {
+  const metadata = itemsOf(reply)[0]?.metadata as Record<string, any> | undefined;
+  const rawIdentifiers = metadata?.softwareVersionExternalIdentifiers;
+
+  if (!Array.isArray(rawIdentifiers)) {
+    throw new DownloadError(i18n.t("errors.versions.missingIdentifiers"));
+  }
+
+  return [...rawIdentifiers].map((value) => String(value)).reverse();
+}
+
+/**
  * HTTP 200 with no failureType, no message and no items: the endpoint accepted
  * the request but serves no download for it.
  */
@@ -387,9 +406,30 @@ async function pinnedLatestVersionId(session: DownloadSession): Promise<string> 
   );
 
   if (!versionId) {
-    // A pinned version is required here and neither the catalogue nor a
-    // recorded pin has one. That is not proof of a missing app (see
-    // `appPresenceFromProbeError`), so this stays a plain, open-ended failure.
+    // Nothing can name a build for this platform: no catalogue offer, and no
+    // past download recorded a version id *for it*. A `local` or `bare` record
+    // is still a real app, so the iOS version list may name a neighbour id the
+    // target platform serves — the same guess `listVersions` uses. Without it,
+    // a direct download of a delisted app's tvOS/visionOS/macOS build fails
+    // where 「选择版本」 succeeds.
+    if (needsVersionExchange(session.app)) {
+      // Dynamic import breaks the cycle: `versionPinGuess` imports this
+      // module's `requestDownloadProduct`, so a static import here would
+      // defeat the test mock that intercepts the guess's probes.
+      const { guessPlatformPinFromIOSList } = await import("./versionPinGuess");
+      const guessed = await guessPlatformPinFromIOSList(session);
+      if (guessed) {
+        console.info(
+          `[download] guessed a ${platform} pin for ${session.app.id}: ${guessed}`,
+        );
+        return guessed;
+      }
+    }
+
+    // A pinned version is required here and neither the catalogue, a recorded
+    // pin, nor a neighbour guess has one. That is not proof of a missing app
+    // (see `appPresenceFromProbeError`), so this stays a plain, open-ended
+    // failure.
     throw new DownloadError(i18n.t("errors.download.missingVersion"));
   }
 
@@ -399,6 +439,7 @@ async function pinnedLatestVersionId(session: DownloadSession): Promise<string> 
 
   return versionId;
 }
+
 
 function dispatchEndpoint(
   bagURL: string,
