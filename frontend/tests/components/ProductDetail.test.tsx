@@ -936,10 +936,62 @@ describe('ProductDetail download action', () => {
     );
   });
 
+  it('does not show a foreign-region account as the current pick', async () => {
+    mocks.accounts = [
+      { ...account, email: 'jp@example.test', store: '143462', firstName: 'Jp' },
+    ];
+    mocks.lookupApp.mockResolvedValue(app);
+    renderProductDetail();
+
+    // The entry region (US) has no account: the control says so rather than
+    // presenting the JP account as if it were selected here.
+    const accountSelect = screen.getByRole('combobox', {
+      name: 'search.product.account',
+    });
+    await waitFor(() =>
+      expect(accountSelect).toHaveTextContent(
+        'search.product.accountNoneInRegion',
+      ),
+    );
+    expect(accountSelect).not.toHaveTextContent('jp@example.test');
+    // The notice is an explanation only: the picker above carries the move.
+    expect(
+      screen.queryByRole('button', { name: 'search.product.useAccountRegion' }),
+    ).toBeNull();
+
+    // The JP account is still on offer — under its own group, as a move.
+    fireEvent.click(accountSelect);
+    expect(screen.getByText('search.product.otherRegionAccounts')).toBeTruthy();
+    fireEvent.click(screen.getByRole('option', { name: /jp@example\.test/ }));
+
+    await waitFor(() =>
+      expect(accountSelect).toHaveTextContent('jp@example.test'),
+    );
+    expect(screen.queryByText('search.product.noRegionAccount')).toBeNull();
+  });
+
+  it('keeps the region account apart from the other regions', async () => {
+    mocks.accounts = [
+      account,
+      { ...account, email: 'jp@example.test', store: '143462', firstName: 'Jp' },
+    ];
+    renderProductDetail(undefined, {}, undefined, 'JP');
+
+    const accountSelect = screen.getByRole('combobox', {
+      name: 'search.product.account',
+    });
+    await waitFor(() =>
+      expect(accountSelect).toHaveTextContent('jp@example.test'),
+    );
+
+    fireEvent.click(accountSelect);
+    expect(screen.getByText('search.product.account')).toBeTruthy();
+    expect(screen.getByText('search.product.otherRegionAccounts')).toBeTruthy();
+  });
+
   it('offers the single account as the way out of a region it does not serve', async () => {
     // One account, entered from a search in a region it does not cover: the
-    // picker cannot re-fire for an already-selected value, so the notice
-    // itself carries the move.
+    // picker lists it under the other regions and carries the move.
     mocks.accounts = [account];
     mocks.lookupApp.mockResolvedValue(app);
     renderProductDetail(undefined, {}, undefined, 'JP');
@@ -952,7 +1004,10 @@ describe('ProductDetail download action', () => {
     ).toBeNull();
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'search.product.useAccountRegion' }),
+      screen.getByRole('combobox', { name: 'search.product.account' }),
+    );
+    fireEvent.click(
+      screen.getByRole('option', { name: /developer@example\.test/ }),
     );
 
     // The page moved to the account's own storefront and the actions returned.
@@ -987,7 +1042,10 @@ describe('ProductDetail download action', () => {
       expect(screen.getByText('search.product.noRegionAccount')).toBeTruthy(),
     );
     fireEvent.click(
-      screen.getByRole('button', { name: 'search.product.useAccountRegion' }),
+      screen.getByRole('combobox', { name: 'search.product.account' }),
+    );
+    fireEvent.click(
+      screen.getByRole('option', { name: /developer@example\.test/ }),
     );
 
     await waitFor(() => {

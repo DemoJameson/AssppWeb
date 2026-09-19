@@ -22,6 +22,8 @@ interface SelectProps {
   disabled?: boolean;
   id?: string;
   ariaLabel?: string;
+  /** Shown when `value` matches no option — an empty selection. */
+  placeholder?: string;
   /** Styling for the trigger button (background, padding, radius, ...). */
   className?: string;
   /** Layout styling for the wrapper (e.g. widths inside flex rows). */
@@ -45,6 +47,7 @@ export default function Select({
   disabled,
   id,
   ariaLabel,
+  placeholder,
   className = "",
   wrapperClassName = "",
 }: SelectProps) {
@@ -90,7 +93,11 @@ export default function Select({
 
   function openMenu(preferLast: boolean) {
     let index = options.findIndex((option) => option.value === value);
-    if (index < 0) index = preferLast ? options.length - 1 : 0;
+    // Nothing matches the value (an empty selection): leave the list
+    // unhighlighted so no option wears the focus tint before the user points
+    // at one. ArrowUp still opens at the last option, and the first arrow key
+    // picks up from the right end.
+    if (index < 0) index = preferLast ? options.length - 1 : -1;
     setActiveIndex(index);
     // The menu mirrors the trigger's real rendered font size.
     if (triggerRef.current) {
@@ -185,7 +192,7 @@ export default function Select({
         className={`flex items-center justify-between gap-2 text-left ${className}`}
       >
         <span className="min-w-0 flex-1 truncate">
-          {selected?.label ?? value}
+          {selected?.label ?? placeholder ?? value}
         </span>
         <svg
           aria-hidden="true"

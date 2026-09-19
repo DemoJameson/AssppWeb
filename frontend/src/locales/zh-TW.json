@@ -50,7 +50,7 @@
     "empty": "搜尋應用程式以開始。",
     "emptyDesc": "輸入名稱、連結、Bundle ID 或 App ID，查找應用程式與授權。",
     "noResults": "找不到相關應用程式。",
-    "noResultsDesc": "換個關鍵字或地區再試；已下架應用程式若有本機記錄，會一併顯示。",
+    "noResultsDesc": "換個關鍵字或地區再試；已下架應用程式若在本伺服器下載過，會一併顯示。",
     "bareRecordTag": "無商店資料",
     "bareRecordNote": "商店中已無此應用程式的資料，可嘗試直接取得版本並下載。",
     "bareChecking": "正在確認該 App ID 是否存在…",
@@ -68,8 +68,9 @@
       "purchaseFailed": "購買失敗",
       "downloadFailed": "下載失敗",
       "addAccountPrompt": "以下載或購買應用程式。",
-      "noRegionAccount": "該地區暫無帳號，請選擇其他地區。",
-      "useAccountRegion": "改用{{country}}帳號繼續",
+      "noRegionAccount": "{{country}}地區暫無帳號，無法驗證或下載此 App。",
+      "accountNoneInRegion": "該地區無可用帳號",
+      "otherRegionAccounts": "其他地區的帳號",
       "addAccountLink": "新增帳號",
       "account": "帳號",
       "getLicense": "獲取授權",
@@ -192,8 +193,8 @@
       "versionId": "版本 ID（可選）",
       "versionIdPlaceholder": "留空即最新版",
       "invalidVersionId": "版本 ID 必須是數字",
-      "localRecordTag": "已下架 · 本機記錄",
-      "localRecordNote": "此 App 已從 App Store 下架，資訊來自本機已下載的安裝包記錄。"
+      "localRecordTag": "已下架 · 安裝包記錄",
+      "localRecordNote": "此 App 已從 App Store 下架，資訊來自本伺服器已下載的安裝包記錄。"
     },
     "package": {
       "title": "安裝包詳情",

@@ -68,6 +68,26 @@ describe("Select keyboard support", () => {
     );
   });
 
+  it("opens unhighlighted when the value matches no option", () => {
+    const { trigger } = renderSelect({ value: "", placeholder: "None" });
+
+    fireEvent.click(trigger);
+    expect(screen.getByRole("listbox")).toBeTruthy();
+
+    // Nothing selected, nothing pointed at: no option wears the focus tint.
+    expect(trigger.getAttribute("aria-activedescendant")).toBeNull();
+    expect(
+      screen.getByRole("option", { name: "Alpha" }).className.split(" "),
+    ).not.toContain("bg-gray-100");
+
+    // The first arrow key still lands on the first option.
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const activeId = trigger.getAttribute("aria-activedescendant");
+    expect(document.getElementById(activeId as string)?.textContent).toBe(
+      "Alpha",
+    );
+  });
+
   it("closes on Escape and returns focus to the trigger", () => {
     const { trigger } = renderSelect();
 

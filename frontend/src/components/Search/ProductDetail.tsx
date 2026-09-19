@@ -132,20 +132,26 @@ export default function ProductDetail() {
   // no chip at all rather than a dash standing in for data.
   const price = app ? displayPrice(app, t("search.product.free")) : undefined;
 
+  // The accounts that can serve this page's region, and the ones that cannot.
+  // A foreign account cannot answer this region's storefront calls, so it is
+  // never shown as the current pick — the control says there is no account
+  // instead, and offers the others as a deliberate move in their own group.
+  const regionAccounts = productAccounts.filter(
+    (a) => accountStoreCountry(a) === country,
+  );
+  const otherRegionAccounts = productAccounts.filter(
+    (a) => accountStoreCountry(a) !== country,
+  );
+  const selectedIsRegionAccount = regionAccounts.some(
+    (a) => a.email === selectedAccount,
+  );
+
   // The picked region needs an account: without one the actions are hidden
   // and a notice asks for another region's account (the selector above).
   const noRegionAccount =
     !previewEnabled &&
     productAccounts.length > 0 &&
-    !productAccounts.some((a) => accountStoreCountry(a) === country);
-
-  // The account the notice offers: the page's pick, or simply the first one.
-  // With a single account this is the only way "onto" this page's actions —
-  // the picker cannot re-fire for an already-selected value.
-  const noticeAccount =
-    productAccounts.find((a) => a.email === selectedAccount) ??
-    productAccounts[0];
-  const noticeCountry = accountStoreCountry(noticeAccount);
+    regionAccounts.length === 0;
 
   /** Set when the user explicitly moved to an account's storefront. */
   const explicitMoveRef = useRef<string | null>(null);
@@ -395,10 +401,22 @@ export default function ProductDetail() {
     selectAccount(email);
     const next = productAccounts.find((a) => a.email === email);
     const nextCountry = accountStoreCountry(next);
-    // Only the notice button's move insists: any lookup miss there stands.
+    // An explicit move insists: a lookup miss on that storefront stands
+    // instead of snapping back. The picker asks for one when the region has
+    // no account — leaving it is the only way forward.
     explicitMoveRef.current = forced ? (nextCountry ?? null) : null;
     if (nextCountry) setCountry(nextCountry);
     setReloadToken((token) => token + 1);
+  }
+
+  /**
+   * Picks an account from the list. A region with no account leaves the picker
+   * as the only way out, so a pick made there counts as the deliberate move it
+   * looks like — a miss on the new storefront stands rather than snapping back
+   * to the region just left.
+   */
+  function handleAccountPick(email: string) {
+    handleAccountChange(email, noRegionAccount);
   }
 
   async function handlePurchase() {
@@ -619,13 +637,25 @@ export default function ProductDetail() {
                 className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
               />
               <Select
-                value={selectedAccount}
-                onChange={handleAccountChange}
-                options={productAccounts.map((a) => ({
-                  value: a.email,
-                  label: accountSelectLabel(a, t),
-                  group: t("search.product.account"),
-                }))}
+                value={selectedIsRegionAccount ? selectedAccount : ""}
+                onChange={handleAccountPick}
+                placeholder={
+                  noRegionAccount
+                    ? t("search.product.accountNoneInRegion")
+                    : undefined
+                }
+                options={[
+                  ...regionAccounts.map((a) => ({
+                    value: a.email,
+                    label: accountSelectLabel(a, t),
+                    group: t("search.product.account"),
+                  })),
+                  ...otherRegionAccounts.map((a) => ({
+                    value: a.email,
+                    label: accountSelectLabel(a, t),
+                    group: t("search.product.otherRegionAccounts"),
+                  })),
+                ]}
                 ariaLabel={t("search.product.account")}
                 disabled={loadingAction !== null}
                 className="min-h-11 w-full min-w-0 rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
@@ -647,22 +677,12 @@ export default function ProductDetail() {
               </div>
             )}
             {noRegionAccount ? (
-              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl bg-yellow-50 px-4 py-3 text-xs text-yellow-800 ring-1 ring-yellow-200/70 dark:bg-yellow-950/30 dark:text-yellow-300 dark:ring-yellow-800/50">
-                <span>{t("search.product.noRegionAccount")}</span>
-                {noticeAccount && noticeCountry && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleAccountChange(noticeAccount.email, true)
-                    }
-                    disabled={loadingAction !== null}
-                    className="shrink-0 rounded-full bg-yellow-100 px-3 py-1.5 font-semibold text-yellow-800 transition-colors hover:bg-yellow-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-yellow-900/60 dark:text-yellow-200 dark:hover:bg-yellow-900"
-                  >
-                    {t("search.product.useAccountRegion", {
-                      country: t(`countries.${noticeCountry}`),
-                    })}
-                  </button>
-                )}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-yellow-50 px-4 py-3 text-xs text-yellow-800 ring-1 ring-yellow-200/70 dark:bg-yellow-950/30 dark:text-yellow-300 dark:ring-yellow-800/50">
+                <span>
+                  {t("search.product.noRegionAccount", {
+                    country: t(`countries.${country}`, country),
+                  })}
+                </span>
               </div>
             ) : (
               <div className="grid min-w-0 grid-flow-col auto-cols-fr gap-2 sm:gap-3">
