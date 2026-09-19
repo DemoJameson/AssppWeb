@@ -14,6 +14,7 @@ import {
   customerMessageOf,
   failureTypeOf,
   itemsOf,
+  redactAppleSecrets,
   requestDownloadProduct,
   type DownloadReply,
   type DownloadSession,
@@ -176,14 +177,19 @@ async function interpretReply(
 /**
  * The reply is the only thing that identifies what happened, so name the
  * endpoint, status and content type alongside Apple's answer, and log the whole
- * response for the console.
+ * response for the console — with credentials redacted first.
  */
 function unexpectedReply(reply: DownloadReply): string {
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(reply.headers)) {
+    headers[key] = /password|token|set-cookie/i.test(key) ? "[redacted]" : value;
+  }
+
   console.error("[download] unexpected Apple reply", {
     endpoint: reply.endpoint,
     status: reply.status,
-    headers: reply.headers,
-    body: reply.body,
+    headers,
+    body: redactAppleSecrets(reply.body),
   });
 
   const where = reply.endpoint.slice(0, 90);

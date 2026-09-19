@@ -13,7 +13,8 @@ import { config } from "../config.js";
  *
  * The DB is opened synchronously at first use and kept open for the process
  * lifetime. The first open migrates any leftover legacy JSON files into the
- * tables (then renames them aside). Tests reset it via `resetDbForTest`.
+ * tables (then renames them aside). Tests reset the singleton via `closeDb()`
+ * and re-import this module (its file paths bind to `config.dataDir` at load).
  */
 
 const DB_FILE = path.join(config.dataDir, "asspp.db");
@@ -105,27 +106,6 @@ export function closeDb(): void {
   if (db) {
     db.close();
     db = null;
-  }
-}
-
-/**
- * Resets the singleton for tests: closes any open handle and, when
- * `removeFiles` is true, deletes the DB files so the next `getDb` starts
- * clean. Call after pointing `process.env.DATA_DIR` at a fresh temp directory.
- *
- * The stores' prepared statements and `initialized` flags are NOT reset here;
- * call the store's `resetForTest` (then `init*`) after this.
- */
-export function resetDbForTest(removeFiles = false): void {
-  closeDb();
-  if (removeFiles) {
-    for (const suffix of ["", "-wal", "-shm"]) {
-      try {
-        fs.rmSync(`${DB_FILE}${suffix}`, { force: true });
-      } catch {
-        // Best effort.
-      }
-    }
   }
 }
 

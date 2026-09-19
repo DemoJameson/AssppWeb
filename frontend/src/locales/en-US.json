@@ -46,7 +46,6 @@
     "label": "Search",
     "placeholder": "Name, store link, Bundle ID, or App ID",
     "button": "Search",
-    "searching": "Searching...",
     "empty": "Search for apps to get started.",
     "emptyDesc": "Name, link, Bundle ID, or App ID—find apps and licenses.",
     "noResults": "No matching app found.",

@@ -46,7 +46,6 @@
     "label": "검색",
     "placeholder": "이름, 스토어 링크, Bundle ID 또는 App ID",
     "button": "검색",
-    "searching": "검색 중...",
     "empty": "앱을 검색하여 시작하세요.",
     "emptyDesc": "이름 / 링크 / Bundle ID / App ID로 앱·라이선스 검색.",
     "noResults": "일치하는 앱을 찾지 못했습니다.",

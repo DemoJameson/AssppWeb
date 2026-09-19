@@ -46,7 +46,6 @@
     "label": "搜尋",
     "placeholder": "名稱、商店連結、Bundle ID 或 App ID",
     "button": "搜尋",
-    "searching": "搜尋中...",
     "empty": "搜尋應用程式以開始。",
     "emptyDesc": "輸入名稱、連結、Bundle ID 或 App ID，查找應用程式與授權。",
     "noResults": "找不到相關應用程式。",

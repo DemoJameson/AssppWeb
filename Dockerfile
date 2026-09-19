@@ -49,8 +49,10 @@ COPY backend/package*.json ./
 # for ws and falls back to pure JavaScript. No compiler toolchain is
 # needed at runtime because --ignore-scripts skips every postinstall.
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --omit=dev --ignore-scripts \
-    && npm cache clean --force
+    npm ci --omit=dev --ignore-scripts
+# NOTE: no `npm cache clean` here — the /root/.npm cache mount is shared by
+# every stage (same cache id) and never enters an image layer, so cleaning it
+# saves nothing while racing another stage's concurrent npm ci (ENOTEMPTY).
 COPY --from=frontend-build /app/frontend/dist ./public
 COPY --from=sap-assets /out /opt/asspp/sap-assets
 RUN mkdir -p /data/packages

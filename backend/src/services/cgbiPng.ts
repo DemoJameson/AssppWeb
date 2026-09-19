@@ -18,6 +18,14 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 /** Chunks that describe colour rather than pixels, so they survive the rewrite. */
 const PASSTHROUGH_CHUNKS = new Set(["gAMA", "cHRM", "sRGB", "pHYs"]);
 
+/**
+ * Cap on the decompressed IDAT. Icons are at most a few MiB; a hostile entry can
+ * declare anything, and inflating a tiny idat into it must not balloon memory.
+ * Capping the output also bounds the pixel buffer `decodeRows` allocates, since
+ * that is sized from the same width/height (via a lower-bound check).
+ */
+const MAX_INFLATE_OUTPUT = 32 * 1024 * 1024;
+
 export function isCgbiPng(data: Buffer): boolean {
   return (
     data.length > 16 &&
@@ -56,7 +64,7 @@ export function convertCgbiToPng(data: Buffer): Buffer | null {
 
   let raw: Buffer;
   try {
-    raw = zlib.inflateRawSync(idat);
+    raw = zlib.inflateRawSync(idat, { maxOutputLength: MAX_INFLATE_OUTPUT });
   } catch {
     return null;
   }

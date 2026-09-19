@@ -36,7 +36,11 @@ const SAFE_SEGMENT_RE = /^[a-zA-Z0-9._-]+$/;
 
 /** Validate and sanitize a path segment. Rejects traversal, replaces unsafe chars. */
 function safePathSegment(value: string, label: string): string {
-  if (!value || value === "." || value === "..") {
+  // `value` is only *declared* a string; callers pass unchecked request-body
+  // fields (accountHash, software.version). Regex `.test()` coerces a number to
+  // a string and `return value` would hand a number straight to `path.join`,
+  // which throws ERR_INVALID_ARG_TYPE. Refuse non-strings up front.
+  if (typeof value !== "string" || !value || value === "." || value === "..") {
     throw new Error(`Invalid ${label}`);
   }
   if (SAFE_SEGMENT_RE.test(value)) return value;
@@ -743,7 +747,7 @@ export function resumeTask(id: string): boolean {
   const task = tasks.get(id);
   if (!task || task.status !== "paused") return false;
 
-  startDownload(task);
+  startDownloadSafely(task);
   return true;
 }
 
@@ -783,7 +787,7 @@ export function createTask(
   };
 
   tasks.set(task.id, task);
-  startDownload(task);
+  startDownloadSafely(task);
   return task;
 }
 
@@ -964,4 +968,22 @@ async function startDownload(task: DownloadTask) {
     task.error = err instanceof Error ? err.message : "Download failed";
     notifyProgress(task);
   }
+}
+
+/**
+ * Fires a download without awaiting it, and absorbs an out-of-band rejection
+ * so it can never take down the process as an unhandled rejection. The steps
+ * ahead of the internal try/catch (path resolution, mkdir) reject the promise
+ * this way, so the task is landed `failed` here instead of vanishing.
+ */
+function startDownloadSafely(task: DownloadTask): void {
+  void startDownload(task).catch((error: unknown) => {
+    // This attempt registered a controller (and timeout) before it could throw,
+    // so it owns the task here; drop its registration.
+    abortControllers.delete(task.id);
+    const message = error instanceof Error ? error.message : "Download failed";
+    task.status = "failed";
+    task.error = message;
+    notifyProgress(task);
+  });
 }

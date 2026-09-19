@@ -458,11 +458,26 @@ function dispatchEndpoint(
 }
 
 /**
+ * Strips the account's `passwordToken` (and anything else keyed `passwordToken`)
+ * from an Apple reply before it reaches a console log or an error toast. The
+ * download-product reply is a plist; the token rides as the value of a
+ * `<key>passwordToken</key><string>…</string>` pair that a snippet would
+ * otherwise carry verbatim.
+ */
+export function redactAppleSecrets(text: string): string {
+  return text.replace(
+    /(<key>passwordToken<\/key>\s*<string>)[^<]*(<\/string>)/gi,
+    "$1[redacted]$2",
+  );
+}
+
+/**
  * Compact single-line excerpt of a response body, with HTML markup stripped so
- * the underlying message stays readable. Mirrors ipatool's `bodySnippet`.
+ * the underlying message stays readable, and any credentials redacted first.
+ * Mirrors ipatool's `bodySnippet`.
  */
 export function bodySnippet(body: string, maxLength = 200): string {
-  const snippet = body
+  const snippet = redactAppleSecrets(body)
     .replace(/<[^>]*>/g, " ")
     .split(/\s+/)
     .filter(Boolean)

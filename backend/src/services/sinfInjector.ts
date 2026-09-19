@@ -47,6 +47,8 @@ const ICON_HINT_RE = /^(?:app)?icon(?:[-_@.~]|\d|$)/i;
  * the app icon, and nothing downstream needs to move that much data around.
  */
 const MAX_ICON_BYTES = 4 * 1024 * 1024;
+/** Upper bound on an in-package plist read back whole (iTunesMetadata / manifests / Info.plist). */
+const MAX_PLIST_ENTRY = 16 * 1024 * 1024;
 
 /** An image the package carries, as listed in the archive's central directory. */
 interface IconCandidate {
@@ -328,8 +330,19 @@ function sharperIconURL(url?: string): string | undefined {
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
   const chunks: Buffer[] = [];
+  let total = 0;
   for await (const chunk of stream) {
-    chunks.push(chunk as Buffer);
+    const buffer = chunk as Buffer;
+    total += buffer.length;
+    // The three entries read this way (iTunesMetadata, Business/Manifest,
+    // Info.plist) are plists of a few KB each. A package may declare any size,
+    // so refuse one that would balloon memory instead of trusting the archive's
+    // central-directory lengths.
+    if (total > MAX_PLIST_ENTRY) {
+      stream.destroy();
+      throw new Error("plist entry too large");
+    }
+    chunks.push(buffer);
   }
   return Buffer.concat(chunks);
 }

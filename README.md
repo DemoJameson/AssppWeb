@@ -30,6 +30,8 @@ Requirements:
 
 If your build log fails at `Deploy a container application` with `Unauthorized`, your build token is missing required Containers/Cloudchamber permissions.
 
+> **Cloudflare variable pass-through:** the container only receives `DATA_DIR`, `NODE_ENV` and `PORT` (see `cloudflare/src/index.ts`). Other settings — `ACCESS_PASSWORD`, `PUBLIC_BASE_URL`, `DOWNLOAD_THREADS` — are *not* forwarded by the worker; set them inside the container's runtime instead. Also, the Cloudflare/Healthcheck probes `/api/settings`, which the access gate protects — if you turn on `ACCESS_PASSWORD`, point the probe at a path that stays reachable (or skip the probe), or the container reads as unhealthy.
+
 ### Deploy to Railway
 
 <details>
@@ -46,6 +48,7 @@ If your build log fails at `Deploy a container application` with `Unauthorized`,
 - The free trial works but has limitations (volume expiry, network restrictions). **Hobby** plan ($5/month) or above is recommended for reliable use.
 - Enable [**Serverless**](https://docs.railway.com/deployments/serverless) in service settings to scale down to zero during idle periods
 - Railway [auto-updates](https://docs.railway.com/deployments/image-auto-updates) `:latest` images from GHCR — new releases will be deployed automatically within a few hours
+- The **Healthcheck Path** `/api/settings` is gate-protected: once you set `ACCESS_PASSWORD`, Railway's probe gets a `401` and the service may be marked unhealthy. Leave `ACCESS_PASSWORD` off, or disable/skip the healthcheck.
 
 > **⚠️ Custom domain with Cloudflare:** Railway's Cloudflare integration creates DNS records with Proxy enabled (orange cloud) by default. After authorizing, go to Cloudflare DNS settings and switch the CNAME record to **DNS only** (gray cloud) — Railway handles TLS automatically. If you keep Cloudflare Proxy on, you must set SSL/TLS mode to **Full** (not Flexible or Full Strict), otherwise you'll get an infinite redirect loop. See [Railway docs](https://docs.railway.com/networking/troubleshooting/ssl#err_too_many_redirects).
 
@@ -68,7 +71,7 @@ docker compose up -d
 | Variable                                    | Default         | Description                                                                                 |
 | ------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------- |
 | `PORT`                                      | `8080`          | Server listen port                                                                          |
-| `DATA_DIR`                                  | `./data`        | Directory for storing compiled IPAs                                                         |
+| `DATA_DIR`                                  | `./data`        | Data directory: compiled IPAs plus the SQLite database (`asspp.db` with `-wal`/`-shm` sidecars) |
 | `PUBLIC_BASE_URL`                           | _(auto-detect)_ | Public URL for generating install manifests (e.g. `https://asspp.example.com`)              |
 | `UNSAFE_DANGEROUSLY_DISABLE_HTTPS_REDIRECT` | `false`         | Disable HTTPS redirect (see warning below)                                                  |
 | `AUTO_CLEANUP_DAYS`                         | `0`             | Automatically delete cached IPA files older than specified days (0 to disable)              |

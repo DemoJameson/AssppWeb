@@ -88,6 +88,10 @@ router.get("/install/:id/manifest.plist", (req: Request, res: Response) => {
   );
 
   res.setHeader("Content-Type", "application/xml");
+  // The plist inlines the request's Host (via getBaseUrl, when PUBLIC_BASE_URL
+  // is unset). Do not let an edge cache — or a CDN — persist a poisoned plist
+  // built from an attacker-supplied Host header.
+  res.setHeader("Cache-Control", "no-store");
   res.send(manifest);
 });
 
@@ -141,6 +145,16 @@ router.get("/install/:id/payload.ipa", (req: Request, res: Response) => {
   res.setHeader("Content-Length", stats.size);
 
   const stream = fs.createReadStream(resolvedPath);
+  // The read is unauthenticated and racy with a concurrent delete of the same
+  // package. Without a listener an ENOENT mid-stream would surface as a fatal
+  // unhandled 'error' event and take the whole process down.
+  stream.on("error", () => {
+    if (!res.headersSent) {
+      res.status(404).json({ error: "Package not found" });
+    } else {
+      res.destroy();
+    }
+  });
   stream.pipe(res);
 });
 
