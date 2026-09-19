@@ -58,6 +58,7 @@ jobs:
           # binaries (@node-rs/crc32 via yauzl-promise) have no linux-ia32 build.
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Bake the source revision into the image so the running app can
