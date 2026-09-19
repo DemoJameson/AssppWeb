@@ -243,6 +243,23 @@
       "label": "플랫폼"
     }
   },
+  "install": {
+    "blocked": {
+      "title": "이 기기에 설치할 수 없습니다",
+      "body": "이 설치 패키지는 {{packagePlatform}} 앱이라 현재 기기({{deviceName}})에 설치할 수 없습니다.",
+      "hintVisionPro": "Apple Vision Pro에서 설치하세요.",
+      "hintIOS": "iPhone 또는 iPad에서 설치하세요.",
+      "hintDownload": "‘다운로드’ 버튼으로 설치 패키지를 저장한 뒤 지원되는 기기에서 설치하세요."
+    },
+    "deviceBrowser": "브라우저",
+    "overwrite": {
+      "title": "설치 안내",
+      "body": "직접 설치로는 이미 설치된 앱을 덮어쓸 수 없습니다. 덮어쓰려면 다른 기기에서 설치 패키지를 다운로드한 뒤 AirDrop으로 이 기기로 보내세요. 받는 즉시 자동으로 덮어쓰기 설치됩니다.",
+      "bodyMac": "직접 설치로 이미 설치된 동일한 앱을 덮어씁니다."
+    },
+    "continue": "계속 설치",
+    "gotIt": "확인"
+  },
   "settings": {
     "title": "설정",
     "language": {

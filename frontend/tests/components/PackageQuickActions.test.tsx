@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PackageQuickActions from '../../src/components/Download/PackageQuickActions';
 import { previewDownloadTasks } from '../../src/components/Download/previewTasks';
 import { useToastStore } from '../../src/store/toast';
+import { detectInstallDevice, isAppleSiliconMac } from '../../src/utils/device';
+import { openInstallUrl } from '../../src/api/install';
 import type { DownloadTask } from '../../src/types';
 
 vi.mock('react-i18next', () => ({
@@ -11,6 +13,22 @@ vi.mock('react-i18next', () => ({
     t: (key: string) => key,
   }),
 }));
+
+// The install guard asks these two; the decision logic itself stays real.
+vi.mock('../../src/utils/device', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../src/utils/device')>();
+  return {
+    ...actual,
+    detectInstallDevice: vi.fn(() => ({ family: 'iphone', name: 'iPhone' })),
+    isAppleSiliconMac: vi.fn(async () => false),
+  };
+});
+
+vi.mock('../../src/api/install', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/api/install')>();
+  return { ...actual, openInstallUrl: vi.fn() };
+});
 
 const originalClipboard = Object.getOwnPropertyDescriptor(
   navigator,
@@ -67,6 +85,13 @@ describe('PackageQuickActions', () => {
   beforeEach(() => {
     sessionStorage.clear();
     useToastStore.setState({ toasts: [] });
+    vi.mocked(detectInstallDevice).mockReturnValue({
+      family: 'iphone',
+      name: 'iPhone',
+    });
+    vi.mocked(isAppleSiliconMac).mockResolvedValue(false);
+    vi.mocked(openInstallUrl).mockClear();
+    vi.mocked(openInstallUrl).mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -277,5 +302,112 @@ describe('PackageQuickActions', () => {
         ]),
       );
     });
+  });
+
+  it('blocks a package the device cannot take, and does not navigate', async () => {
+    const task = createTask();
+    render(
+      <PackageQuickActions
+        task={{
+          ...task,
+          software: { ...task.software, platform: 'visionos' },
+        }}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole('link', { name: 'downloads.package.install' }),
+    );
+
+    expect(
+      await screen.findByText('install.blocked.title'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('install.blocked.body')).toBeInTheDocument();
+    expect(
+      screen.getByText('install.blocked.hintVisionPro'),
+    ).toBeInTheDocument();
+    expect(openInstallUrl).not.toHaveBeenCalled();
+  });
+
+  it('confirms with the overwrite notice before installing', async () => {
+    render(<PackageQuickActions task={createTask()} />);
+
+    fireEvent.click(
+      screen.getByRole('link', { name: 'downloads.package.install' }),
+    );
+
+    expect(
+      await screen.findByText('install.overwrite.title'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('install.overwrite.body')).toBeInTheDocument();
+    expect(openInstallUrl).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('install.continue'));
+
+    expect(openInstallUrl).toHaveBeenCalledWith(
+      expect.stringMatching(/^itms-services:\/\//),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText('install.overwrite.title')).toBeNull(),
+    );
+  });
+
+  it('cancels out of the overwrite notice without navigating', async () => {
+    render(<PackageQuickActions task={createTask()} />);
+
+    fireEvent.click(
+      screen.getByRole('link', { name: 'downloads.package.install' }),
+    );
+    expect(
+      await screen.findByText('install.overwrite.title'),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('settings.data.cancel'));
+
+    await waitFor(() =>
+      expect(screen.queryByText('install.overwrite.title')).toBeNull(),
+    );
+    expect(openInstallUrl).not.toHaveBeenCalled();
+  });
+
+  it('lets a confirmed Apple-silicon Mac take an iOS package', async () => {
+    vi.mocked(detectInstallDevice).mockReturnValue({
+      family: 'mac',
+      name: 'Mac',
+    });
+    vi.mocked(isAppleSiliconMac).mockResolvedValue(true);
+    render(<PackageQuickActions task={createTask()} />);
+
+    fireEvent.click(
+      screen.getByRole('link', { name: 'downloads.package.install' }),
+    );
+
+    expect(
+      await screen.findByText('install.overwrite.title'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('install.overwrite.bodyMac')).toBeInTheDocument();
+    expect(screen.queryByText('install.overwrite.body')).toBeNull();
+    expect(isAppleSiliconMac).toHaveBeenCalled();
+  });
+
+  it('sends an unconfirmed Mac to the download route', async () => {
+    vi.mocked(detectInstallDevice).mockReturnValue({
+      family: 'mac',
+      name: 'Mac',
+    });
+    vi.mocked(isAppleSiliconMac).mockResolvedValue(false);
+    render(<PackageQuickActions task={createTask()} />);
+
+    fireEvent.click(
+      screen.getByRole('link', { name: 'downloads.package.install' }),
+    );
+
+    expect(
+      await screen.findByText('install.blocked.title'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('install.blocked.hintDownload'),
+    ).toBeInTheDocument();
+    expect(openInstallUrl).not.toHaveBeenCalled();
   });
 });

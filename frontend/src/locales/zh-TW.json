@@ -243,6 +243,23 @@
       "label": "平台"
     }
   },
+  "install": {
+    "blocked": {
+      "title": "無法安裝到此裝置",
+      "body": "此安裝包是 {{packagePlatform}} 應用程式，無法安裝到目前裝置（{{deviceName}}）。",
+      "hintVisionPro": "請在 Apple Vision Pro 上安裝。",
+      "hintIOS": "請在 iPhone 或 iPad 上安裝。",
+      "hintDownload": "請點一下「下載」保存安裝包，然後在符合的裝置上安裝。"
+    },
+    "deviceBrowser": "瀏覽器",
+    "overwrite": {
+      "title": "安裝提示",
+      "body": "直接安裝無法覆蓋已安裝的 App。如需覆蓋安裝：請在其它裝置下載安裝包，透過 AirDrop 傳送到本機，接收時將自動覆蓋安裝。",
+      "bodyMac": "直接安裝將取代已安裝的同名 App。"
+    },
+    "continue": "繼續安裝",
+    "gotIt": "知道了"
+  },
   "settings": {
     "title": "設定",
     "language": {

@@ -243,6 +243,23 @@
       "label": "Platform"
     }
   },
+  "install": {
+    "blocked": {
+      "title": "Can't install on this device",
+      "body": "This package is a {{packagePlatform}} app and can't be installed on the current device ({{deviceName}}).",
+      "hintVisionPro": "Install it on an Apple Vision Pro.",
+      "hintIOS": "Install it on an iPhone or iPad.",
+      "hintDownload": "Use Download to save the package, then install it on a matching device."
+    },
+    "deviceBrowser": "browser",
+    "overwrite": {
+      "title": "Before you install",
+      "body": "A direct install can't replace an app that is already installed. To install over it, download the package on another device and AirDrop it to this device — it will install over the existing app when received.",
+      "bodyMac": "A direct install will replace an app that is already installed."
+    },
+    "continue": "Continue installing",
+    "gotIt": "Got it"
+  },
   "settings": {
     "title": "Settings",
     "language": {

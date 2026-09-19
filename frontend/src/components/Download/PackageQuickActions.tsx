@@ -4,7 +4,16 @@ import { QRCodeSVG } from 'qrcode.react';
 import { isPreviewDownloadTask } from './previewTasks';
 import { useToastStore } from '../../store/toast';
 import { apiGet } from '../../api/client';
-import { getInstallInfo } from '../../api/install';
+import { getInstallInfo, openInstallUrl } from '../../api/install';
+import Modal from '../common/Modal';
+import {
+  detectInstallDevice,
+  installDecision,
+  isAppleSiliconMac,
+  type InstallDevice,
+  type InstallHint,
+} from '../../utils/device';
+import { PLATFORM_LABELS } from '../../apple/platform';
 import type { DownloadTask } from '../../types';
 
 interface PackageQuickActionsProps {
@@ -13,6 +22,22 @@ interface PackageQuickActionsProps {
 }
 
 const iconClassName = 'h-4 w-4 shrink-0';
+
+/** Keys for the blocked dialog's next-step hint, one per reason. */
+const HINT_KEYS: Record<InstallHint, string> = {
+  visionPro: 'install.blocked.hintVisionPro',
+  iosDevice: 'install.blocked.hintIOS',
+  download: 'install.blocked.hintDownload',
+};
+
+type PendingInstall =
+  | { kind: 'confirm'; device: InstallDevice }
+  | {
+      kind: 'blocked';
+      hint: InstallHint;
+      deviceName: string;
+      packagePlatform: string;
+    };
 
 export function dangerButtonClass(size: 'compact' | 'default' = 'default'): string {
   const minH = size === 'compact' ? 'min-h-10' : 'min-h-11';
@@ -27,6 +52,9 @@ export default function PackageQuickActions({
   const { t } = useTranslation();
   const addToast = useToastStore((state) => state.addToast);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [pendingInstall, setPendingInstall] = useState<PendingInstall | null>(
+    null,
+  );
 
   if (task.status !== 'completed' || !task.hasFile) return null;
 
@@ -49,18 +77,47 @@ export default function PackageQuickActions({
     );
   }
 
-  function handleInstall(event: MouseEvent<HTMLAnchorElement>) {
+  async function handleInstall(event: MouseEvent<HTMLAnchorElement>) {
     if (isPreview) {
       event.preventDefault();
       showPreviewNotice();
       return;
     }
 
-    addToast(
-      task.software.name,
-      'info',
-      t('toast.title.installStarted'),
-    );
+    // A dialog always comes first: either the overwrite notice for a device
+    // that can take the package, or the reason it cannot.
+    event.preventDefault();
+
+    const device = detectInstallDevice();
+    const platform = task.software.platform ?? 'ios';
+    let appleSilicon = false;
+    if (device.family === 'mac' && (platform === 'ios' || platform === 'ipad')) {
+      appleSilicon = await isAppleSiliconMac();
+    }
+
+    const decision = installDecision(device, platform, appleSilicon);
+    if (decision.kind === 'install') {
+      setPendingInstall({ kind: 'confirm', device });
+      return;
+    }
+
+    setPendingInstall({
+      kind: 'blocked',
+      hint: decision.hint,
+      deviceName:
+        device.name === 'browser' ? t('install.deviceBrowser') : device.name,
+      packagePlatform: PLATFORM_LABELS[platform] ?? platform,
+    });
+  }
+
+  function confirmInstall() {
+    setPendingInstall(null);
+    addToast(task.software.name, 'info', t('toast.title.installStarted'));
+    openInstallUrl(installInfo.installUrl);
+  }
+
+  function closeInstallDialog() {
+    setPendingInstall(null);
   }
 
   async function handleShare() {
@@ -198,6 +255,66 @@ export default function PackageQuickActions({
         <DownloadIcon />
         <span className="truncate">{t('downloads.package.downloadShort')}</span>
       </a>
+
+      <Modal
+        open={pendingInstall?.kind === 'confirm'}
+        onClose={closeInstallDialog}
+        title={t('install.overwrite.title')}
+      >
+        <div className="min-w-0 space-y-4">
+          <p className="min-w-0 break-words text-sm text-gray-600 dark:text-gray-300">
+            {pendingInstall?.kind === 'confirm' &&
+            pendingInstall.device.family === 'mac'
+              ? t('install.overwrite.bodyMac')
+              : t('install.overwrite.body')}
+          </p>
+          <div className="grid min-w-0 grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={closeInstallDialog}
+              className="min-h-11 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              {t('settings.data.cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={confirmInstall}
+              className="min-h-11 min-w-0 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+            >
+              {t('install.continue')}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={pendingInstall?.kind === 'blocked'}
+        onClose={closeInstallDialog}
+        title={t('install.blocked.title')}
+      >
+        <div className="min-w-0 space-y-4">
+          {pendingInstall?.kind === 'blocked' && (
+            <>
+              <p className="min-w-0 break-words text-sm text-gray-600 dark:text-gray-300">
+                {t('install.blocked.body', {
+                  packagePlatform: pendingInstall.packagePlatform,
+                  deviceName: pendingInstall.deviceName,
+                })}
+              </p>
+              <p className="min-w-0 break-words text-sm text-gray-500 dark:text-gray-400">
+                {t(HINT_KEYS[pendingInstall.hint])}
+              </p>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={closeInstallDialog}
+            className="min-h-11 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+          >
+            {t('install.gotIt')}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

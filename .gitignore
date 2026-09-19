@@ -160,3 +160,4 @@ backend/data/
 # Agent memory and settings
 .workbuddy/
 .arts/
+.serena/

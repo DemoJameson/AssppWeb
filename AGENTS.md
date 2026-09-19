@@ -476,6 +476,21 @@ scales. The frontend prefers `software.artworkUrl` and only falls back to the
 extracted icon (`taskIconUrl` in `utils/icon.ts`), so a storefront download is
 unchanged.
 
+The 「安装」 button carries a platform guard (`frontend/src/utils/device.ts`):
+every click opens a dialog before the `itms-services://` hop. iPhone/iPad take
+iOS/iPadOS packages and a Vision Pro takes visionOS; an Apple-silicon Mac takes
+iOS/iPadOS when the probe can prove the silicon (Chromium's UA-CH
+`architecture`, else the Safari WebGL renderer — anything unconfirmed falls back
+to the download route), and every other mismatch (iPhone × tvOS, desktop ×
+iOS, …) gets a next-step hint instead of a hop into a broken install. A
+device that can take the package first sees the overwrite notice: a direct
+install cannot replace an already-installed app. On Apple-silicon Macs the
+notice says the new build replaces the installed one in place
+(`install.overwrite.bodyMac`); on iPhone/iPad/Vision Pro it points at the
+AirDrop route (`install.overwrite.body`) — sending the package from another
+device installs over the existing app when it is received. The copy lives under
+the `install.*` keys in the six locales.
+
 The store metadata also carries the icon URL Apple handed out with the download
 (`softwareIcon57x57URL`), which the injector already writes into the package as
 `iTunesMetadata.plist`. `PackageMetadata.artworkURL` reads it back out, so a
