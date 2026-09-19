@@ -89,6 +89,7 @@ export default function ProductDetail() {
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [checkingVersions, setCheckingVersions] = useState(false);
   const autoFetchVersionInfo = useSettingsStore((s) => s.autoFetchVersionInfo);
+  const autoAcquireLicense = useSettingsStore((s) => s.autoAcquireLicense);
   const {
     versionMeta,
     pendingMeta,
@@ -689,7 +690,8 @@ export default function ProductDetail() {
               <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
               {(app.price === undefined || app.price === 0) &&
                 app.metadataSource !== "local" &&
-                app.metadataSource !== "bare" && (
+                app.metadataSource !== "bare" &&
+                !autoAcquireLicense && (
                 <button
                   type="button"
                   onClick={handlePurchase}

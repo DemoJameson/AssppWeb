@@ -5,7 +5,8 @@ import PageContainer from "../Layout/PageContainer";
 import AppIcon from "../common/AppIcon";
 import CountrySelect from "../common/CountrySelect";
 import PlatformSelect from "../common/PlatformSelect";
-import StableLabel from "../common/StableLabel";
+import Spinner from "../common/Spinner";
+import { SearchIcon } from "../common/icons";
 
 import { useSearch } from "../../hooks/useSearch";
 import { useAccounts } from "../../hooks/useAccounts";
@@ -388,13 +389,16 @@ export default function SearchPage() {
             <button
               type="submit"
               disabled={loading || !term.trim()}
-              className="mt-1 min-h-11 w-full whitespace-nowrap rounded-full bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:mt-0 sm:w-auto"
+              aria-busy={loading}
+              className="mt-1 inline-flex min-h-11 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:mt-0 sm:w-auto"
             >
-              <StableLabel
-                idle={t("search.button")}
-                busy={t("search.searching")}
-                busyActive={loading}
-              />
+              <span
+                aria-hidden="true"
+                className="flex h-4 w-4 shrink-0 items-center justify-center"
+              >
+                {loading ? <Spinner /> : <SearchIcon className="h-4 w-4" />}
+              </span>
+              <span>{t("search.button")}</span>
             </button>
           </div>
         </div>

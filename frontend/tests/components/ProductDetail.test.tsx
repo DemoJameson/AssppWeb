@@ -234,6 +234,9 @@ describe('ProductDetail download action', () => {
     vi.mocked(fetchPackageVersionMetadata).mockReset();
     vi.mocked(fetchPackageVersionMetadata).mockResolvedValue(undefined);
     useSettingsStore.setState({ autoFetchVersionInfo: true });
+    // Off by default so the manual license button is present; a dedicated test
+    // flips it on to assert the button hides under automation.
+    useSettingsStore.setState({ autoAcquireLicense: false });
     useVersionMetadataStore.setState({ entries: {}, attempted: {} });
     useVersionListsStore.setState({ lists: {} });
     useToastStore.setState({ toasts: [] });
@@ -408,6 +411,19 @@ describe('ProductDetail download action', () => {
     for (const action of [licenseButton, downloadButton, selectVersionButton]) {
       expect(action).toHaveClass('w-full', 'min-w-0');
     }
+  });
+
+  it('hides the manual license button while auto-acquire is on', () => {
+    useSettingsStore.setState({ autoAcquireLicense: true });
+    renderProductDetail();
+
+    expect(
+      screen.queryByRole('button', { name: 'search.product.getLicense' }),
+    ).toBeNull();
+    // The download button stays — automation only replaces the license step.
+    expect(
+      screen.getByRole('button', { name: 'search.product.download' }),
+    ).toBeInTheDocument();
   });
 
   it('simulates a preview download without calling real services', async () => {
