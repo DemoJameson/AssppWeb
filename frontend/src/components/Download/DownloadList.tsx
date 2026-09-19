@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import Modal from "../common/Modal";
 import ProgressBar from "../common/ProgressBar";
+import Select from "../common/Select";
 import Spinner from "../common/Spinner";
 import DownloadItem from "./DownloadItem";
 import {
@@ -12,6 +13,7 @@ import {
   previewDownloadTasks,
 } from "./previewTasks";
 import { useDownloads } from "../../hooks/useDownloads";
+import { isActiveDownload } from "../../store/downloads";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useToastStore } from "../../store/toast";
@@ -22,7 +24,19 @@ import { isNewerVersion } from "../../utils/version";
 import { storeIdToCountry } from "../../apple/config";
 import type { DownloadTask } from "../../types";
 
-type StatusFilter = "all" | DownloadTask["status"];
+/**
+ * What the filter picks. `active` is the bucket the Downloads tab badge
+ * counts — queued, transferring or compiling — so the menu never offers a
+ * status the rest of the UI treats separately. The row badge stays exact.
+ */
+type StatusFilter = "all" | "active" | "paused" | "completed" | "failed";
+
+/** Whether a task belongs to a filter pick. */
+function matchesFilter(task: DownloadTask, pick: StatusFilter): boolean {
+  if (pick === "all") return true;
+  if (pick === "active") return isActiveDownload(task);
+  return task.status === pick;
+}
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -60,16 +74,34 @@ export default function DownloadList() {
     };
   }, []);
 
-  const filtered =
-    filter === "all"
-      ? displayTasks
-      : displayTasks.filter((task) => task.status === filter);
+  const filtered = displayTasks.filter((task) => matchesFilter(task, filter));
 
   const sortedTasks = [...filtered].sort((a, b) => {
     const timeA = new Date(a.createdAt || 0).getTime();
     const timeB = new Date(b.createdAt || 0).getTime();
     return timeB - timeA;
   });
+
+  /** The pick's own name: the group has one, the raw statuses keep theirs. */
+  const filterLabel = (pick: StatusFilter) =>
+    pick === "active"
+      ? t("downloads.filterActive")
+      : t(`downloads.status.${pick}`);
+
+  /** How many tasks a pick holds — `全部` included. */
+  const statusCount = (pick: StatusFilter) =>
+    displayTasks.filter((task) => matchesFilter(task, pick)).length;
+
+  /** The filter's menu: `全部` first, then the four ways a task can sit. */
+  const filterOptions = (
+    ["all", "active", "paused", "completed", "failed"] as StatusFilter[]
+  ).map((pick) => ({
+    value: pick,
+    label: t("downloads.statusWithCount", {
+      status: filterLabel(pick),
+      count: statusCount(pick),
+    }),
+  }));
 
   function handleDelete(id: string) {
     const task = displayTasks.find((item) => item.id === id);
@@ -204,16 +236,14 @@ export default function DownloadList() {
 
   return (
     <PageContainer>
-      {/* Same column geometry as the status row below, so the action occupies
-          one column and matches the filter chips' width. */}
-      <div className="mb-4 grid grid-cols-2 items-start gap-2 text-[15px] min-[360px]:grid-cols-3 sm:mb-7 sm:grid-cols-6">
-        <h1 className="col-span-2 min-w-0 text-[2rem] font-semibold leading-[1.12] tracking-[-0.035em] text-gray-900 min-[360px]:col-span-3 sm:col-span-5 sm:text-[2.125rem] dark:text-white">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 sm:mb-7">
+        <h1 className="min-w-0 text-[2rem] font-semibold leading-[1.12] tracking-[-0.035em] text-gray-900 sm:text-[2.125rem] dark:text-white">
           {t("downloads.title")}
         </h1>
         <button
           onClick={handleCheckAllUpdates}
           disabled={checkingAll}
-          className="col-span-1 flex h-9 w-full min-w-0 items-center justify-center rounded-full bg-blue-600 px-2.5 text-center text-[clamp(0.75rem,3.6vw,0.875rem)] font-semibold leading-tight text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 sm:col-span-1 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-600"
+          className="flex h-9 shrink-0 items-center justify-center rounded-full bg-blue-600 px-4 text-center text-[clamp(0.75rem,3.6vw,0.875rem)] font-semibold leading-tight text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-600"
         >
           {checkingAll
             ? t("downloads.checkingUpdates")
@@ -221,40 +251,14 @@ export default function DownloadList() {
         </button>
       </div>
 
-      <div
-        className="mb-5 grid grid-cols-2 gap-2 border-t border-gray-100 pt-4 text-[15px] min-[360px]:grid-cols-3 sm:grid-cols-6 sm:border-t-0 sm:pt-0 dark:border-gray-800"
-        role="group"
-        aria-label={t("downloads.title")}
-      >
-        {(
-          [
-            "all",
-            "downloading",
-            "pending",
-            "paused",
-            "completed",
-            "failed",
-          ] as StatusFilter[]
-        ).map((status) => (
-          <button
-            key={status}
-            onClick={() => setFilter(status)}
-            className={`flex h-9 w-full min-w-0 items-center justify-center rounded-full px-2.5 text-center text-[clamp(0.75rem,3.6vw,0.875rem)] font-semibold leading-tight transition-colors ${
-              filter === status
-                ? "bg-blue-600 text-white"
-                : "bg-white text-gray-600 shadow-sm ring-1 ring-black/5 hover:bg-gray-50 dark:bg-gray-900 dark:text-gray-300 dark:ring-white/10 dark:hover:bg-gray-800"
-            }`}
-          >
-            {t(`downloads.status.${status}`)}
-            <span className="ml-1">
-              {`(${
-                status === "all"
-                  ? displayTasks.length
-                  : displayTasks.filter((task) => task.status === status).length
-              })`}
-            </span>
-          </button>
-        ))}
+      <div className="mb-5 min-w-0 sm:max-w-xs">
+        <Select
+          value={filter}
+          onChange={(next) => setFilter(next as StatusFilter)}
+          options={filterOptions}
+          ariaLabel={t("downloads.filter")}
+          className="h-9 w-full min-w-0 rounded-full bg-white px-3 text-sm font-medium text-gray-700 ring-1 ring-black/5 transition-colors hover:bg-gray-50 dark:bg-gray-900 dark:text-gray-200 dark:ring-white/10 dark:hover:bg-gray-800"
+        />
       </div>
 
       <div
@@ -315,9 +319,7 @@ export default function DownloadList() {
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2 text-center">
             {filter === "all"
               ? t("downloads.emptyAll")
-              : t("downloads.emptyFilter", {
-                  status: t(`downloads.status.${filter}`),
-                })}
+              : t("downloads.emptyFilter", { status: filterLabel(filter) })}
           </h3>
           <p
             className="mb-6 max-w-full overflow-hidden text-center text-gray-500 dark:text-gray-400"
