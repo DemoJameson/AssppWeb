@@ -65,7 +65,7 @@ export default function SearchPage() {
   }, []);
   /** Probe state per bare App ID, keyed by app id. */
   const [probes, setProbes] = useState<Record<number, ProbeState>>({});
-  const { accounts } = useAccounts();
+  const { accounts, loading: accountsLoading } = useAccounts();
   const { versionMeta, fillVersionsSilently } = useVersionMetadataMap();
   // Subscribed rather than read once: the newest version's label arrives after
   // the probe, and the cards re-render with it.
@@ -98,9 +98,15 @@ export default function SearchPage() {
   }, [error, addToast]);
 
   useEffect(() => {
+    // Wait for the account store's first read before committing a fallback
+    // region: committing while it is still loading would pin the no-account
+    // default (CN) even after the accounts arrive.
+    if (accountsLoading) return;
+    // Nothing stored yet: open in a region the user can act in — the first
+    // account's storefront, or China when they have no account at all.
     if (!country) setSearchParam({ country: fallbackCountry });
     if (!platform) setSearchParam({ platform: fallbackPlatform });
-  }, [country, fallbackCountry, platform, fallbackPlatform, setSearchParam]);
+  }, [accountsLoading, country, fallbackCountry, platform, fallbackPlatform, setSearchParam]);
 
   const activeCountry = country || fallbackCountry;
   const activePlatform = platform || fallbackPlatform;
@@ -228,7 +234,9 @@ export default function SearchPage() {
         status: "unresolved",
         note:
           accounts.length > 0
-            ? t("search.product.noRegionAccount")
+            ? t("search.product.noRegionAccount", {
+                country: t(`countries.${activeCountry}`, activeCountry),
+              })
             : t("search.bareNoAccount"),
       });
       return;

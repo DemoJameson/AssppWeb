@@ -183,6 +183,11 @@ function renderProductDetail(
   return render(strict ? <StrictMode>{tree}</StrictMode> : tree);
 }
 
+/** The caption a control is actually showing. */
+function visibleLabel(control: HTMLElement): string {
+  return control.textContent?.trim() ?? '';
+}
+
 /** A direct visit — no navigation state, so the page looks the id up itself. */
 function renderProductDetailDirect(appId: string) {
   return render(
@@ -277,11 +282,15 @@ describe('ProductDetail download action', () => {
     );
     expect(downloadButton).toBeDisabled();
     expect(downloadButton).toHaveAttribute('aria-busy', 'true');
-    expect(downloadButton).toHaveTextContent('search.product.download');
-    expect(downloadButton).not.toHaveTextContent('search.product.processing');
+    // The caption stays the button's own while busy — only the spinner says
+    // a job is running.
+    expect(visibleLabel(downloadButton)).toBe('search.product.download');
     expect(downloadButton).toHaveClass('w-full', 'min-w-0');
     expect(downloadButton).not.toHaveClass('opacity-50');
     expect(downloadButton.querySelector('.animate-spin')).toBeInTheDocument();
+    // The icon slot holds the spinner while the download runs — and it stays
+    // in the layout on phones now that the buttons sit on a two-column grid.
+    expect(iconSlot).toHaveClass('flex');
     expect(accountSelect).toBeDisabled();
     expect(licenseButton).toBeDisabled();
 
@@ -306,8 +315,7 @@ describe('ProductDetail download action', () => {
 
     expect(downloadButton).toBeDisabled();
     expect(downloadButton).toHaveAttribute('aria-busy', 'true');
-    expect(downloadButton).toHaveTextContent('search.product.download');
-    expect(downloadButton).not.toHaveTextContent('search.product.processing');
+    expect(visibleLabel(downloadButton)).toBe('search.product.download');
     expect(downloadButton.querySelector('.animate-spin')).toBeInTheDocument();
     expect(mocks.startDownload).toHaveBeenCalledOnce();
 
@@ -318,8 +326,8 @@ describe('ProductDetail download action', () => {
 
     await waitFor(() => expect(downloadButton).toBeEnabled());
     expect(downloadButton).toHaveAttribute('aria-busy', 'false');
-    expect(downloadButton).toHaveTextContent('search.product.download');
-    expect(downloadButton).not.toHaveTextContent('search.product.processing');
+    expect(visibleLabel(downloadButton)).toBe('search.product.download');
+    expect(iconSlot).toHaveClass('flex');
     expect(downloadButton).toHaveClass('w-full', 'min-w-0');
     expect(downloadButton).not.toHaveClass('opacity-50');
     expect(downloadButton.querySelector('.animate-spin')).not.toBeInTheDocument();
@@ -328,12 +336,39 @@ describe('ProductDetail download action', () => {
     );
   });
 
+  it('plumbs every action button the same way', () => {
+    renderProductDetail();
+
+    const downloadButton = screen.getByRole('button', {
+      name: 'search.product.download',
+    });
+    const buttons = [
+      ...(downloadButton.parentElement?.querySelectorAll('button[aria-busy]') ??
+        []),
+    ];
+
+    // The licence, download and version actions: each reports busy, keeps its
+    // own caption, and shows its icon in the slot.
+    expect(buttons.length).toBeGreaterThanOrEqual(3);
+    for (const button of buttons) {
+      expect(button).toHaveAttribute('aria-busy', 'false');
+      expect(button.textContent?.trim()).toBeTruthy();
+      const buttonIconSlot = button.querySelector('span[aria-hidden="true"]');
+      expect(buttonIconSlot).toHaveClass('flex');
+      expect(buttonIconSlot?.querySelector('svg')).toBeInTheDocument();
+    }
+  });
+
   it('is disabled on the initial commit before an account is selected', async () => {
     const disabledByCommit: boolean[] = [];
 
     renderProductDetail(() => {
-      const button = document.querySelector<HTMLButtonElement>(
-        'button[aria-busy]',
+      // Every action reports busy through aria-busy now, so pick the download
+      // action out of the row by its caption.
+      const button = [
+        ...document.querySelectorAll<HTMLButtonElement>('button[aria-busy]'),
+      ].find((candidate) =>
+        candidate.textContent?.includes('search.product.download'),
       );
       if (button) disabledByCommit.push(button.disabled);
     });
@@ -345,7 +380,7 @@ describe('ProductDetail download action', () => {
     await waitFor(() => expect(downloadButton).toBeEnabled());
   });
 
-  it('keeps license, download, and version actions in one grid row', () => {
+  it('keeps license, download, and version actions in one grid', () => {
     renderProductDetail();
 
     const licenseButton = screen.getByRole('button', {
@@ -361,7 +396,9 @@ describe('ProductDetail download action', () => {
 
     expect(actionRow).toBe(downloadButton.parentElement);
     expect(actionRow).toBe(selectVersionButton.parentElement);
-    expect(actionRow).toHaveClass('grid', 'grid-flow-col', 'auto-cols-fr');
+    // Two columns on phones so icon and label fit; four from sm up, the same
+    // slots whichever actions happen to be showing.
+    expect(actionRow).toHaveClass('grid', 'grid-cols-2', 'sm:grid-cols-4');
     expect(Array.from(actionRow?.children ?? [])).toEqual([
       licenseButton,
       downloadButton,

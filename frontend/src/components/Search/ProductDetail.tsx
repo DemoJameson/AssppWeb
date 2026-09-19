@@ -7,7 +7,6 @@ import AppIcon from "../common/AppIcon";
 import PlatformSelect from '../common/PlatformSelect';
 import Select from '../common/Select';
 import Spinner from '../common/Spinner';
-import StableLabel from '../common/StableLabel';
 import {
   isProductPreviewEnabled,
   previewProductAccounts,
@@ -101,6 +100,8 @@ export default function ProductDetail() {
 
   const account = productAccounts.find((a) => a.email === selectedAccount);
   const isDownloading = loadingAction === 'download';
+  const isPurchasing = loadingAction === 'purchase';
+  const isSelectingVersions = loadingAction === 'versions';
 
   // The version-list cache is keyed by app+platform+region: a different
   // storefront answers differently, so its lists must never be reused here.
@@ -685,7 +686,7 @@ export default function ProductDetail() {
                 </span>
               </div>
             ) : (
-              <div className="grid min-w-0 grid-flow-col auto-cols-fr gap-2 sm:gap-3">
+              <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
               {(app.price === undefined || app.price === 0) &&
                 app.metadataSource !== "local" &&
                 app.metadataSource !== "bare" && (
@@ -693,17 +694,16 @@ export default function ProductDetail() {
                   type="button"
                   onClick={handlePurchase}
                   disabled={loadingAction !== null}
-                  className="inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-blue-100 px-2 py-2 text-center text-xs font-semibold leading-tight text-blue-700 transition-colors hover:bg-blue-200 disabled:opacity-50 dark:bg-blue-950/60 dark:text-blue-400 sm:gap-2 sm:px-5 sm:text-sm"
+                  aria-busy={isPurchasing}
+                  className="inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-blue-100 px-2 py-2 text-center text-xs font-semibold leading-tight text-blue-700 transition-colors hover:bg-blue-200 active:bg-blue-200 disabled:opacity-50 dark:bg-blue-950/60 dark:text-blue-400 sm:gap-2 sm:px-5 sm:text-sm"
                 >
                   <span
                     aria-hidden="true"
-                    className="hidden h-4 w-4 shrink-0 items-center justify-center sm:flex"
+                    className="flex h-4 w-4 shrink-0 items-center justify-center"
                   >
-                    <LicenseIcon />
+                    {isPurchasing ? <Spinner /> : <LicenseIcon />}
                   </span>
-                  {loadingAction === "purchase"
-                    ? t("search.product.processing")
-                    : t("search.product.getLicense")}
+                  <span>{t("search.product.getLicense")}</span>
                 </button>
               )}
               <button
@@ -711,7 +711,7 @@ export default function ProductDetail() {
                 onClick={handleDownload}
                 disabled={loadingAction !== null || !account}
                 aria-busy={isDownloading}
-                className={`inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-blue-600 px-2 py-2 text-center text-xs font-semibold leading-tight text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed sm:gap-2 sm:px-5 sm:text-sm ${
+                className={`inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-blue-600 px-2 py-2 text-center text-xs font-semibold leading-tight text-white transition-colors hover:bg-blue-700 active:bg-blue-800 disabled:cursor-not-allowed sm:gap-2 sm:px-5 sm:text-sm ${
                   !account || (loadingAction !== null && !isDownloading)
                     ? 'opacity-50'
                     : ''
@@ -719,7 +719,7 @@ export default function ProductDetail() {
               >
                 <span
                   aria-hidden="true"
-                  className="hidden h-4 w-4 shrink-0 items-center justify-center sm:flex"
+                  className="flex h-4 w-4 shrink-0 items-center justify-center"
                 >
                   {isDownloading ? <Spinner /> : <DownloadIcon />}
                 </span>
@@ -730,19 +730,16 @@ export default function ProductDetail() {
                   type="button"
                   onClick={handleSelectVersions}
                   disabled={loadingAction !== null || !account}
-                  className="inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-orange-100 px-2 py-2 text-center text-xs text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:gap-2 sm:px-5 sm:text-sm"
+                  aria-busy={isSelectingVersions}
+                  className="inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-orange-100 px-2 py-2 text-center text-xs text-orange-700 transition-colors hover:bg-orange-200 active:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:gap-2 sm:px-5 sm:text-sm"
                 >
                   <span
                     aria-hidden="true"
-                    className="hidden h-4 w-4 shrink-0 items-center justify-center sm:flex"
+                    className="flex h-4 w-4 shrink-0 items-center justify-center"
                   >
-                    <VersionsIcon />
+                    {isSelectingVersions ? <Spinner /> : <VersionsIcon />}
                   </span>
-                  <StableLabel
-                    idle={t("search.product.selectVersion")}
-                    busy={t("search.product.processing")}
-                    busyActive={loadingAction === "versions"}
-                  />
+                  <span>{t("search.product.selectVersion")}</span>
                 </button>
               )}
               {versionsOpen &&
@@ -754,19 +751,16 @@ export default function ProductDetail() {
                     disabled={
                       loadingAction !== null || !account || checkingVersions
                     }
-                    className="inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-orange-100 px-2 py-2 text-center text-xs text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:gap-2 sm:px-5 sm:text-sm"
+                    aria-busy={checkingVersions}
+                    className="inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-orange-100 px-2 py-2 text-center text-xs text-orange-700 transition-colors hover:bg-orange-200 active:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:gap-2 sm:px-5 sm:text-sm"
                   >
                     <span
                       aria-hidden="true"
-                      className="hidden h-4 w-4 shrink-0 items-center justify-center sm:flex"
+                      className="flex h-4 w-4 shrink-0 items-center justify-center"
                     >
-                      <LookupIcon />
+                      {checkingVersions ? <Spinner /> : <LookupIcon />}
                     </span>
-                    <StableLabel
-                      idle={t("search.product.checkVersionNumbers")}
-                      busy={t("search.versions.fetching")}
-                      busyActive={checkingVersions}
-                    />
+                    <span>{t("search.product.checkVersionNumbers")}</span>
                   </button>
                 )}
               </div>
