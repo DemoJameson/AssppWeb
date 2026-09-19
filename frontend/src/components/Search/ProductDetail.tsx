@@ -61,9 +61,16 @@ export default function ProductDetail() {
     app?: Software;
     country?: string;
     versionId?: string;
+    accountEmail?: string;
   } | null;
   const stateApp = previewEnabled ? previewProductApp : routeState?.app;
   const stateCountry = previewEnabled ? 'US' : routeState?.country;
+  // A package's 「应用详情」 hop carries its owning account; the region
+  // effect below honours that exact account over a country-first match.
+  const routeAccountEmail =
+    !previewEnabled && typeof routeState?.accountEmail === 'string'
+      ? routeState.accountEmail
+      : '';
   const routeVersionId =
     !previewEnabled &&
     typeof routeState?.versionId === 'string' &&
@@ -97,7 +104,10 @@ export default function ProductDetail() {
     fillVersionsSilently,
   } = useVersionMetadataMap();
 
-  const { selectedAccount, selectAccount } = useSelectedAccount(productAccounts);
+  const { selectedAccount, selectAccount } = useSelectedAccount(
+    productAccounts,
+    routeAccountEmail || undefined,
+  );
 
   const account = productAccounts.find((a) => a.email === selectedAccount);
   const isDownloading = loadingAction === 'download';
@@ -356,8 +366,26 @@ export default function ProductDetail() {
   // picker is left alone.
   const regionHonoredRef = useRef(false);
   useEffect(() => {
-    if (regionHonoredRef.current || previewEnabled || !stateCountry) return;
+    if (
+      regionHonoredRef.current ||
+      previewEnabled ||
+      (!stateCountry && !routeAccountEmail)
+    )
+      return;
     if (productAccounts.length === 0) return;
+    if (routeAccountEmail) {
+      // The exact account travels with priority: settle on it, and never
+      // second-guess the picker once it (or its absence) has been handled.
+      const carrier = productAccounts.find(
+        (a) => a.email === routeAccountEmail,
+      );
+      if (!carrier || carrier.email === selectedAccount) {
+        regionHonoredRef.current = true;
+        return;
+      }
+      selectAccount(carrier.email);
+      return;
+    }
     const matching = productAccounts.filter(
       (a) => accountStoreCountry(a) === stateCountry,
     );
@@ -372,6 +400,7 @@ export default function ProductDetail() {
     selectAccount(matching[0].email);
   }, [
     stateCountry,
+    routeAccountEmail,
     productAccounts,
     selectedAccount,
     selectAccount,

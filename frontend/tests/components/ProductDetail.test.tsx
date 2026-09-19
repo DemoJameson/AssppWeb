@@ -1456,4 +1456,40 @@ describe('ProductDetail download action', () => {
     );
     expect(mocks.listVersions).toHaveBeenCalledTimes(1);
   });
+
+  it('auto-selects the account an app-detail hop carries', async () => {
+    const cnAccount = {
+      ...account,
+      email: 'owner-cn@example.test',
+      appleId: 'owner-cn@example.test',
+      directoryServicesIdentifier: 'owner-cn-id',
+      store: '143465',
+    };
+    mocks.accounts = [account, cnAccount];
+    mocks.lookupApp.mockResolvedValue(app);
+
+    render(
+      <StrictMode>
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/search/123456',
+              search: '?platform=ios',
+              state: { accountEmail: cnAccount.email, country: 'CN' },
+            },
+          ]}
+        >
+          <Routes>
+            <Route path="/search/:appId" element={<ProductDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </StrictMode>,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('combobox', { name: 'search.product.account' }),
+      ).toHaveTextContent(cnAccount.email),
+    );
+  });
 });

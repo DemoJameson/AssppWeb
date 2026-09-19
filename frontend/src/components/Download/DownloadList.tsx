@@ -384,6 +384,7 @@ export default function DownloadList() {
               key={task.id}
               task={task}
               preview={previewEnabled}
+              accountEmail={hashToEmail[task.accountHash]}
               onPause={handlePause}
               onResume={handleResume}
               onDelete={handleDelete}

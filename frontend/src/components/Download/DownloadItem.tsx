@@ -4,6 +4,8 @@ import AppIcon from '../common/AppIcon';
 import Badge from '../common/Badge';
 import ProgressBar from '../common/ProgressBar';
 import PackageQuickActions, { dangerButtonClass } from './PackageQuickActions';
+import { useAccounts } from '../../hooks/useAccounts';
+import { accountStoreCountry } from '../../utils/account';
 import { formatBytes } from '../../utils/format';
 import { taskIconUrl } from '../../utils/icon';
 import { PLATFORM_LABELS } from '../../apple/platform';
@@ -12,6 +14,7 @@ import type { DownloadTask } from '../../types';
 interface DownloadItemProps {
   task: DownloadTask;
   preview?: boolean;
+  accountEmail?: string;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
   onDelete: (id: string) => void;
@@ -20,31 +23,55 @@ interface DownloadItemProps {
 export default function DownloadItem({
   task,
   preview = false,
+  accountEmail,
   onPause,
   onResume,
   onDelete,
 }: DownloadItemProps) {
   const { t } = useTranslation();
+  const { accounts } = useAccounts();
 
   const isActive = task.status === 'downloading' || task.status === 'injecting';
   const isPaused = task.status === 'paused';
   const detailsHref = `/downloads/${task.id}${
     preview ? '?preview=downloads' : ''
   }`;
+  // The app's own detail page, carrying the package's platform and the
+  // account that owns it (its storefront travels as `country`). The state
+  // rides the Link's `state` prop — the object form of `to` drops it here.
+  const owningAccount = accounts.find((a) => a.email === accountEmail);
+  const appDetailHref = task.software.id
+    ? `/search/${task.software.id}?platform=${task.software.platform ?? 'ios'}${
+        preview ? '&preview=product' : ''
+      }`
+    : null;
+  const appDetailState = owningAccount
+    ? {
+        accountEmail: owningAccount.email,
+        country: accountStoreCountry(owningAccount),
+      }
+    : null;
 
   return (
     <article className="min-w-0 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
       <div className="flex min-w-0 items-start gap-3">
-        <AppIcon
-          url={taskIconUrl(task)}
-          name={task.software.name}
-          size="sm"
-        />
+        <Link
+          to={appDetailHref ?? detailsHref}
+          state={appDetailState ?? undefined}
+          className="min-w-0 shrink-0"
+        >
+          <AppIcon
+            url={taskIconUrl(task)}
+            name={task.software.name}
+            size="sm"
+          />
+        </Link>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <Link
-                to={detailsHref}
+                to={appDetailHref ?? detailsHref}
+                state={appDetailState ?? undefined}
                 className="block truncate text-sm font-semibold text-gray-900 transition-colors hover:text-blue-600 dark:text-white dark:hover:text-blue-400"
               >
                 {task.software.name}
@@ -107,7 +134,20 @@ export default function DownloadItem({
         </div>
       )}
 
-      <div className="mt-3 grid min-w-0 grid-cols-2 gap-2 text-[15px]">
+      <div
+        className={`mt-3 grid min-w-0 gap-2 text-[15px] ${
+          appDetailHref ? 'grid-cols-3' : 'grid-cols-2'
+        }`}
+      >
+        {appDetailHref && (
+          <Link
+            to={appDetailHref}
+            state={appDetailState}
+            className="inline-flex min-h-10 min-w-0 items-center justify-center rounded-lg border border-gray-300 px-3 py-2 text-center text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            {t('search.product.title')}
+          </Link>
+        )}
         {isActive ? (
           <button
             type="button"

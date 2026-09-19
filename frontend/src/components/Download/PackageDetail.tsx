@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import PageContainer from '../Layout/PageContainer';
 import AppIcon from '../common/AppIcon';
@@ -14,6 +14,7 @@ import {
 } from './previewTasks';
 import { useAccounts } from '../../hooks/useAccounts';
 import { formatDateISO, formatDateTimeISO } from '../../utils/software';
+import { accountStoreCountry } from '../../utils/account';
 import { useDownloadAction } from '../../hooks/useDownloadAction';
 import { useDownloads } from '../../hooks/useDownloads';
 import { useVersionMetadataMap } from '../../hooks/useVersionMetadata';
@@ -74,7 +75,24 @@ export default function PackageDetail() {
     : hashToEmail[task.accountHash];
   const account = accounts.find((item) => item.email === accountEmail);
   const accountLabel = accountEmail || task.accountHash;
+  // The app's own detail page, carrying this package's platform and owning
+  // account (its storefront travels as `country`). The state rides the
+  // Link's `state` prop — the object form of `to` drops it here.
+  const appDetailHref = task.software.id
+    ? `/search/${task.software.id}?platform=${task.software.platform ?? 'ios'}${
+        isPreview ? '&preview=product' : ''
+      }`
+    : null;
+  const appDetailState = account
+    ? {
+        accountEmail: account.email,
+        country: accountStoreCountry(account),
+      }
+    : null;
   const appName = task.software.name;
+  const appIcon = (
+    <AppIcon url={taskIconUrl(task)} name={appName} size="lg" />
+  );
   const taskId = task.id;
   const bundleID = task.software.bundleID;
   const currentVersion = task.software.version;
@@ -204,17 +222,33 @@ export default function PackageDetail() {
 
         <section className="min-w-0 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900 sm:p-5">
           <div className="flex min-w-0 items-start gap-4">
-            <AppIcon
-              url={taskIconUrl(task)}
-              name={task.software.name}
-              size="lg"
-            />
+            {appDetailHref ? (
+              <Link
+                to={appDetailHref}
+                state={appDetailState ?? undefined}
+                className="min-w-0 shrink-0"
+              >
+                {appIcon}
+              </Link>
+            ) : (
+              appIcon
+            )}
             <div className="min-w-0 flex-1">
               <h2
                 title={task.software.name}
                 className="break-words text-xl font-semibold text-gray-900 [overflow-wrap:anywhere] dark:text-white"
               >
-                {task.software.name}
+                {appDetailHref ? (
+                  <Link
+                    to={appDetailHref}
+                    state={appDetailState ?? undefined}
+                    className="transition-colors hover:text-blue-600 dark:hover:text-blue-400"
+                  >
+                    {appName}
+                  </Link>
+                ) : (
+                  appName
+                )}
               </h2>
               <p
                 title={task.software.artistName}
@@ -357,7 +391,20 @@ export default function PackageDetail() {
             </p>
           )}
 
-          <div className="mt-3 grid min-w-0 grid-cols-2 gap-2 text-[15px]">
+          <div
+            className={`mt-3 grid min-w-0 gap-2 text-[15px] ${
+              appDetailHref ? 'grid-cols-3' : 'grid-cols-2'
+            }`}
+          >
+            {appDetailHref && (
+              <Link
+                to={appDetailHref}
+                state={appDetailState}
+                className="inline-flex min-h-11 min-w-0 items-center justify-center rounded-lg border border-gray-300 px-3 py-2 text-center text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                {t('search.product.title')}
+              </Link>
+            )}
             {isCompleted && (
               <button
                 type="button"

@@ -45,6 +45,22 @@ describe("useSelectedAccount", () => {
     expect(result.current.selectedAccount).toBe("c@example.test");
   });
 
+  it("seeds the preferred account the caller carries", () => {
+    const { result } = renderHook(() =>
+      useSelectedAccount(accounts, "c@example.test"),
+    );
+
+    expect(result.current.selectedAccount).toBe("c@example.test");
+  });
+
+  it("falls back to the first account for an unknown preference", () => {
+    const { result } = renderHook(() =>
+      useSelectedAccount(accounts, "gone@example.test"),
+    );
+
+    expect(result.current.selectedAccount).toBe("a@example.test");
+  });
+
   it("clears the selection when the account list empties", () => {
     const { result, rerender } = renderHook(
       ({ list }: { list: Account[] }) => useSelectedAccount(list),
