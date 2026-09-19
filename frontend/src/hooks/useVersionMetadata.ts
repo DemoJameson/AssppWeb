@@ -20,22 +20,13 @@ const PREFETCH_FAST_CONCURRENCY = 5;
 const PREFETCH_SLOW_CONCURRENCY = 1;
 
 /**
- * Whether the fill should look a version up. A version with no entry at all
- * always needs one. The manual 查版本号 button passes `force`, and then a
- * version whose entry is not package-sourced counts too: it shows a number
- * with no date, and reading its package is the only way to add one — the
- * exchange's own date is app-level and would be wrong on every row.
- *
- * The automatic pass keeps the narrower rule: the shared cache already
- * answered for those versions, and dressing a page load in a pinned exchange
- * per row is not worth it.
+ * Whether a version still needs looking up. A version with no entry at all
+ * does — and so does one whose entry is not package-sourced: it shows a number
+ * with no date, and reading its package is the only way to add one, because
+ * the exchange's own date is app-level and would be wrong on every row.
  */
-function needsFill(
-  entry: VersionMetadata | undefined,
-  force?: boolean,
-): boolean {
-  if (!entry) return true;
-  return Boolean(force) && entry.source !== "package";
+function needsFill(entry: VersionMetadata | undefined): boolean {
+  return !entry || entry.source !== "package";
 }
 
 /**
@@ -153,11 +144,17 @@ export function useVersionMetadataMap() {
   }, []);
 
   /**
-   * Silently fills metadata for versions that have none yet — up to a hundred
-   * per call, five lookups in flight for the first twenty and the rest one at
-   * a time — and keeps the session cookies fresh along the way. It runs on the
-   * freshest stored copy of the account: the caller's object can predate the
-   * cookie refresh its version-list exchange just wrote back.
+   * Silently fills metadata for versions a package has not vouched a date
+   * for — up to a hundred per call, five lookups in flight for the first
+   * twenty and the rest one at a time — and keeps the session cookies fresh
+   * along the way. It runs on the freshest stored copy of the account: the
+   * caller's object can predate the cookie refresh its version-list exchange
+   * just wrote back.
+   *
+   * A version the automatic pass already tried this session is left alone —
+   * on a delisted app most builds cannot be served, and every visit must not
+   * re-ask for all of them. The manual check passes `force` and does ask
+   * again.
    *
    * Fire-and-forget: never blocks, never toasts, per-version failures are
    * ignored, and the automation switch turns the automatic path off — the
@@ -194,14 +191,25 @@ export function useVersionMetadataMap() {
             account;
 
           const known = useVersionMetadataStore.getState().entries;
+          const { attempted } = useVersionMetadataStore.getState();
           const missing = versions
-            .filter((versionId) => needsFill(known[versionId], options?.force))
+            .filter((versionId) => {
+              if (!needsFill(known[versionId])) return false;
+              // The automatic pass does not ask twice in a session; the
+              // manual check does, which is the point of pressing it.
+              return (
+                Boolean(options?.force) ||
+                !attempted[`${app.id}:${versionId}`]
+              );
+            })
             .slice(0, PREFETCH_MAX_VERSIONS);
           if (missing.length === 0) return;
 
           const fillOne = async (versionId: string) => {
+            const store = useVersionMetadataStore.getState();
+            store.markAttempted(`${app.id}:${versionId}`);
             // Pickers show a fetching state for ids in flight.
-            useVersionMetadataStore.getState().setPending(versionId, true);
+            store.setPending(versionId, true);
             try {
               await fillAccurate(freshest, app, versionId);
             } catch {
@@ -252,8 +260,9 @@ export function useVersionMetadataMap() {
 
   /**
    * The silent version-number policy a version picker opens with: fold the
-   * backend's shared cache in first — anything it already knows needs no Apple
-   * request — then fill whatever is still missing in the background.
+   * backend's shared cache in first — anything it already dated needs no Apple
+   * request — then fill whatever still lacks a package-vouched date in the
+   * background.
    *
    * The cache step is awaited on purpose (this is what the old new-download
    * page did): starting the fill before it lands would ask Apple about versions

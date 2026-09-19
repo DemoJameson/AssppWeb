@@ -121,7 +121,11 @@ describe('SearchPage App ID probe', () => {
       updatedCookies: [],
     } as never);
     useVersionListsStore.setState({ lists: {} });
-    useVersionMetadataStore.setState({ entries: {}, pending: {} });
+    useVersionMetadataStore.setState({
+      entries: {},
+      pending: {},
+      attempted: {},
+    });
     useToastStore.setState({ toasts: [] });
     useSettingsStore.setState({
       defaultCountry: 'US',

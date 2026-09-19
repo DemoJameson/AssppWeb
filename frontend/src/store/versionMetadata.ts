@@ -11,6 +11,13 @@ interface VersionMetadataState {
   entries: Record<string, VersionMetadata>;
   /** Version ids whose metadata is being fetched right now. */
   pending: Record<string, boolean>;
+  /**
+   * `appId:versionId` ids the automatic pass already tried this session: a
+   * build Apple will not serve again must not be re-asked on every visit. The
+   * manual check ignores it — an explicit retry is the user's call.
+   */
+  attempted: Record<string, true>;
+  markAttempted: (key: string) => void;
   mergeEntries: (entries: Record<string, VersionMetadata>) => void;
   putEntry: (versionId: string, metadata: VersionMetadata) => void;
   setPending: (versionId: string, pending: boolean) => void;
@@ -19,6 +26,14 @@ interface VersionMetadataState {
 export const useVersionMetadataStore = create<VersionMetadataState>((set) => ({
   entries: {},
   pending: {},
+  attempted: {},
+
+  markAttempted: (key) =>
+    set((state) =>
+      state.attempted[key]
+        ? state
+        : { attempted: { ...state.attempted, [key]: true } },
+    ),
 
   mergeEntries: (entries) =>
     set((state) => ({ entries: { ...entries, ...state.entries } })),

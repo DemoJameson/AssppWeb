@@ -229,7 +229,7 @@ describe('ProductDetail download action', () => {
     vi.mocked(fetchPackageVersionMetadata).mockReset();
     vi.mocked(fetchPackageVersionMetadata).mockResolvedValue(undefined);
     useSettingsStore.setState({ autoFetchVersionInfo: true });
-    useVersionMetadataStore.setState({ entries: {} });
+    useVersionMetadataStore.setState({ entries: {}, attempted: {} });
     useVersionListsStore.setState({ lists: {} });
     useToastStore.setState({ toasts: [] });
   });

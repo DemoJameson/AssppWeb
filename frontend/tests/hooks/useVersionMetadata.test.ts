@@ -86,7 +86,11 @@ describe("useVersionMetadataMap", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.accounts = [account];
-    useVersionMetadataStore.setState({ entries: {}, pending: {} });
+    useVersionMetadataStore.setState({
+      entries: {},
+      pending: {},
+      attempted: {},
+    });
     useSettingsStore.setState({
       autoFetchVersionInfo: true,
       autoAcquireLicense: true,
@@ -146,7 +150,10 @@ describe("useVersionMetadataMap", () => {
       updatedCookies: [],
     });
     useVersionMetadataStore.setState({
-      entries: { known: { displayVersion: "0.1.0", releaseDate: "x" } },
+      entries: {
+        // Package-sourced: the row already carries the build's own date.
+        known: { displayVersion: "0.1.0", releaseDate: "x", source: "package" },
+      },
     });
     const versions = [
       "known",
@@ -448,7 +455,7 @@ describe("useVersionMetadataMap", () => {
     await expect(run).resolves.toBeUndefined();
   });
 
-  it("retries a version without a package date only when forced", async () => {
+  it("dates a version the exchange answered, on the automatic pass", async () => {
     vi.mocked(getDownloadInfo).mockResolvedValue({
       output: {
         downloadURL: "https://iosapps.example.com/app.ipa",
@@ -477,24 +484,55 @@ describe("useVersionMetadataMap", () => {
 
     const { result } = renderHook(() => useVersionMetadataMap());
 
-    // The automatic pass leaves an answered version alone…
-    act(() => {
-      result.current.prefetchMissing(account, app, ["888154622"]);
-    });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(getDownloadInfo).not.toHaveBeenCalled();
-
-    // …while the manual button asks again for the date the row cannot show.
+    // The row shows a number with no date, so the automatic pass reads the
+    // package behind it and the date lands on the row.
     await act(async () => {
-      await result.current.prefetchMissing(account, app, ["888154622"], {
-        force: true,
-      });
+      await result.current.prefetchMissing(account, app, ["888154622"]);
     });
     expect(getDownloadInfo).toHaveBeenCalledTimes(1);
     expect(result.current.versionMeta["888154622"].releaseDate).toBe(
       "2026-07-11T15:06:44.000Z",
     );
     expect(result.current.versionMeta["888154622"].source).toBe("package");
+  });
+
+  it("does not ask twice in a session for a version it could not date", async () => {
+    // A delisted build Apple will not serve again: the pinned exchange fails
+    // and the row keeps the exchange's undated value.
+    vi.mocked(getDownloadInfo).mockRejectedValue(new Error("not served"));
+    vi.mocked(getVersionMetadata).mockResolvedValue({
+      metadata: { displayVersion: "1.3.17", releaseDate: "2024-10-04" },
+      updatedCookies: [],
+    });
+    useVersionMetadataStore.setState({
+      entries: {
+        "886254564": {
+          displayVersion: "1.3.17",
+          releaseDate: "2024-10-04T07:00:00Z",
+          source: "client",
+        },
+      },
+    });
+
+    const { result } = renderHook(() => useVersionMetadataMap());
+    await act(async () => {
+      await result.current.prefetchMissing(account, app, ["886254564"]);
+    });
+    expect(getDownloadInfo).toHaveBeenCalledTimes(1);
+
+    // A second visit in the same session must not re-ask for it…
+    await act(async () => {
+      await result.current.prefetchMissing(account, app, ["886254564"]);
+    });
+    expect(getDownloadInfo).toHaveBeenCalledTimes(1);
+
+    // …while the manual check still does, which is why it exists.
+    await act(async () => {
+      await result.current.prefetchMissing(account, app, ["886254564"], {
+        force: true,
+      });
+    });
+    expect(getDownloadInfo).toHaveBeenCalledTimes(2);
   });
 
   it("does not retry a version whose date came from its package", async () => {

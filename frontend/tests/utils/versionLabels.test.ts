@@ -44,6 +44,12 @@ describe("versionOptionLabel", () => {
       `894041913 · ${i18n.t("search.versions.fetching")}`,
     );
   });
+
+  it("marks a dated row too while its date is being re-read", () => {
+    expect(versionOptionLabel("894041913", { ...meta, source: "client" }, true)).toBe(
+      `8.2.1 (894041913) · ${i18n.t("search.versions.fetching")}`,
+    );
+  });
 });
 
 describe("versionRowLabel", () => {
@@ -64,6 +70,12 @@ describe("versionRowLabel", () => {
   it("shows a fetching marker while the id is being looked up", () => {
     expect(versionRowLabel("894041877", undefined, true)).toBe(
       `894041877 · ${i18n.t("search.versions.fetching")}`,
+    );
+  });
+
+  it("marks a dated row too while its date is being re-read", () => {
+    expect(versionRowLabel("894041877", { ...meta, source: "client" }, true)).toBe(
+      `8.2.1 (894041877) · ${i18n.t("search.versions.fetching")}`,
     );
   });
 });
