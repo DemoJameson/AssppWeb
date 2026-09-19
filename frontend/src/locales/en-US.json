@@ -126,7 +126,9 @@
       "addSuccess": "Account added successfully.",
       "preparingAssets": "Preparing signing components {{percent}}%",
       "preparingSigner": "Initializing the request signer…",
-      "signerFailed": "Failed to prepare signing components: {{error}}"
+      "signerFailed": "Failed to prepare signing components: {{error}}",
+      "signerFirstRun": "First run: preparing the signing component (~14 MB, this once).",
+      "signerRetry": "Retry"
     },
     "detail": {
       "title": "Account Details",

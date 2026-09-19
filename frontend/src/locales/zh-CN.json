@@ -126,7 +126,9 @@
       "addSuccess": "账号添加成功。",
       "preparingAssets": "正在准备签名组件 {{percent}}%",
       "preparingSigner": "正在初始化签名器…",
-      "signerFailed": "签名组件准备失败：{{error}}"
+      "signerFailed": "签名组件准备失败：{{error}}",
+      "signerFirstRun": "首次使用需准备签名组件（约 14 MB），仅此一次。",
+      "signerRetry": "重试"
     },
     "detail": {
       "title": "账号详情",

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, beforeEach } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import SapStatus from "../../src/components/common/SapStatus";
 import { useSapStore } from "../../src/store/sap";
 import i18n from "../../src/i18n";
@@ -18,41 +18,54 @@ describe("SapStatus", () => {
     });
   });
 
-  it("renders nothing when idle or ready", () => {
+  it("keeps its reserved line empty when idle or ready", () => {
     const { container, rerender } = render(<SapStatus />);
-    expect(container).toBeEmptyDOMElement();
+    // The slot is always in the layout — that is what keeps the buttons above
+    // it from moving when a message comes and goes.
+    expect(container.firstElementChild?.className).toContain("min-h-4");
+    expect(container.textContent).toBe("");
 
     act(() => useSapStore.setState({ stage: "ready" }));
     rerender(<SapStatus />);
-    expect(container).toBeEmptyDOMElement();
+    expect(container.textContent).toBe("");
   });
 
-  it("shows download progress while the assets load", () => {
+  it("explains the first-run download while the assets load", () => {
     useSapStore.setState({ stage: "assets", percent: 42 });
     render(<SapStatus />);
-    expect(screen.getByText(/正在准备签名组件 42%/)).toBeInTheDocument();
-  });
 
-  it("shows the setup note while the signer initializes", () => {
-    useSapStore.setState({ stage: "setup" });
-    render(<SapStatus />);
-    expect(screen.getByText(/正在初始化签名器/)).toBeInTheDocument();
-  });
-
-  it("positions the line absolutely so it never displaces the layout", () => {
-    useSapStore.setState({ stage: "setup" });
-    render(<SapStatus />);
-    expect(screen.getByText(/正在初始化签名器/).className).toContain(
-      "absolute",
+    // The percentage rides on the submit button; this line explains the wait.
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /首次使用需准备签名组件/,
     );
   });
 
-  it("shows a truncated error line with the full text in the title", () => {
+  it("stays quiet while the signer initializes, which the button reports", () => {
+    useSapStore.setState({ stage: "setup" });
+    const { container } = render(<SapStatus />);
+
+    expect(container.textContent).toBe("");
+  });
+
+  it("shows the whole error and offers a retry", () => {
+    useSapStore.setState({ stage: "error", error: "boom" });
+    const onRetry = vi.fn();
+    render(<SapStatus onRetry={onRetry} />);
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(/签名组件准备失败/);
+    expect(alert).toHaveTextContent(/boom/);
+    // The actionable part must not be cut off by a truncation.
+    expect(alert.querySelector("span")?.className).not.toContain("truncate");
+
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits the retry when the caller has nothing to retry with", () => {
     useSapStore.setState({ stage: "error", error: "boom" });
     render(<SapStatus />);
-    const line = screen.getByText(/签名组件准备失败/);
-    expect(line).toBeInTheDocument();
-    expect(line.getAttribute("title")).toContain("boom");
-    expect(line.className).toContain("truncate");
+
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });

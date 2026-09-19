@@ -2,39 +2,52 @@ import { useTranslation } from "react-i18next";
 import { useSapStore } from "../../store/sap";
 
 /**
- * What the SAP signer is doing, for screens with a button that will wait on
- * it. The line is absolutely positioned so its appearance never displaces the
- * layout: it floats in the gap between the page title and the card below
- * (the mounted form is the positioned ancestor), sitting clear of the card's
- * top edge. Renders nothing when idle or ready.
+ * What the SAP signer is doing, for the form that waits on it. It sits in the
+ * submit area — where the eye already is when the button goes busy — and the
+ * slot keeps a single line's height at all times, so a message appearing or
+ * clearing never moves the buttons above it.
+ *
+ * Idle and ready say nothing. While the assets download it explains the one
+ * thing that costs time and cannot be seen (the first run fetches them); the
+ * percentage itself rides on the submit button's label. A failure keeps its
+ * whole message — it is the actionable part of the screen — and offers a
+ * retry, since the toast that announced it is already gone.
  */
-export default function SapStatus() {
+export default function SapStatus({ onRetry }: { onRetry?: () => void }) {
   const { t } = useTranslation();
   const stage = useSapStore((state) => state.stage);
-  const percent = useSapStore((state) => state.percent);
   const error = useSapStore((state) => state.error);
 
-  if (stage === "idle" || stage === "ready") {
-    return null;
-  }
-
-  if (stage === "error") {
-    const message = t("accounts.addForm.signerFailed", { error: error ?? "" });
-    return (
-      <span
-        title={message}
-        className="absolute -top-6 left-0 max-w-full truncate text-sm text-red-600 dark:text-red-400"
-      >
-        {message}
-      </span>
-    );
-  }
-
   return (
-    <span className="absolute -top-6 left-0 max-w-full truncate text-sm text-gray-600 dark:text-gray-400">
-      {stage === "assets"
-        ? t("accounts.addForm.preparingAssets", { percent: percent ?? 0 })
-        : t("accounts.addForm.preparingSigner")}
-    </span>
+    <div className="min-h-4 text-xs">
+      {stage === "assets" && (
+        <p
+          role="status"
+          aria-live="polite"
+          className="text-gray-500 dark:text-gray-400"
+        >
+          {t("accounts.addForm.signerFirstRun")}
+        </p>
+      )}
+      {stage === "error" && (
+        <p
+          role="alert"
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 text-red-600 dark:text-red-400"
+        >
+          <span className="min-w-0 [overflow-wrap:anywhere]">
+            {t("accounts.addForm.signerFailed", { error: error ?? "" })}
+          </span>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="shrink-0 rounded-full bg-red-50 px-2.5 py-0.5 font-semibold text-red-700 transition-colors hover:bg-red-100 dark:bg-red-950/60 dark:text-red-300 dark:hover:bg-red-950"
+            >
+              {t("accounts.addForm.signerRetry")}
+            </button>
+          )}
+        </p>
+      )}
+    </div>
   );
 }

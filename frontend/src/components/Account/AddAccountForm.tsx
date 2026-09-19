@@ -6,6 +6,7 @@ import Spinner from "../common/Spinner";
 import SapStatus from "../common/SapStatus";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useToastStore } from "../../store/toast";
+import { useSapStore } from "../../store/sap";
 import { authenticate, AuthenticationError } from "../../apple/authenticate";
 import { getErrorMessage } from "../../utils/error";
 import { generateDeviceId } from "../../apple/config";
@@ -15,6 +16,8 @@ export default function AddAccountForm() {
   const { addAccount } = useAccounts();
   const { t } = useTranslation();
   const addToast = useToastStore((s) => s.addToast);
+  const sapStage = useSapStore((state) => state.stage);
+  const sapPercent = useSapStore((state) => state.percent);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,8 +28,31 @@ export default function AddAccountForm() {
   const inputClassName =
     "block min-h-11 w-full min-w-0 max-w-full rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white";
 
+  /**
+   * What the submit button says while it waits: the signer's own stage first —
+   * the first run downloads its assets before anything can be signed — then
+   * the ordinary busy label.
+   */
+  function submitLabel(): string {
+    if (loading && sapStage === "assets") {
+      return t("accounts.addForm.preparingAssets", {
+        percent: sapPercent ?? 0,
+      });
+    }
+    if (loading && sapStage === "setup") {
+      return t("accounts.addForm.preparingSigner");
+    }
+    return needsCode
+      ? t("accounts.addForm.verify")
+      : t("accounts.addForm.signIn");
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    await submitAccount();
+  }
+
+  async function submitAccount() {
     setLoading(true);
 
     try {
@@ -61,8 +87,7 @@ export default function AddAccountForm() {
   return (
     <PageContainer title={t("accounts.addForm.title")}>
       <div className="max-w-2xl">
-        <form onSubmit={handleSubmit} className="relative space-y-6">
-          <SapStatus />
+        <form onSubmit={handleSubmit} className="space-y-6">
           <section className="space-y-5 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-6">
             <div>
               <label
@@ -160,25 +185,26 @@ export default function AddAccountForm() {
             )}
           </section>
 
-          <div className="grid grid-cols-1 gap-3 sm:flex sm:flex-wrap sm:items-center">
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loading && <Spinner />}
-              {needsCode
-                ? t("accounts.addForm.verify")
-                : t("accounts.addForm.signIn")}
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate("/accounts")}
-              disabled={loading}
-              className="min-h-11 rounded-full bg-gray-200 px-6 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-300 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-            >
-              {t("accounts.addForm.cancel")}
-            </button>
+          <div className="space-y-2">
+            <div className="grid grid-cols-1 gap-3 sm:flex sm:flex-wrap sm:items-center">
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loading && <Spinner />}
+                {submitLabel()}
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate("/accounts")}
+                disabled={loading}
+                className="min-h-11 rounded-full bg-gray-200 px-6 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-300 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                {t("accounts.addForm.cancel")}
+              </button>
+            </div>
+            <SapStatus onRetry={submitAccount} />
           </div>
         </form>
       </div>

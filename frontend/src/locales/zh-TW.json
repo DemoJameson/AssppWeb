@@ -126,7 +126,9 @@
       "addSuccess": "帳號新增成功。",
       "preparingAssets": "正在準備簽署元件 {{percent}}%",
       "preparingSigner": "正在初始化簽署器…",
-      "signerFailed": "簽署元件準備失敗：{{error}}"
+      "signerFailed": "簽署元件準備失敗：{{error}}",
+      "signerFirstRun": "首次使用需準備簽名元件（約 14 MB），僅此一次。",
+      "signerRetry": "重試"
     },
     "detail": {
       "title": "帳號詳情",
