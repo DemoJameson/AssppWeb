@@ -447,4 +447,75 @@ describe("useVersionMetadataMap", () => {
     });
     await expect(run).resolves.toBeUndefined();
   });
+
+  it("retries a version without a package date only when forced", async () => {
+    vi.mocked(getDownloadInfo).mockResolvedValue({
+      output: {
+        downloadURL: "https://iosapps.example.com/app.ipa",
+        sinfs: [],
+        bundleShortVersionString: "1.3.18",
+        bundleVersion: "1318",
+        bundleID: "com.example.utility",
+      },
+      updatedCookies: [],
+    });
+    vi.mocked(fetchPackageVersionMetadata).mockResolvedValue({
+      displayVersion: "1.3.18",
+      releaseDate: "2026-07-11T15:06:44.000Z",
+      source: "package",
+    });
+    // What the exchange left behind: a number, and a date it cannot vouch for.
+    useVersionMetadataStore.setState({
+      entries: {
+        "888154622": {
+          displayVersion: "1.3.18",
+          releaseDate: "2024-10-04T07:00:00Z",
+          source: "client",
+        },
+      },
+    });
+
+    const { result } = renderHook(() => useVersionMetadataMap());
+
+    // The automatic pass leaves an answered version alone…
+    act(() => {
+      result.current.prefetchMissing(account, app, ["888154622"]);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(getDownloadInfo).not.toHaveBeenCalled();
+
+    // …while the manual button asks again for the date the row cannot show.
+    await act(async () => {
+      await result.current.prefetchMissing(account, app, ["888154622"], {
+        force: true,
+      });
+    });
+    expect(getDownloadInfo).toHaveBeenCalledTimes(1);
+    expect(result.current.versionMeta["888154622"].releaseDate).toBe(
+      "2026-07-11T15:06:44.000Z",
+    );
+    expect(result.current.versionMeta["888154622"].source).toBe("package");
+  });
+
+  it("does not retry a version whose date came from its package", async () => {
+    useVersionMetadataStore.setState({
+      entries: {
+        "700": {
+          displayVersion: "1.0.0",
+          releaseDate: "2026-01-01T00:00:00Z",
+          source: "package",
+        },
+      },
+    });
+
+    const { result } = renderHook(() => useVersionMetadataMap());
+    await act(async () => {
+      await result.current.prefetchMissing(account, app, ["700"], {
+        force: true,
+      });
+    });
+
+    expect(getDownloadInfo).not.toHaveBeenCalled();
+    expect(getVersionMetadata).not.toHaveBeenCalled();
+  });
 });

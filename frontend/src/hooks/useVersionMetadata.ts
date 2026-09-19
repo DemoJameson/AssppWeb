@@ -20,6 +20,25 @@ const PREFETCH_FAST_CONCURRENCY = 5;
 const PREFETCH_SLOW_CONCURRENCY = 1;
 
 /**
+ * Whether the fill should look a version up. A version with no entry at all
+ * always needs one. The manual 查版本号 button passes `force`, and then a
+ * version whose entry is not package-sourced counts too: it shows a number
+ * with no date, and reading its package is the only way to add one — the
+ * exchange's own date is app-level and would be wrong on every row.
+ *
+ * The automatic pass keeps the narrower rule: the shared cache already
+ * answered for those versions, and dressing a page load in a pinned exchange
+ * per row is not worth it.
+ */
+function needsFill(
+  entry: VersionMetadata | undefined,
+  force?: boolean,
+): boolean {
+  if (!entry) return true;
+  return Boolean(force) && entry.source !== "package";
+}
+
+/**
  * Fills one version's metadata the ipatool way. One pinned exchange names the
  * build *and* hands back its download URL, and the backend then reads the
  * build's own release date out of that package: Apple's exchange metadata dates
@@ -176,7 +195,7 @@ export function useVersionMetadataMap() {
 
           const known = useVersionMetadataStore.getState().entries;
           const missing = versions
-            .filter((versionId) => !known[versionId])
+            .filter((versionId) => needsFill(known[versionId], options?.force))
             .slice(0, PREFETCH_MAX_VERSIONS);
           if (missing.length === 0) return;
 
