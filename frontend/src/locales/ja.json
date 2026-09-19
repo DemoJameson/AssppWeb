@@ -247,13 +247,6 @@
       "label": "表示言語",
       "changed": "言語を切り替えました"
     },
-    "defaults": {
-      "title": "デフォルト設定",
-      "country": "デフォルトの国 / 地域",
-      "countryChanged": "デフォルトの国 / 地域を更新しました",
-      "platform": "デフォルトのプラットフォーム",
-      "platformChanged": "デフォルトのプラットフォームを更新しました"
-    },
     "automation": {
       "title": "自動化",
       "autoVersionInfo": "バージョン情報を自動取得",

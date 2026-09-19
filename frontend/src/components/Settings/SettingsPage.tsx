@@ -9,8 +9,6 @@ import { useToastStore } from "../../store/toast";
 import { apiGet } from "../../api/client";
 import { encryptData, decryptData } from "../../utils/crypto";
 import { formatDateTimeISO } from "../../utils/software";
-import { PLATFORMS, PLATFORM_LABELS } from "../../apple/platform";
-import { countryCodeMap } from "../../apple/config";
 import type { Account } from "../../types";
 
 // Where the "Build Commit" row links: this repository's commit browser.
@@ -34,10 +32,6 @@ export default function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { accounts, addAccount, updateAccount } = useAccountsStore();
   const {
-    defaultCountry,
-    setDefaultCountry,
-    defaultPlatform,
-    setDefaultPlatform,
     autoFetchVersionInfo,
     setAutoFetchVersionInfo,
     autoAcquireLicense,
@@ -79,10 +73,6 @@ export default function SettingsPage() {
       // Clipboard unavailable (non-secure context): nothing to do.
     }
   };
-
-  const sortedCountries = Object.keys(countryCodeMap).sort((a, b) =>
-    t(`countries.${a}`, a).localeCompare(t(`countries.${b}`, b)),
-  );
 
   const handleExport = async () => {
     if (exportPassword !== exportConfirmPassword) {
@@ -233,57 +223,6 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        <section className="min-w-0 rounded-lg border border-gray-200 bg-white p-4 sm:p-6 dark:border-gray-800 dark:bg-gray-900">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            {t("settings.defaults.title")}
-          </h2>
-          <div className="space-y-4">
-            <div>
-              <label
-                htmlFor="country"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-              >
-                {t("settings.defaults.country")}
-              </label>
-              <Select
-                id="country"
-                value={defaultCountry}
-                onChange={(value) => {
-                  setDefaultCountry(value);
-                  addToast(t("settings.defaults.countryChanged"), "success");
-                }}
-                options={sortedCountries.map((code) => ({
-                  value: code,
-                  label: `${t(`countries.${code}`, code)} (${code})`,
-                  group: t("regions.label"),
-                }))}
-                className="block min-w-0 max-w-full w-full truncate rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="platform"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-              >
-                {t("settings.defaults.platform")}
-              </label>
-              <Select
-                id="platform"
-                value={defaultPlatform}
-                onChange={(value) => {
-                  setDefaultPlatform(value as typeof defaultPlatform);
-                  addToast(t("settings.defaults.platformChanged"), "success");
-                }}
-                options={PLATFORMS.map((platform) => ({
-                  value: platform,
-                  label: PLATFORM_LABELS[platform],
-                  group: t("downloads.platform.label"),
-                }))}
-                className="block min-w-0 max-w-full w-full truncate rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-              />
-            </div>
-          </div>
-        </section>
 
         <section className="min-w-0 rounded-lg border border-gray-200 bg-white p-4 sm:p-6 dark:border-gray-800 dark:bg-gray-900">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
@@ -406,14 +345,13 @@ export default function SettingsPage() {
               accept=".enc"
               onChange={handleFileSelect}
             />
+            <button
+              onClick={() => setClearModalOpen(true)}
+              className="min-h-11 w-full min-w-0 whitespace-normal break-words rounded-lg border border-red-300 px-3 py-2 text-center text-sm font-medium text-red-600 transition-colors hover:bg-red-50 sm:px-4 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+            >
+              {t("settings.data.button")}
+            </button>
           </div>
-
-          <button
-            onClick={() => setClearModalOpen(true)}
-            className="min-h-11 w-full min-w-0 whitespace-normal break-words rounded-lg border border-red-300 px-4 py-2 text-center text-sm font-medium text-red-600 transition-colors hover:bg-red-50 sm:w-auto dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
-          >
-            {t("settings.data.button")}
-          </button>
         </section>
 
         <section className="min-w-0 rounded-lg border border-gray-200 bg-white p-4 sm:p-6 dark:border-gray-800 dark:bg-gray-900">

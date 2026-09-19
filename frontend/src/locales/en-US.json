@@ -247,13 +247,6 @@
       "label": "Display Language",
       "changed": "Language changed successfully"
     },
-    "defaults": {
-      "title": "Defaults",
-      "country": "Default Country / Region",
-      "countryChanged": "Default country/region updated",
-      "platform": "Default Platform",
-      "platformChanged": "Default platform updated"
-    },
     "automation": {
       "title": "Automation",
       "autoVersionInfo": "Fetch version info automatically",

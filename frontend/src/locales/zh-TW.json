@@ -247,13 +247,6 @@
       "label": "顯示語言",
       "changed": "語言切換成功"
     },
-    "defaults": {
-      "title": "預設設定",
-      "country": "預設國家 / 地區",
-      "countryChanged": "預設國家 / 地區已更新",
-      "platform": "預設平台",
-      "platformChanged": "預設平台已更新"
-    },
     "automation": {
       "title": "自動化",
       "autoVersionInfo": "自動查詢版本資訊",

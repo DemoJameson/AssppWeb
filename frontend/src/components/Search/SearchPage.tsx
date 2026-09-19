@@ -11,7 +11,6 @@ import { useSearch } from "../../hooks/useSearch";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
-import { useSettingsStore } from "../../store/settings";
 import { useToastStore } from "../../store/toast";
 import {
   ensureVersionList,
@@ -47,7 +46,6 @@ function sameProbeState(a: ProbeState | undefined, b: ProbeState): boolean {
 
 export default function SearchPage() {
   const { t } = useTranslation();
-  const { defaultCountry, defaultPlatform } = useSettingsStore();
   const { listVersionsWithLicense } = useDownloadAction();
   const [versionId, setVersionId] = useState("");
   const versionIdRef = useRef("");
@@ -72,7 +70,12 @@ export default function SearchPage() {
   // Subscribed rather than read once: the newest version's label arrives after
   // the probe, and the cards re-render with it.
   const versionLists = useVersionListsStore((s) => s.lists);
-  const initialCountry = firstAccountCountry(accounts) ?? defaultCountry;
+  // Where the page opens. A region and platform the user picked before come
+  // back from the store; with nothing stored the region is one they can act
+  // in — the first account's storefront — and China when they have no account
+  // at all. The platform starts on iOS, Apple's default everywhere.
+  const fallbackCountry = firstAccountCountry(accounts) ?? "CN";
+  const fallbackPlatform = "ios" as const;
   const addToast = useToastStore((s) => s.addToast);
 
   const {
@@ -95,12 +98,12 @@ export default function SearchPage() {
   }, [error, addToast]);
 
   useEffect(() => {
-    if (!country && initialCountry) setSearchParam({ country: initialCountry });
-    if (!platform && defaultPlatform) setSearchParam({ platform: defaultPlatform });
-  }, [country, initialCountry, platform, defaultPlatform, setSearchParam]);
+    if (!country) setSearchParam({ country: fallbackCountry });
+    if (!platform) setSearchParam({ platform: fallbackPlatform });
+  }, [country, fallbackCountry, platform, fallbackPlatform, setSearchParam]);
 
-  const activeCountry = country || initialCountry;
-  const activePlatform = platform || defaultPlatform;
+  const activeCountry = country || fallbackCountry;
+  const activePlatform = platform || fallbackPlatform;
   /**
    * The dimension the current probe states were asked in. A region switch
    * makes them stale — the same id may be fetchable from one storefront and

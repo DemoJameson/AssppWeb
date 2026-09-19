@@ -247,13 +247,6 @@
       "label": "표시 언어",
       "changed": "언어가 성공적으로 변경되었습니다"
     },
-    "defaults": {
-      "title": "기본값",
-      "country": "기본 국가 / 지역",
-      "countryChanged": "기본 국가 / 지역이 업데이트되었습니다",
-      "platform": "기본 플랫폼",
-      "platformChanged": "기본 플랫폼이 업데이트되었습니다"
-    },
     "automation": {
       "title": "자동화",
       "autoVersionInfo": "버전 정보 자동 조회",

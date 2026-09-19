@@ -247,13 +247,6 @@
       "label": "显示语言",
       "changed": "语言切换成功"
     },
-    "defaults": {
-      "title": "默认设置",
-      "country": "默认国家 / 地区",
-      "countryChanged": "默认国家 / 地区已更新",
-      "platform": "默认平台",
-      "platformChanged": "默认平台已更新"
-    },
     "automation": {
       "title": "自动化",
       "autoVersionInfo": "自动查询版本信息",

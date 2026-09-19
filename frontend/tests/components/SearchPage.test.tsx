@@ -7,7 +7,6 @@ import { DownloadError, MissingAppError } from '../../src/apple/errors';
 import { getVersionMetadata } from '../../src/apple/versionLookup';
 import { lookupAppById, searchApps } from '../../src/api/search';
 import { useSearch } from '../../src/hooks/useSearch';
-import { useSettingsStore } from '../../src/store/settings';
 import { useToastStore } from '../../src/store/toast';
 import { useVersionListsStore } from '../../src/store/versionLists';
 import { useVersionMetadataStore } from '../../src/store/versionMetadata';
@@ -127,10 +126,6 @@ describe('SearchPage App ID probe', () => {
       attempted: {},
     });
     useToastStore.setState({ toasts: [] });
-    useSettingsStore.setState({
-      defaultCountry: 'US',
-      defaultPlatform: 'ios',
-    });
     useSearch.setState({
       term: bare.name,
       country: 'US',
@@ -140,6 +135,41 @@ describe('SearchPage App ID probe', () => {
       error: null,
       searched: true,
     });
+  });
+
+  it('opens on iOS and a region the account can act in', async () => {
+    useSearch.setState({ country: '', platform: '' });
+    // The account answers from JP, so that is where the page opens.
+    mocks.accounts = [{ ...account, store: '143462' }];
+
+    renderSearchPage();
+
+    await waitFor(() => expect(useSearch.getState().country).toBe('JP'));
+    expect(useSearch.getState().platform).toBe('ios');
+  });
+
+  it('falls back to China when the instance has no account', async () => {
+    useSearch.setState({ country: '', platform: '' });
+    mocks.accounts = [];
+
+    renderSearchPage();
+
+    await waitFor(() => expect(useSearch.getState().country).toBe('CN'));
+    expect(useSearch.getState().platform).toBe('ios');
+  });
+
+  it('keeps the region and platform picked last time', async () => {
+    useSearch.setState({ country: 'GB', platform: 'ipad' });
+
+    renderSearchPage();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // A stored pair is the user's own choice: an account's storefront does
+    // not take it over.
+    expect(useSearch.getState().country).toBe('GB');
+    expect(useSearch.getState().platform).toBe('ipad');
   });
 
   it('does not search when dimensions change before the first search', async () => {
