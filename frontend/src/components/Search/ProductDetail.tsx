@@ -693,8 +693,14 @@ export default function ProductDetail() {
                   type="button"
                   onClick={handlePurchase}
                   disabled={loadingAction !== null}
-                  className="inline-flex min-h-10 w-full min-w-0 items-center justify-center rounded-full bg-blue-100 px-2 py-2 text-center text-xs font-semibold leading-tight text-blue-700 transition-colors hover:bg-blue-200 disabled:opacity-50 dark:bg-blue-950/60 dark:text-blue-400 sm:px-5 sm:text-sm"
+                  className="inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-blue-100 px-2 py-2 text-center text-xs font-semibold leading-tight text-blue-700 transition-colors hover:bg-blue-200 disabled:opacity-50 dark:bg-blue-950/60 dark:text-blue-400 sm:gap-2 sm:px-5 sm:text-sm"
                 >
+                  <span
+                    aria-hidden="true"
+                    className="flex h-4 w-4 shrink-0 items-center justify-center"
+                  >
+                    <LicenseIcon />
+                  </span>
                   {loadingAction === "purchase"
                     ? t("search.product.processing")
                     : t("search.product.getLicense")}
@@ -724,8 +730,14 @@ export default function ProductDetail() {
                   type="button"
                   onClick={handleSelectVersions}
                   disabled={loadingAction !== null || !account}
-                  className="inline-flex min-h-10 w-full min-w-0 items-center justify-center rounded-full bg-orange-100 px-2 py-2 text-center text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:px-5"
+                  className="inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-orange-100 px-2 py-2 text-center text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:gap-2 sm:px-5"
                 >
+                  <span
+                    aria-hidden="true"
+                    className="flex h-4 w-4 shrink-0 items-center justify-center"
+                  >
+                    <VersionsIcon />
+                  </span>
                   <StableLabel
                     idle={t("search.product.selectVersion")}
                     busy={t("search.product.processing")}
@@ -742,8 +754,14 @@ export default function ProductDetail() {
                     disabled={
                       loadingAction !== null || !account || checkingVersions
                     }
-                    className="inline-flex min-h-10 w-full min-w-0 items-center justify-center rounded-full bg-orange-100 px-2 py-2 text-center text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:px-5"
+                    className="inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-orange-100 px-2 py-2 text-center text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:gap-2 sm:px-5"
                   >
+                    <span
+                      aria-hidden="true"
+                      className="flex h-4 w-4 shrink-0 items-center justify-center"
+                    >
+                      <LookupIcon />
+                    </span>
                     <StableLabel
                       idle={t("search.product.checkVersionNumbers")}
                       busy={t("search.versions.fetching")}
@@ -869,6 +887,66 @@ function DownloadIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
         d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"
+      />
+    </svg>
+  );
+}
+
+/** The entitlement behind this account's download: a key. */
+function LicenseIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"
+      />
+    </svg>
+  );
+}
+
+/** The build list this picker opens: stacked layers. */
+function VersionsIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+      />
+    </svg>
+  );
+}
+
+/** Looking a version number up: a magnifier. */
+function LookupIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35"
       />
     </svg>
   );
