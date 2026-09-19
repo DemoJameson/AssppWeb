@@ -505,9 +505,9 @@
       "deleteSuccess": "削除成功",
       "downloadLimit": "サイズ制限超過"
     },
-    "msg": "{{appName}}\n{{userName}} / {{appleId}} - {{country}}",
-    "msgShare": "{{appName}}\n{{userName}} / {{appleId}} - {{country}}\n\nAirDropを使用して友達と共有できます。",
-    "msgFailed": "{{appName}}\n{{userName}} / {{appleId}} - {{country}}\n\nエラー: {{error}}",
+    "msg": "{{appName}}\n{{account}}",
+    "msgShare": "{{appName}}\n{{account}}\n\nAirDropを使用して友達と共有できます。",
+    "msgFailed": "{{appName}}\n{{account}}\n\nエラー: {{error}}",
     "downloadLimit": {
       "message": "{{appName}}\nアプリのサイズ {{size}} MB がサーバーの制限 {{limit}} MB を超えています。\n管理者に連絡するか、ご自身でサーバーを展開して再試行してください。"
     }

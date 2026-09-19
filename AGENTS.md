@@ -403,8 +403,8 @@ record with no build for the platform in view, that fetch *is* the probe —
 before the detail view opens, so 选择版本 can start from the cache.
 
 Product detail carries the version picking now that the separate version
-history page is retired (its route and lazy import are gone; the component
-file is kept on disk, unreferenced, per the user's call): 「选择版本」 opens an
+history page is retired (its route, lazy import and component file are all
+gone): 「选择版本」 opens an
 inline picker — fetched with the license-aware flow and cached per
 app+platform — and 「下载」 downloads the picked version; delisted apps fetch
 their list in the background on open so the picker starts from the cache.

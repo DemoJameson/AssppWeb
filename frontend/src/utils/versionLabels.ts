@@ -33,8 +33,8 @@ export function versionOptionLabel(
 }
 
 /**
- * Row text for version browsing (PackageDetail's update picker, VersionHistory):
- * the same shape as {@link versionOptionLabel}, so the app's two version menus
+ * Row text for version browsing (PackageDetail's update picker):
+ * the same shape as {@link versionOptionLabel}, so the version menus
  * read alike. Uncached rows show the raw id; a lookup in flight appends the
  * fetching marker.
  */

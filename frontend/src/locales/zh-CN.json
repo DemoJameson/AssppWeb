@@ -505,9 +505,9 @@
       "deleteSuccess": "删除成功",
       "downloadLimit": "文件大小超限"
     },
-    "msg": "{{appName}}\n{{userName}} / {{appleId}} - {{country}}",
-    "msgShare": "{{appName}}\n{{userName}} / {{appleId}} - {{country}}\n\n您可以使用 Airdrop 分享给您的朋友。",
-    "msgFailed": "{{appName}}\n{{userName}} / {{appleId}} - {{country}}\n\n错误: {{error}}",
+    "msg": "{{appName}}\n{{account}}",
+    "msgShare": "{{appName}}\n{{account}}\n\n您可以使用 Airdrop 分享给您的朋友。",
+    "msgFailed": "{{appName}}\n{{account}}\n\n错误: {{error}}",
     "downloadLimit": {
       "message": "{{appName}}\n应用大小 {{size}} MB 超过服务器限制 {{limit}} MB。\n请联系管理员或自行部署后再尝试。"
     }

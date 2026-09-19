@@ -505,9 +505,9 @@
       "deleteSuccess": "삭제 성공",
       "downloadLimit": "크기 제한 초과"
     },
-    "msg": "{{appName}}\n{{userName}} / {{appleId}} - {{country}}",
-    "msgShare": "{{appName}}\n{{userName}} / {{appleId}} - {{country}}\n\nAirDrop을 사용하여 친구와 공유할 수 있습니다.",
-    "msgFailed": "{{appName}}\n{{userName}} / {{appleId}} - {{country}}\n\n오류: {{error}}",
+    "msg": "{{appName}}\n{{account}}",
+    "msgShare": "{{appName}}\n{{account}}\n\nAirDrop을 사용하여 친구와 공유할 수 있습니다.",
+    "msgFailed": "{{appName}}\n{{account}}\n\n오류: {{error}}",
     "downloadLimit": {
       "message": "{{appName}}\n앱 크기 {{size}} MB가 서버 제한 {{limit}} MB를 초과했습니다.\n관리자에게 문의하거나 자체 인스턴스를 배포하여 다시 시도하십시오."
     }

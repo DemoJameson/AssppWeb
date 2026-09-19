@@ -505,9 +505,9 @@
       "deleteSuccess": "Успешное удаление",
       "downloadLimit": "Превышен лимит размера"
     },
-    "msg": "{{appName}}\n{{userName}} / {{appleId}} - {{country}}",
-    "msgShare": "{{appName}}\n{{userName}} / {{appleId}} - {{country}}\n\nВы можете использовать AirDrop, чтобы поделиться ею с друзьями.",
-    "msgFailed": "{{appName}}\n{{userName}} / {{appleId}} - {{country}}\n\nОшибка: {{error}}",
+    "msg": "{{appName}}\n{{account}}",
+    "msgShare": "{{appName}}\n{{account}}\n\nВы можете использовать AirDrop, чтобы поделиться ею с друзьями.",
+    "msgFailed": "{{appName}}\n{{account}}\n\nОшибка: {{error}}",
     "downloadLimit": {
       "message": "{{appName}}\nРазмер приложения {{size}} МБ превышает лимит сервера {{limit}} МБ.\nПожалуйста, свяжитесь с администратором или разверните свой собственный сервер."
     }
