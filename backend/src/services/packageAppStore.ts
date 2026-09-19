@@ -161,7 +161,7 @@ export function findPackageAppByAppId(
 export function searchPackageAppsByName(term: string): PackageAppRecord[] {
   initPackageAppStore();
   const needle = term.trim().toLowerCase();
-  if (!needle) return [];
+  if (needle.length < 2) return [];
 
   const matches: PackageAppRecord[] = [];
   for (const record of apps.values()) {
