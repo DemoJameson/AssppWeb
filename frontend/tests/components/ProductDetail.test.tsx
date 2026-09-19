@@ -996,9 +996,10 @@ describe('ProductDetail download action', () => {
       screen.queryByRole('button', { name: 'search.product.useAccountRegion' }),
     ).toBeNull();
 
-    // The JP account is still on offer — under its own group, as a move.
+    // The JP account is still on offer as a move — its label carries its
+    // country, so no separate heading marks it.
     fireEvent.click(accountSelect);
-    expect(screen.getByText('search.product.otherRegionAccounts')).toBeTruthy();
+    expect(screen.queryByText('search.product.otherRegionAccounts')).toBeNull();
     fireEvent.click(screen.getByRole('option', { name: /jp@example\.test/ }));
 
     await waitFor(() =>
@@ -1007,7 +1008,7 @@ describe('ProductDetail download action', () => {
     expect(screen.queryByText('search.product.noRegionAccount')).toBeNull();
   });
 
-  it('keeps the region account apart from the other regions', async () => {
+  it('lists the other regions without a separate heading', async () => {
     mocks.accounts = [
       account,
       { ...account, email: 'jp@example.test', store: '143462', firstName: 'Jp' },
@@ -1022,8 +1023,10 @@ describe('ProductDetail download action', () => {
     );
 
     fireEvent.click(accountSelect);
+    // One 账号 heading for the whole list; the labels carry each country.
     expect(screen.getByText('search.product.account')).toBeTruthy();
-    expect(screen.getByText('search.product.otherRegionAccounts')).toBeTruthy();
+    expect(screen.queryByText('search.product.otherRegionAccounts')).toBeNull();
+    expect(screen.getAllByRole('option')).toHaveLength(2);
   });
 
   it('offers the single account as the way out of a region it does not serve', async () => {

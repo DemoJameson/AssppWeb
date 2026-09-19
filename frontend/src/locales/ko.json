@@ -70,7 +70,6 @@
       "addAccountPrompt": "하여 앱을 다운로드하거나 구매하세요.",
       "noRegionAccount": "{{country}} 지역에 계정이 없어 이 App을 검증하거나 다운로드할 수 없습니다.",
       "accountNoneInRegion": "이 지역에 사용할 수 있는 계정이 없습니다",
-      "otherRegionAccounts": "다른 지역의 계정",
       "addAccountLink": "계정 추가",
       "account": "계정",
       "getLicense": "라이선스 획득",

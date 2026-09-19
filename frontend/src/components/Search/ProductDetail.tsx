@@ -654,7 +654,7 @@ export default function ProductDetail() {
                   ...otherRegionAccounts.map((a) => ({
                     value: a.email,
                     label: accountSelectLabel(a, t),
-                    group: t("search.product.otherRegionAccounts"),
+                    group: t("search.product.account"),
                   })),
                 ]}
                 ariaLabel={t("search.product.account")}

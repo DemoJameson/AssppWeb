@@ -70,7 +70,6 @@
       "addAccountPrompt": "чтобы загрузить или купить приложение.",
       "noRegionAccount": "Для региона {{country}} нет аккаунта — этот App нельзя проверить или скачать.",
       "accountNoneInRegion": "Нет аккаунта для этого региона",
-      "otherRegionAccounts": "Аккаунты других регионов",
       "addAccountLink": "Добавьте аккаунт",
       "account": "Аккаунт",
       "getLicense": "Получить лицензию",

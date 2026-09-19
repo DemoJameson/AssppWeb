@@ -70,7 +70,6 @@
       "addAccountPrompt": "to download or purchase apps.",
       "noRegionAccount": "No account for the {{country}} region — this app cannot be verified or downloaded here.",
       "accountNoneInRegion": "No account for this region",
-      "otherRegionAccounts": "Accounts in other regions",
       "addAccountLink": "Add an account",
       "account": "Account",
       "getLicense": "Get License",

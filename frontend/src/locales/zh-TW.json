@@ -70,7 +70,6 @@
       "addAccountPrompt": "以下載或購買應用程式。",
       "noRegionAccount": "{{country}}地區暫無帳號，無法驗證或下載此 App。",
       "accountNoneInRegion": "該地區無可用帳號",
-      "otherRegionAccounts": "其他地區的帳號",
       "addAccountLink": "新增帳號",
       "account": "帳號",
       "getLicense": "獲取授權",
