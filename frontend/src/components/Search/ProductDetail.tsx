@@ -697,7 +697,7 @@ export default function ProductDetail() {
                 >
                   <span
                     aria-hidden="true"
-                    className="flex h-4 w-4 shrink-0 items-center justify-center"
+                    className="hidden h-4 w-4 shrink-0 items-center justify-center sm:flex"
                   >
                     <LicenseIcon />
                   </span>
@@ -719,7 +719,7 @@ export default function ProductDetail() {
               >
                 <span
                   aria-hidden="true"
-                  className="flex h-4 w-4 shrink-0 items-center justify-center"
+                  className="hidden h-4 w-4 shrink-0 items-center justify-center sm:flex"
                 >
                   {isDownloading ? <Spinner /> : <DownloadIcon />}
                 </span>
@@ -730,11 +730,11 @@ export default function ProductDetail() {
                   type="button"
                   onClick={handleSelectVersions}
                   disabled={loadingAction !== null || !account}
-                  className="inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-orange-100 px-2 py-2 text-center text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:gap-2 sm:px-5"
+                  className="inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-orange-100 px-2 py-2 text-center text-xs text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:gap-2 sm:px-5 sm:text-sm"
                 >
                   <span
                     aria-hidden="true"
-                    className="flex h-4 w-4 shrink-0 items-center justify-center"
+                    className="hidden h-4 w-4 shrink-0 items-center justify-center sm:flex"
                   >
                     <VersionsIcon />
                   </span>
@@ -754,11 +754,11 @@ export default function ProductDetail() {
                     disabled={
                       loadingAction !== null || !account || checkingVersions
                     }
-                    className="inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-orange-100 px-2 py-2 text-center text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:gap-2 sm:px-5"
+                    className="inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-orange-100 px-2 py-2 text-center text-xs text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:gap-2 sm:px-5 sm:text-sm"
                   >
                     <span
                       aria-hidden="true"
-                      className="flex h-4 w-4 shrink-0 items-center justify-center"
+                      className="hidden h-4 w-4 shrink-0 items-center justify-center sm:flex"
                     >
                       <LookupIcon />
                     </span>
