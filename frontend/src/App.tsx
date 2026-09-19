@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import MobileHeader from './components/Layout/MobileHeader';
 import MobileNav from './components/Layout/MobileNav';
 import Sidebar from './components/Layout/Sidebar';
@@ -17,12 +17,7 @@ const AddAccountForm = lazy(
 const AccountDetail = lazy(() => import('./components/Account/AccountDetail'));
 const SearchPage = lazy(() => import('./components/Search/SearchPage'));
 const ProductDetail = lazy(() => import('./components/Search/ProductDetail'));
-const VersionHistory = lazy(() => import('./components/Search/VersionHistory'));
 const DownloadList = lazy(() => import('./components/Download/DownloadList'));
-const AddDownload = lazy(() => import('./components/Download/AddDownload'));
-const DownloadById = lazy(
-  () => import('./components/Download/DownloadById'),
-);
 const PackageDetail = lazy(() => import('./components/Download/PackageDetail'));
 const SettingsPage = lazy(() => import('./components/Settings/SettingsPage'));
 
@@ -86,13 +81,16 @@ export default function App() {
               <Route path="/accounts/:email" element={<AccountDetail />} />
               <Route path="/search" element={<SearchPage />} />
               <Route path="/search/:appId" element={<ProductDetail />} />
-              <Route
-                path="/search/:appId/versions"
-                element={<VersionHistory />}
-              />
               <Route path="/downloads" element={<DownloadList />} />
-              <Route path="/downloads/add" element={<AddDownload />} />
-              <Route path="/downloads/by-id" element={<DownloadById />} />
+              {/* The new-download page is merged into the search page. */}
+              <Route
+                path="/downloads/add"
+                element={<Navigate to="/search" replace />}
+              />
+              <Route
+                path="/downloads/by-id"
+                element={<Navigate to="/search" replace />}
+              />
               <Route path="/downloads/:id" element={<PackageDetail />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>

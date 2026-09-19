@@ -31,8 +31,10 @@ export async function recordedVersionIdFor(
  * Resolves a platform version id by running `lookup` (the live Apple
  * catalogue), falling back to the recorded pin when the lookup yields nothing
  * or fails — which is exactly the delisted-app case, where the catalogue has
- * no answer left. When neither source provides one, the lookup's own failure
- * (if any) is rethrown so callers keep their previous error behaviour.
+ * no answer left. When neither source provides one, the result is undefined:
+ * the lookup's failure is logged, never surfaced raw, so callers raise their
+ * own clean "no version information" message instead of leaking a 404
+ * storefront page or a parse hiccup into the UI.
  */
 export async function withRecordedFallback(
   lookup: () => Promise<string | undefined>,
@@ -50,6 +52,11 @@ export async function withRecordedFallback(
   const recorded = await recordedVersionIdFor(appId, platform);
   if (recorded) return recorded;
 
-  if (lookupError) throw lookupError;
+  if (lookupError) {
+    console.warn(
+      `[versions] lookup failed and no pin was recorded for app ${appId} (${platform ?? "ios"})`,
+      lookupError,
+    );
+  }
   return undefined;
 }

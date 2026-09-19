@@ -7,6 +7,7 @@ import AppIcon from "../common/AppIcon";
 import PlatformSelect from '../common/PlatformSelect';
 import Select from '../common/Select';
 import Spinner from '../common/Spinner';
+import StableLabel from '../common/StableLabel';
 import {
   isProductPreviewEnabled,
   previewProductAccounts,
@@ -15,8 +16,27 @@ import {
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useSelectedAccount } from "../../hooks/useSelectedAccount";
+import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
 import { useToastStore } from '../../store/toast';
 import { lookupAppById } from "../../api/search";
+import { useSettingsStore } from "../../store/settings";
+import {
+  ensureVersionList,
+  getCachedVersionList,
+  rememberVersionList,
+  useVersionListsStore,
+  versionListKey,
+} from "../../store/versionLists";
+import { getErrorMessage } from "../../utils/error";
+import {
+  bareSoftwareById,
+  displayPrice,
+  formatDateISO,
+  needsFetchVerification,
+  needsVersionExchange,
+} from "../../utils/software";
+import { appPresenceFromProbeError } from "../../apple/errors";
+import { versionOptionLabel } from "../../utils/versionLabels";
 import { parsePlatform, PLATFORM_LABELS } from "../../apple/platform";
 import { accountSelectLabel, accountStoreCountry } from "../../utils/account";
 import { formatBytes } from "../../utils/format";
@@ -33,6 +53,7 @@ export default function ProductDetail() {
     acquireLicense,
     toastDownloadError,
     toastLicenseError,
+    listVersionsWithLicense,
   } = useDownloadAction();
 
   const previewEnabled = isProductPreviewEnabled(location.search);
@@ -40,9 +61,16 @@ export default function ProductDetail() {
   const routeState = location.state as {
     app?: Software;
     country?: string;
+    versionId?: string;
   } | null;
   const stateApp = previewEnabled ? previewProductApp : routeState?.app;
   const stateCountry = previewEnabled ? 'US' : routeState?.country;
+  const routeVersionId =
+    !previewEnabled &&
+    typeof routeState?.versionId === 'string' &&
+    /^\d+$/.test(routeState.versionId)
+      ? routeState.versionId
+      : '';
   const [searchParams] = useSearchParams();
   // The app in the router state carries its platform; a direct visit falls
   // back to the query the search results attached. The selector below can
@@ -55,23 +83,97 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(!stateApp);
   const [reloadToken, setReloadToken] = useState(0);
   const [loadingAction, setLoadingAction] = useState<
-    "purchase" | "download" | null
+    "purchase" | "download" | "versions" | null
   >(null);
+  const [versions, setVersions] = useState<string[]>([]);
+  const [selectedVersion, setSelectedVersion] = useState("");
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [checkingVersions, setCheckingVersions] = useState(false);
+  const autoFetchVersionInfo = useSettingsStore((s) => s.autoFetchVersionInfo);
+  const {
+    versionMeta,
+    pendingMeta,
+    prefetchMissing,
+    fillVersionsSilently,
+  } = useVersionMetadataMap();
 
   const { selectedAccount, selectAccount } = useSelectedAccount(productAccounts);
 
   const account = productAccounts.find((a) => a.email === selectedAccount);
   const isDownloading = loadingAction === 'download';
 
+  // The version-list cache is keyed by app+platform+region: a different
+  // storefront answers differently, so its lists must never be reused here.
+  // The region is this page's own dimension (it follows the selected account's
+  // storefront), and the search page's prefetch wrote under the same region it
+  // navigated in with.
+
+  // The newest version the fetched list knows — it beats the recorded build,
+  // which can be a stale download (a delisted app shows its true latest).
+  const cachedVersions = useVersionListsStore((s) =>
+    app ? s.lists[versionListKey(app.id, app.platform, country)] : undefined,
+  );
+  const latestListVersionId = cachedVersions?.[0] ?? "";
+  const displayVersion =
+    (latestListVersionId && versionMeta[latestListVersionId]?.displayVersion) ||
+    app?.version ||
+    "";
+
+  // The external id printed next to the display version: the build the list
+  // named when the label came from the exchange, else the one the record or
+  // package carried.
+  const displayVersionId =
+    latestListVersionId &&
+    versionMeta[latestListVersionId]?.displayVersion === displayVersion
+      ? latestListVersionId
+      : (app?.externalVersionId || "");
+
+  // Undefined when nobody priced this app — a delisted or bare record then gets
+  // no chip at all rather than a dash standing in for data.
+  const price = app ? displayPrice(app, t("search.product.free")) : undefined;
+
+  // The picked region needs an account: without one the actions are hidden
+  // and a notice asks for another region's account (the selector above).
+  const noRegionAccount =
+    !previewEnabled &&
+    productAccounts.length > 0 &&
+    !productAccounts.some((a) => accountStoreCountry(a) === country);
+
+  // The account the notice offers: the page's pick, or simply the first one.
+  // With a single account this is the only way "onto" this page's actions —
+  // the picker cannot re-fire for an already-selected value.
+  const noticeAccount =
+    productAccounts.find((a) => a.email === selectedAccount) ??
+    productAccounts[0];
+  const noticeCountry = accountStoreCountry(noticeAccount);
+
+  /** Set when the user explicitly moved to an account's storefront. */
+  const explicitMoveRef = useRef<string | null>(null);
+
   /**
    * Reloads the app for the current storefront and platform. The navigation
    * state is used as-is on first render; afterwards any account pick (which
    * moves `country` to that account's storefront) or platform change
-   * refetches, so the page always reflects the selection.
+   * refetches, so the page always reflects the selection — and a selection
+   * the app does not exist in snaps back to the previous one with a notice
+   * instead of dead-ending on the not-found page.
    */
   const lastLookupKeyRef = useRef<string | null>(
     stateApp ? `${appId}|${stateCountry ?? "US"}|${platform}|0` : null,
   );
+
+  // The last selection that actually resolved; the snap-back target. Only the
+  // newest lookup may apply — switches can be fired faster than they settle.
+  const lastGoodRef = useRef<{
+    country: string;
+    platform: Platform;
+    email?: string;
+  } | null>(
+    stateApp
+      ? { country: stateCountry ?? "US", platform, email: undefined }
+      : null,
+  );
+  const lookupSeqRef = useRef(0);
 
   useEffect(() => {
     if (!appId) return;
@@ -79,16 +181,194 @@ export default function ProductDetail() {
     if (lookupKey === lastLookupKeyRef.current) return;
     lastLookupKeyRef.current = lookupKey;
 
+    // The loaded version list belongs to the previous storefront/platform.
+    setVersions([]);
+    setSelectedVersion("");
+    setVersionsOpen(false);
+
     setLoading(true);
+    const seq = ++lookupSeqRef.current;
     lookupAppById(appId, country, platform)
       .then((result) => {
-        setApp(result);
-        setLoading(false);
+        if (seq !== lookupSeqRef.current) return;
+        if (result) {
+          lastGoodRef.current = { country, platform, email: selectedAccount };
+          setApp(result);
+          setLoading(false);
+          return;
+        }
+        const lastGood = lastGoodRef.current;
+        // The notice button is a second, deliberate confirmation to leave the
+        // region: a miss there is the truth to show, not a mistake to undo —
+        // with a single account the snap-back would be an inescapable loop.
+        // A plain dropdown pick keeps the old protection.
+        const forcedMove = explicitMoveRef.current === country;
+        explicitMoveRef.current = null;
+        if (
+          previewEnabled ||
+          forcedMove ||
+          !lastGood ||
+          (lastGood.country === country && lastGood.platform === platform)
+        ) {
+          // Nothing carries the app here, and there is no earlier selection to
+          // fall back to. A numeric App ID may still be real even so — the
+          // version exchange decides that (see the probe below) — so the record
+          // is kept and probed rather than declared missing on the spot.
+          const bare = /^\d+$/.test(appId)
+            ? bareSoftwareById(appId, platform)
+            : null;
+          if (bare) {
+            lastGoodRef.current = { country, platform, email: selectedAccount };
+          }
+          setApp(bare);
+          setLoading(false);
+          return;
+        }
+        // The app is not carried here (region or platform) — say so and snap
+        // back to the last selection that resolved; that restarts this effect.
+        addToast(
+          lastGood.country !== country
+            ? t("search.product.regionUnavailable")
+            : t("search.product.platformUnavailable"),
+          "info",
+        );
+        if (lastGood.country !== country) {
+          setCountry(lastGood.country);
+          const match =
+            productAccounts.find((a) => a.email === lastGood.email) ??
+            productAccounts.find(
+              (a) => accountStoreCountry(a) === lastGood.country,
+            );
+          if (match) selectAccount(match.email);
+        }
+        if (lastGood.platform !== platform) setPlatform(lastGood.platform);
       })
       .catch(() => {
+        if (seq !== lookupSeqRef.current) return;
         setLoading(false);
       });
-  }, [appId, stateApp, country, platform, reloadToken]);
+  }, [
+    appId,
+    stateApp,
+    country,
+    platform,
+    reloadToken,
+    previewEnabled,
+    productAccounts,
+    selectedAccount,
+    selectAccount,
+    addToast,
+    t,
+  ]);
+
+  // A record the storefront does not carry — a delisted app, or a bare App ID
+  // nothing knows — gets its version list fetched in the background when the
+  // view opens, bounded and silent, so 选择版本 can open straight from the cache
+  // instead of waiting on the exchange. A cached list still gets its labels
+  // filled (newest-version display / picker text).
+  //
+  // For a record with no evidence for the platform on screen this exchange is
+  // also the only thing that can say whether anything is fetchable here: Apple
+  // reporting nothing to serve means there is nothing to fetch, so a bare id
+  // falls through to not-found rather than offering a download that can never
+  // be built. A `local` record is evidence from a compiled package — of *some*
+  // platform — so Apple's answer settles this platform at most: it stays, with
+  // the notice saying why it could not be settled. A failure about the session
+  // or the transport concludes nothing either way.
+  const prefetchedListKeysRef = useRef<Set<string>>(new Set());
+  /** False once the page is gone: a settled probe must not touch state. */
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    // Re-armed on setup, not only cleared on cleanup: React StrictMode runs
+    // setup → cleanup → setup on mount, and the cleanup's `false` must not
+    // survive into the second run (it would mute every settled probe).
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const [probeNote, setProbeNote] = useState("");
+  useEffect(() => {
+    if (!app || previewEnabled) return;
+    if (!needsVersionExchange(app)) return;
+    const verify = needsFetchVerification(app);
+    const bare = app.metadataSource === "bare";
+    const key = versionListKey(app.id, app.platform, country);
+    const cached = getCachedVersionList(key);
+    if (cached) {
+      // The exchange already answered for this id and produced versions: they
+      // are the proof something is fetchable here, so nothing is unverified.
+      setProbeNote("");
+      if (account) fillVersionsSilently(account, app, cached);
+      return;
+    }
+    if (!account) {
+      // Only a page that really has no account says so — the selector settles
+      // one render later, and that must not read as "unverifiable".
+      if (verify && productAccounts.length === 0) {
+        setProbeNote(t("search.bareNoAccount"));
+      }
+      return;
+    }
+    if (prefetchedListKeysRef.current.has(key)) return;
+    prefetchedListKeysRef.current.add(key);
+    void ensureVersionList(key, () =>
+      listVersionsWithLicense(account, app, routeVersionId || undefined),
+    )
+      .then((versions) => {
+        // The exchange cannot be called off, but a page that is gone gets
+        // neither its note nor its fill.
+        if (!mountedRef.current) return;
+        setProbeNote("");
+        fillVersionsSilently(account, app, versions);
+      })
+      .catch((error: unknown) => {
+        if (!mountedRef.current || !verify) return;
+        if (bare && appPresenceFromProbeError(error) === "missing") {
+          setApp(null);
+          return;
+        }
+        setProbeNote(getErrorMessage(error, t("search.versions.loadFailed")));
+      });
+  }, [
+    app,
+    account,
+    productAccounts,
+    previewEnabled,
+    routeVersionId,
+    listVersionsWithLicense,
+    fillVersionsSilently,
+    t,
+  ]);
+
+  // Entering from a search that picked a region brings the matching account
+  // along, so the view speaks for that storefront from the start — and it
+  // keeps re-asserting until the selection is settled, so a React StrictMode
+  // double-run of the neighbour effect cannot clobber it. Once settled, the
+  // picker is left alone.
+  const regionHonoredRef = useRef(false);
+  useEffect(() => {
+    if (regionHonoredRef.current || previewEnabled || !stateCountry) return;
+    if (productAccounts.length === 0) return;
+    const matching = productAccounts.filter(
+      (a) => accountStoreCountry(a) === stateCountry,
+    );
+    if (matching.some((a) => a.email === selectedAccount)) {
+      regionHonoredRef.current = true;
+      return;
+    }
+    if (matching.length === 0) {
+      regionHonoredRef.current = true;
+      return;
+    }
+    selectAccount(matching[0].email);
+  }, [
+    stateCountry,
+    productAccounts,
+    selectedAccount,
+    selectAccount,
+    previewEnabled,
+  ]);
 
   if (loading) {
     return (
@@ -111,10 +391,12 @@ export default function ProductDetail() {
    * country follows the account, and the reload token forces a refetch even
    * when the storefront did not change.
    */
-  function handleAccountChange(email: string) {
+  function handleAccountChange(email: string, forced = false) {
     selectAccount(email);
     const next = productAccounts.find((a) => a.email === email);
     const nextCountry = accountStoreCountry(next);
+    // Only the notice button's move insists: any lookup miss there stands.
+    explicitMoveRef.current = forced ? (nextCountry ?? null) : null;
     if (nextCountry) setCountry(nextCountry);
     setReloadToken((token) => token + 1);
   }
@@ -140,6 +422,78 @@ export default function ProductDetail() {
     }
   }
 
+  function applyVersionList(list: string[]) {
+    setVersions(list);
+    // Versions arrived, so the id is answered — nothing is unverified now.
+    setProbeNote("");
+    // A route-supplied version id stays the selection when the list carries
+    // it; otherwise the newest build is the default.
+    setSelectedVersion(
+      routeVersionId && list.includes(routeVersionId)
+        ? routeVersionId
+        : list[0] || "",
+    );
+    setVersionsOpen(true);
+    if (account && app) {
+      // Shared cache first, then the missing labels filled silently — the
+      // policy the old new-download page opened its picker with.
+      fillVersionsSilently(account, app, list);
+    }
+  }
+
+  /** Opens the version picker — from the cache when the list is known. */
+  async function handleSelectVersions() {
+    if (!app) return;
+    if (previewEnabled) {
+      await waitForPreviewAction();
+      addToast(
+        t('search.product.previewActionComplete'),
+        'success',
+        t('search.product.previewBadge'),
+      );
+      return;
+    }
+    const cached = getCachedVersionList(
+      versionListKey(app.id, app.platform, country),
+    );
+    if (cached) {
+      applyVersionList(cached);
+      return;
+    }
+    if (!account) return;
+    setLoadingAction("versions");
+    try {
+      const result = await listVersionsWithLicense(
+        account,
+        app,
+        routeVersionId || undefined,
+      );
+      rememberVersionList(
+        versionListKey(app.id, app.platform, country),
+        result.versions,
+      );
+      applyVersionList(result.versions);
+    } catch (e) {
+      addToast(getErrorMessage(e, t("search.versions.loadFailed")), "error");
+    } finally {
+      setLoadingAction(null);
+    }
+  }
+
+  /**
+   * The manual counterpart of the silent fill, offered when the automation
+   * switch is off: look the missing version numbers up on demand.
+   */
+  async function handleCheckVersions() {
+    if (!account || !app || versions.length === 0) return;
+    setCheckingVersions(true);
+    try {
+      await prefetchMissing(account, app, versions, { force: true });
+    } finally {
+      setCheckingVersions(false);
+    }
+  }
+
   async function handleDownload() {
     if (!account || !app) return;
     setLoadingAction("download");
@@ -153,7 +507,12 @@ export default function ProductDetail() {
         );
         return;
       }
-      await startDownload(account, app);
+      await startDownload(
+        account,
+        app,
+        selectedVersion || routeVersionId || latestListVersionId || undefined,
+        country,
+      );
     } catch (e) {
       toastDownloadError(account, app, e);
     } finally {
@@ -180,6 +539,11 @@ export default function ProductDetail() {
           <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-3xl">
               {app.name}
+              {app.metadataSource === "bare" && (
+                <span className="ml-2 inline-block rounded-full bg-orange-50 px-2 py-0.5 align-middle text-xs font-medium text-orange-600 dark:bg-orange-950/60 dark:text-orange-400">
+                  {t("search.bareRecordTag")}
+                </span>
+              )}
             </h1>
             <p className="text-gray-500 dark:text-gray-400">{app.artistName}</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -188,29 +552,62 @@ export default function ProductDetail() {
                   {PLATFORM_LABELS[app.platform]}
                 </span>
               )}
-              <span className="rounded-full bg-gray-100 px-3 py-1 dark:bg-gray-800">
-                {app.formattedPrice ?? t("search.product.free")}
-              </span>
-              <span className="rounded-full bg-gray-100 px-3 py-1 dark:bg-gray-800">
-                {app.primaryGenreName}
-              </span>
-              <span className="rounded-full bg-gray-100 px-3 py-1 dark:bg-gray-800">
-                v{app.version}
-              </span>
-              <span className="inline-flex items-center">
-                ★ {app.averageUserRating.toFixed(1)} ({app.userRatingCount}{" "}
-                {t("search.product.ratings")})
-              </span>
+              {price && (
+                <span className="rounded-full bg-gray-100 px-3 py-1 dark:bg-gray-800">
+                  {price}
+                </span>
+              )}
+              {app.primaryGenreName && (
+                <span className="rounded-full bg-gray-100 px-3 py-1 dark:bg-gray-800">
+                  {app.primaryGenreName}
+                </span>
+              )}
+              {displayVersion && (
+                <span className="rounded-full bg-gray-100 px-3 py-1 dark:bg-gray-800">
+                  {displayVersion}
+                </span>
+              )}
+              {app.averageUserRating > 0 && (
+                <span className="inline-flex items-center">
+                  ★ {app.averageUserRating.toFixed(1)} ({app.userRatingCount}{" "}
+                  {t("search.product.ratings")})
+                </span>
+              )}
             </div>
+            {app.metadataSource === "local" && (
+              <p className="mt-3 min-w-0 break-words rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
+                {t("downloads.add.localRecordNote")}
+              </p>
+            )}
+            {app.metadataSource === "bare" && (
+              <p className="mt-3 min-w-0 break-words rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
+                {t("search.bareRecordNote")}
+              </p>
+            )}
+            {/* Only when nothing is known: a version on screen is proof the
+                exchange produced something for this platform. */}
+            {needsFetchVerification(app) && probeNote && !displayVersion && (
+              <p className="mt-3 min-w-0 break-words rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                {t(
+                  app.metadataSource === "bare"
+                    ? "search.bareUnverified"
+                    : "search.localUnverified",
+                  { reason: probeNote },
+                )}
+              </p>
+            )}
           </div>
         </section>
 
         {productAccounts.length === 0 ? (
-          <div className="rounded-2xl bg-yellow-50 p-4 text-sm text-yellow-800 ring-1 ring-yellow-200/70 dark:bg-yellow-950/30 dark:text-yellow-300 dark:ring-yellow-800/50">
-            <Link to="/accounts/add" className="font-medium underline">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-yellow-50 px-4 py-3 text-xs text-yellow-800 ring-1 ring-yellow-200/70 dark:bg-yellow-950/30 dark:text-yellow-300 dark:ring-yellow-800/50">
+            <Link
+              to="/accounts/add"
+              className="shrink-0 rounded-full bg-yellow-100 px-3 py-1.5 font-semibold text-yellow-800 transition-colors hover:bg-yellow-200 dark:bg-yellow-900/60 dark:text-yellow-200 dark:hover:bg-yellow-900"
+            >
               {t("search.product.addAccountLink")}
-            </Link>{" "}
-            {t("search.product.addAccountPrompt")}
+            </Link>
+            <span>{t("search.product.addAccountPrompt")}</span>
           </div>
         ) : (
           <section className="space-y-4 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10">
@@ -227,19 +624,56 @@ export default function ProductDetail() {
                 options={productAccounts.map((a) => ({
                   value: a.email,
                   label: accountSelectLabel(a, t),
+                  group: t("search.product.account"),
                 }))}
                 ariaLabel={t("search.product.account")}
                 disabled={loadingAction !== null}
                 className="min-h-11 w-full min-w-0 rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white"
               />
             </div>
-            <div className="grid min-w-0 grid-flow-col auto-cols-fr gap-2 sm:gap-3">
-              {(app.price === undefined || app.price === 0) && (
+            {!noRegionAccount && versionsOpen && versions.length > 0 && (
+              <div className="min-w-0">
+                <Select
+                  value={selectedVersion}
+                  onChange={setSelectedVersion}
+                  options={versions.map((v) => ({
+                    value: v,
+                    label: versionOptionLabel(v, versionMeta[v], pendingMeta[v]),
+                    group: t("search.product.version"),
+                  }))}
+                  ariaLabel={t("search.product.version")}
+                  className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 dark:bg-gray-800 dark:text-white"
+                />
+              </div>
+            )}
+            {noRegionAccount ? (
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-2xl bg-yellow-50 px-4 py-3 text-xs text-yellow-800 ring-1 ring-yellow-200/70 dark:bg-yellow-950/30 dark:text-yellow-300 dark:ring-yellow-800/50">
+                <span>{t("search.product.noRegionAccount")}</span>
+                {noticeAccount && noticeCountry && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleAccountChange(noticeAccount.email, true)
+                    }
+                    disabled={loadingAction !== null}
+                    className="shrink-0 rounded-full bg-yellow-100 px-3 py-1.5 font-semibold text-yellow-800 transition-colors hover:bg-yellow-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-yellow-900/60 dark:text-yellow-200 dark:hover:bg-yellow-900"
+                  >
+                    {t("search.product.useAccountRegion", {
+                      country: t(`countries.${noticeCountry}`),
+                    })}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid min-w-0 grid-flow-col auto-cols-fr gap-2 sm:gap-3">
+              {(app.price === undefined || app.price === 0) &&
+                app.metadataSource !== "local" &&
+                app.metadataSource !== "bare" && (
                 <button
                   type="button"
                   onClick={handlePurchase}
                   disabled={loadingAction !== null}
-                  className="inline-flex min-h-10 w-full min-w-0 items-center justify-center rounded-full bg-blue-50 px-2 py-2 text-center text-xs font-semibold leading-tight text-blue-600 transition-colors hover:bg-blue-100 disabled:opacity-50 dark:bg-blue-950/60 dark:text-blue-400 dark:hover:bg-blue-950 sm:px-5 sm:text-sm"
+                  className="inline-flex min-h-10 w-full min-w-0 items-center justify-center rounded-full bg-blue-100 px-2 py-2 text-center text-xs font-semibold leading-tight text-blue-700 transition-colors hover:bg-blue-200 disabled:opacity-50 dark:bg-blue-950/60 dark:text-blue-400 sm:px-5 sm:text-sm"
                 >
                   {loadingAction === "purchase"
                     ? t("search.product.processing")
@@ -265,14 +699,40 @@ export default function ProductDetail() {
                 </span>
                 <span>{t("search.product.download")}</span>
               </button>
-              <Link
-                to={`/search/${app.id}/versions${platform ? `?platform=${platform}` : ''}`}
-                state={{ app, country, account: selectedAccount, platform }}
-                className="inline-flex min-h-10 w-full min-w-0 items-center justify-center rounded-full bg-orange-50 px-2 py-2 text-center text-orange-600 transition-colors hover:bg-orange-100 dark:bg-orange-950/60 dark:text-orange-400 dark:hover:bg-orange-950 sm:px-5"
-              >
-                {t("search.product.versionHistory")}
-              </Link>
-            </div>
+              {!versionsOpen && (
+                <button
+                  type="button"
+                  onClick={handleSelectVersions}
+                  disabled={loadingAction !== null || !account}
+                  className="inline-flex min-h-10 w-full min-w-0 items-center justify-center rounded-full bg-orange-100 px-2 py-2 text-center text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:px-5"
+                >
+                  <StableLabel
+                    idle={t("search.product.selectVersion")}
+                    busy={t("search.product.processing")}
+                    busyActive={loadingAction === "versions"}
+                  />
+                </button>
+              )}
+              {versionsOpen &&
+                versions.length > 0 &&
+                !autoFetchVersionInfo && (
+                  <button
+                    type="button"
+                    onClick={handleCheckVersions}
+                    disabled={
+                      loadingAction !== null || !account || checkingVersions
+                    }
+                    className="inline-flex min-h-10 w-full min-w-0 items-center justify-center rounded-full bg-orange-100 px-2 py-2 text-center text-orange-700 transition-colors hover:bg-orange-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-950/60 dark:text-orange-400 sm:px-5"
+                  >
+                    <StableLabel
+                      idle={t("search.product.checkVersionNumbers")}
+                      busy={t("search.versions.fetching")}
+                      busyActive={checkingVersions}
+                    />
+                  </button>
+                )}
+              </div>
+            )}
           </section>
         )}
 
@@ -282,7 +742,7 @@ export default function ProductDetail() {
           </h2>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
             <dt className="text-gray-500 dark:text-gray-400">
-              {t("search.product.softwareId")}
+              {t("search.product.appId")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200 break-all">
               {app.id}
@@ -291,37 +751,41 @@ export default function ProductDetail() {
               {t("search.product.bundleId")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200 break-all">
-              {app.bundleID}
+              {app.bundleID || "—"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.version")}
             </dt>
-            <dd className="text-gray-900 dark:text-gray-200">{app.version}</dd>
+            <dd className="text-gray-900 dark:text-gray-200">
+              {displayVersion
+                ? `${displayVersion}${displayVersionId ? ` (${displayVersionId})` : ""}`
+                : "—"}
+            </dd>
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.size")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200">
-              {app.fileSizeBytes
-                ? formatBytes(app.fileSizeBytes)
-                : "N/A"}
+              {app.fileSizeBytes ? formatBytes(app.fileSizeBytes) : "—"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.minOs")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200">
-              {`${PLATFORM_LABELS[app.platform || 'ios']} ${app.minimumOsVersion}`}
+              {app.minimumOsVersion
+                ? `${PLATFORM_LABELS[app.platform || 'ios']} ${app.minimumOsVersion}`
+                : "—"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.seller")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200">
-              {app.sellerName}
+              {app.sellerName || "—"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.released")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200">
-              {new Date(app.releaseDate).toLocaleDateString()}
+              {formatDateISO(app.releaseDate) ?? "—"}
             </dd>
           </dl>
         </section>

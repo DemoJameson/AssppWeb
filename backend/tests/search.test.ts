@@ -2,9 +2,25 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import express from "express";
 import request from "supertest";
 import searchRoutes from "../src/routes/search.js";
+import {
+  buildForPlatform,
+  searchPackageAppsByName,
+} from "../src/services/packageAppStore.js";
 
 const iTunesFetch = vi.fn();
 vi.stubGlobal("fetch", iTunesFetch);
+
+// The package-app fallback must not depend on the developer's local data here;
+// it is covered in lookupFallback.test.ts.
+vi.mock("../src/services/packageAppStore.js", () => ({
+  findPackageAppByBundleId: vi.fn(),
+  findPackageAppByAppId: vi.fn(),
+  searchPackageAppsByName: vi.fn(() => []),
+  buildForPlatform: vi.fn(),
+}));
+
+const mockedSearchLocal = vi.mocked(searchPackageAppsByName);
+const mockedBuildForPlatform = vi.mocked(buildForPlatform);
 
 function createApp() {
   const app = express();
@@ -44,6 +60,9 @@ function replyWithJson(body: unknown) {
 
 afterEach(() => {
   iTunesFetch.mockReset();
+  mockedSearchLocal.mockReset();
+  mockedSearchLocal.mockReturnValue([]);
+  mockedBuildForPlatform.mockReset();
 });
 
 describe("Search Route", () => {
@@ -109,6 +128,63 @@ describe("Search Route", () => {
 
     expect(res.status).toBe(200);
     expect(res.body[0].platform).toBeUndefined();
+  });
+
+  it("GET /api/search merges delisted package-app matches into a name search", async () => {
+    replyWithJson(iTunesPayload);
+    mockedSearchLocal.mockReturnValue([
+      {
+        appId: "6503940939",
+        bundleID: "flux.inchmade.app",
+        name: "Forward",
+        artistName: "Forward Team",
+        builds: { ios: { version: "1.3.18", updatedAt: 5 } },
+        updatedAt: 6,
+      },
+    ]);
+    mockedBuildForPlatform.mockReturnValue({
+      version: "1.3.18",
+      minimumOsVersion: "17.0",
+      updatedAt: 5,
+    });
+
+    const res = await request(app).get(
+      "/api/search?term=Forward&country=US&entity=software&platform=ios",
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(2);
+    expect(res.body[0]).toMatchObject({
+      id: 6503940939,
+      name: "Forward",
+      version: "1.3.18",
+      minimumOsVersion: "17.0",
+      platform: "ios",
+      metadataSource: "local",
+    });
+    // The catalogue results follow, untouched.
+    expect(res.body[1].id).toBe(1492142120);
+    expect(res.body[1].metadataSource).toBeUndefined();
+  });
+
+  it("GET /api/search keeps the storefront result when the index knows the same app", async () => {
+    replyWithJson(iTunesPayload);
+    mockedSearchLocal.mockReturnValue([
+      {
+        appId: "1492142120",
+        bundleID: "com.example.utility",
+        name: "Example Utility",
+        builds: {},
+        updatedAt: 6,
+      },
+    ]);
+
+    const res = await request(app).get("/api/search?term=utility&platform=ios");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].id).toBe(1492142120);
+    expect(res.body[0].metadataSource).toBeUndefined();
   });
 });
 

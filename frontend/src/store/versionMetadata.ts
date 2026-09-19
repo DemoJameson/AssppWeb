@@ -9,20 +9,37 @@ import type { VersionMetadata } from "../types";
  */
 interface VersionMetadataState {
   entries: Record<string, VersionMetadata>;
+  /** Version ids whose metadata is being fetched right now. */
+  pending: Record<string, boolean>;
   mergeEntries: (entries: Record<string, VersionMetadata>) => void;
   putEntry: (versionId: string, metadata: VersionMetadata) => void;
+  setPending: (versionId: string, pending: boolean) => void;
 }
 
 export const useVersionMetadataStore = create<VersionMetadataState>((set) => ({
   entries: {},
+  pending: {},
 
   mergeEntries: (entries) =>
     set((state) => ({ entries: { ...entries, ...state.entries } })),
 
   putEntry: (versionId, metadata) =>
-    set((state) =>
-      state.entries[versionId]
-        ? state
-        : { entries: { ...state.entries, [versionId]: metadata } },
-    ),
+    set((state) => {
+      const existing = state.entries[versionId];
+      // A package-sourced entry is the build's own date and displaces whatever
+      // the exchange said; everything else keeps the first write.
+      if (existing && metadata.source !== "package") return state;
+      return { entries: { ...state.entries, [versionId]: metadata } };
+    }),
+
+  setPending: (versionId, pending) =>
+    set((state) => {
+      if (pending) {
+        if (state.pending[versionId]) return state;
+        return { pending: { ...state.pending, [versionId]: true } };
+      }
+      if (!state.pending[versionId]) return state;
+      const { [versionId]: _settled, ...rest } = state.pending;
+      return { pending: rest };
+    }),
 }));

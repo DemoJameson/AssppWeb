@@ -204,32 +204,21 @@ export default function DownloadList() {
 
   return (
     <PageContainer>
+      {/* Same column geometry as the status row below, so the action occupies
+          one column and matches the filter chips' width. */}
       <div className="mb-4 grid grid-cols-2 items-start gap-2 text-[15px] min-[360px]:grid-cols-3 sm:mb-7 sm:grid-cols-6">
-        <h1 className="col-span-2 min-w-0 text-[2rem] font-semibold leading-[1.12] tracking-[-0.035em] text-gray-900 min-[360px]:col-span-3 sm:col-span-3 sm:text-[2.125rem] dark:text-white">
+        <h1 className="col-span-2 min-w-0 text-[2rem] font-semibold leading-[1.12] tracking-[-0.035em] text-gray-900 min-[360px]:col-span-3 sm:col-span-5 sm:text-[2.125rem] dark:text-white">
           {t("downloads.title")}
         </h1>
         <button
           onClick={handleCheckAllUpdates}
           disabled={checkingAll}
-          className="flex h-9 w-full min-w-0 items-center justify-center rounded-full bg-emerald-100 px-2.5 text-center text-[clamp(0.75rem,3.6vw,0.875rem)] font-semibold leading-tight text-emerald-800 transition-colors hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:bg-emerald-900/60 dark:text-emerald-300 dark:hover:bg-emerald-900 dark:disabled:bg-gray-800 dark:disabled:text-gray-600"
+          className="col-span-1 flex h-9 w-full min-w-0 items-center justify-center rounded-full bg-blue-600 px-2.5 text-center text-[clamp(0.75rem,3.6vw,0.875rem)] font-semibold leading-tight text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 sm:col-span-1 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-600"
         >
           {checkingAll
             ? t("downloads.checkingUpdates")
             : t("downloads.checkUpdates")}
         </button>
-        <Link
-          to="/downloads/add"
-          className="flex h-9 w-full min-w-0 items-center justify-center rounded-full bg-blue-600 px-2.5 text-center leading-tight text-white transition-colors hover:bg-blue-700"
-        >
-          {t("downloads.new")}
-        </Link>
-        <Link
-          to="/downloads/by-id"
-          title={t("downloads.byId.hint")}
-          className="flex h-9 w-full min-w-0 items-center justify-center rounded-full bg-orange-600 px-2.5 text-center leading-tight text-white transition-colors hover:bg-orange-700"
-        >
-          {t("downloads.byId.button")}
-        </Link>
       </div>
 
       <div

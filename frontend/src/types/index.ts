@@ -40,6 +40,11 @@ export interface Software {
   platform?: Platform;
   /** Apple's external version identifier, read from the compiled package. */
   externalVersionId?: string;
+  /**
+   * Where the record came from: `store` (Apple answered) or `local` (the
+   * package-app index — a delisted app recalled from past downloads).
+   */
+  metadataSource?: "store" | "local" | "bare";
 }
 
 export interface Cookie {
@@ -92,7 +97,16 @@ export interface DownloadOutput {
 
 export interface VersionMetadata {
   displayVersion: string;
+  /**
+   * Empty when no date is vouched for: the exchange's own value dates the
+   * *app*, so it is not printed as a version's.
+   */
   releaseDate: string;
+  /**
+   * Where the date came from — a compiled package (the build's own, accurate)
+   * or Apple's exchange (app-level). Pickers show only the former.
+   */
+  source?: "package" | "client";
 }
 
 export interface DownloadTask {

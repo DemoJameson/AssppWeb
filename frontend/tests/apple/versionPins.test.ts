@@ -58,12 +58,16 @@ describe("apple/versionPins", () => {
     expect(await withRecordedFallback(lookup, 42, "macos")).toBe("700");
   });
 
-  it("rethrows the lookup error when there is nothing recorded", async () => {
+  it("stays quiet about a lookup failure when there is nothing recorded", async () => {
+    // The raw lookup failure is not user-facing: callers turn “no pin” into
+    // their own clean message, and the id stays usable either way.
     vi.mocked(apiGet).mockResolvedValue({ pins: [] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const lookup = vi.fn().mockRejectedValue(new Error("boom"));
-    await expect(withRecordedFallback(lookup, 42, "macos")).rejects.toThrow(
-      "boom",
-    );
+
+    expect(await withRecordedFallback(lookup, 42, "macos")).toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("resolves undefined when neither source materialises", async () => {

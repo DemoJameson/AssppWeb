@@ -54,6 +54,7 @@ describe("versionMetadataCache", () => {
         versionId: "1001",
         displayVersion: "1.0.0",
         releaseDate: "2026-01-01T00:00:00.000Z",
+        source: "package",
       },
     ]);
   });
@@ -126,6 +127,7 @@ describe("versionMetadataCache", () => {
         versionId: "5001",
         displayVersion: "5.0.0",
         releaseDate: "2026-02-02T00:00:00.000Z",
+        source: "client",
       },
     ]);
 

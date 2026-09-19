@@ -28,7 +28,7 @@ export function accountSelectLabel(account: Account, t: TFunction): string {
   const cc = accountStoreCountry(account);
   const countryLabel = cc ? t(`countries.${cc}`, cc) : "";
   const name = `${account.firstName} ${account.lastName} (${account.email})`;
-  return countryLabel ? `${countryLabel} - ${name}` : name;
+  return countryLabel ? `${countryLabel} · ${name}` : name;
 }
 
 export async function accountHash(account: Account): Promise<string> {

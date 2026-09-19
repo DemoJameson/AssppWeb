@@ -7,6 +7,7 @@ export default function CountrySelect({
   availableCountryCodes,
   allCountryCodes,
   disabled,
+  id,
   className = '',
   wrapperClassName,
 }: {
@@ -15,6 +16,8 @@ export default function CountrySelect({
   availableCountryCodes: string[];
   allCountryCodes: string[];
   disabled?: boolean;
+  /** Lets a caller's <label> point at this select. */
+  id?: string;
   className?: string;
   wrapperClassName?: string;
 }) {
@@ -35,6 +38,7 @@ export default function CountrySelect({
 
   return (
     <Select
+      id={id}
       value={value}
       onChange={onChange}
       options={options}

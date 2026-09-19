@@ -26,6 +26,11 @@ import i18n from "../i18n";
  * browser would mean widening the Wisp host allowlist and duplicating what the
  * backend already downloads, so the reply's metadata is used instead. The caller
  * treats a failure here as non-fatal.
+ *
+ * Note on the returned `releaseDate`: Apple's item metadata dates the *app*,
+ * not the pinned build — the same day comes back for every version of a list
+ * (the display version is per-version, the date is not). Callers must not
+ * present it as the pinned version's release date (see `utils/versionLabels`).
  */
 export async function getVersionMetadata(
   account: Account,

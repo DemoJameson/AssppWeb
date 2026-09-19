@@ -36,6 +36,7 @@ export default function PlatformSelect({
       options={PLATFORMS.map((platform) => ({
         value: platform,
         label: PLATFORM_LABELS[platform],
+        group: t("downloads.platform.label"),
       }))}
       disabled={disabled}
       className={className}

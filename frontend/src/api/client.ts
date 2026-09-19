@@ -47,11 +47,16 @@ export async function apiPost<T>(path: string, body?: any): Promise<T> {
   return res.json();
 }
 
-export async function apiPut<T>(path: string, body?: any): Promise<T> {
+export async function apiPut<T>(
+  path: string,
+  body?: any,
+  options?: { keepalive?: boolean },
+): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
+    keepalive: options?.keepalive,
   });
   if (!res.ok) throw await toError(res);
   return res.json();

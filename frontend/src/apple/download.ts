@@ -90,6 +90,20 @@ async function interpretReply(
     throw new DownloadError(i18n.t("errors.download.missingUrl"));
   }
 
+  // A macOS package is never what another platform asked for. Which build Apple
+  // serves is decided by the version pin — and that pin may have been *guessed*
+  // (see `versionFinder`, which probes the newest iOS version id's neighbours) —
+  // so refusing a `.pkg` in the reply is what keeps a tvOS/visionOS/iOS request
+  // from turning into a download the IPA pipeline cannot use. The backend
+  // repeats this check; here it can also say so in the user's language, before a
+  // task exists at all.
+  if (
+    session.app.platform !== "macos" &&
+    /\.pkg$/i.test(url.split(/[?#]/)[0])
+  ) {
+    throw new DownloadError(i18n.t("errors.download.macOSPackage"));
+  }
+
   const metadata = item.metadata as Record<string, any> | undefined;
   if (!metadata) {
     throw new DownloadError(i18n.t("errors.download.missingMetadata"));

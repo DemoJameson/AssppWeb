@@ -238,15 +238,31 @@ transports, one per platform family:
 `versionFinder.ts` pins the same three before the version list exchange. iOS/iPad
 pass an empty pin and let the exchange resolve one on fallback.
 
-### Package Platform Validation (Backend)
+### Package Platform Validation
 
-`backend/src/services/packagePlatform.ts` mirrors ipatool's
-`validatePackagePlatform`: after the IPA download completes and before SINF
-injection, the package's `Payload/*.app/Info.plist`
-`CFBundleSupportedPlatforms` must contain the expected platform string
-(`iPhoneOS` / `AppleTVOS` / `XROS`). A mismatch — Apple served the iOS build of
-a universal app despite the pin — deletes the file and fails the task. macOS
-`.pkg` packages are skipped (they are xar containers, not IPAs).
+Two checks bracket the package's platform: one before the download starts, one
+after it lands.
+
+Before: `createTask` refuses a task whose `downloadURL` path ends in `.pkg`
+while the task's platform is not macOS (`assertPackageMatchesPlatform`, next to
+`validateDownloadURL`). macOS packages are xar containers — no sinfs to inject,
+nothing the IPA pipeline can unpack — so a mismatch would only surface after the
+whole package had been fetched. The mismatch is reachable because the version
+pin that selects the build can be *guessed* (see the neighbour guess in
+`versionFinder`). The frontend repeats the same check in `interpretReply` so the
+user gets the message in their own language before a task exists at all.
+
+After: `backend/src/services/packagePlatform.ts` mirrors ipatool's
+`validatePackagePlatform`. The downloaded package's `Payload/*.app/Info.plist`
+`CFBundleSupportedPlatforms` is **the authority** over the platform the request
+named: a universal app searched as tvOS may have served its iOS build, and the
+package knows which. `platformFromSupported` reads the platform out of it
+(`XROS` → visionOS, `AppleTVOS` → tvOS, `iPhoneOS` → iOS) and the completion path
+**rewrites the task's platform** to what the package really is
+(`downloadManager`, right after the download) rather than failing — the task
+then reads as the platform it actually holds. Only a package declaring no known
+platform at all fails the task. macOS packages skip the check (they are not
+IPAs, and `isMacOSPackage` is decided by the task's platform).
 
 The payload both endpoints receive is `creditDisplay`, `guid`, `salableAdamId`
 (integer), `serialNumber: "0"`, plus the endpoint's version key when pinned. The
@@ -291,18 +307,27 @@ already fulfilled, and ipatool's CLI ignores its `ErrLicenseAlreadyExists` as a
 terminal success state. `2059` retries once with the Apple Arcade
 `pricingParameters` (`GAME`), matching ipatool.
 
-### Download by ID (app-id first)
+### Finding apps (link, bundle id, or App ID)
 
-`/downloads/by-id` creates a download from a bare numeric app id plus an
-optional version id, for when the bundle id is unknown or the app cannot be
-found by name. The page's "software ID" **is** ipatool's `App.ID`. The catalogue
-lookup it performs first is best effort: when it misses, the task is built from
-the id alone.
+The search page is the single entry for creating a download: its input takes
+an App Store link, a bundle id, a numeric App ID, or a plain name. A numeric
+input — or a store link's `/id…` — goes through the id lookup; anything else
+goes through the catalogue. The App ID **is** ipatool's `App.ID`. The
+new-download page is retired: `/downloads/add` and the legacy
+`/downloads/by-id` redirect to `/search`, the downloads list carries no
+「新建下载」 shortcut anymore, and the page component is deleted.
+
+A delisted app recalled from the package-app index (below) has its version
+list fetched in the background when its detail view opens — the id alone is
+enough for Apple's exchange — and the result is cached per app+platform
+(page memory only — a reload fetches fresh), so 选择版本 opens straight from
+the cache. The fetch is silent, and the recorded version pin keeps it
+working where the live catalogue has nothing to say.
 
 The app id is therefore the identity of a task and everything else is derived,
 in this order:
 
-1. the storefront lookup on the by-ID page,
+1. the storefront lookup (with the package-app index as its fallback),
 2. what the download response reports — `softwareVersionBundleId` becomes
    `DownloadOutput.bundleID`, and the item metadata is what the frontend embeds
    as `iTunesMetadata.plist`,
@@ -315,7 +340,7 @@ in this order:
 `applyPackageMetadata` in `downloadManager.ts` fills only the fields that are
 still empty, and the task is persisted with them — so the downloads list and the
 package detail view show the real name, developer, version, minimum OS, genre and
-release date instead of the `App <id>` label the request carried. The package
+release date instead of any sparse label the request carried. The package
 build size is filled the same way. A storefront value always wins, so downloads
 started from search results are untouched.
 
@@ -327,6 +352,72 @@ handing iOS one it will reject.
 
 One deliberate gap remains: a task that finished before this enrichment existed
 keeps its stored values.
+
+### Search (name, bundle id, link, or App ID)
+
+The search box is the app entry (see above): a store link's `/id…` or a bare
+numeric App ID goes through the exact id lookup — which also recalls delisted
+apps from the package-app index — while bundle ids keep their exact lookup
+and everything else stays a fuzzy catalogue search. A bare id that resolves
+nowhere becomes a 「无商店数据」 row (`metadataSource: "bare"`, name `App <id>`)
+that is probed by the version exchange: while it runs the card says
+「正在确认该 App ID 是否存在…」 and is not walkable; versions coming back settle
+it into a normal, walkable result; Apple having nothing to serve drops it into
+the 未找到相关应用 panel. A 「已下架 · 本地记录」 row (`metadataSource: "local"`)
+carries that evidence only for the platforms it was recorded on (`version` is
+filled from the *requested* platform's build and left empty when that platform
+was never downloaded), so an iOS-only record asked for as tvOS is probed the
+same way — under 「正在确认该平台是否有可下载的版本…」 — with one difference: a
+package-index record is never dropped, since a compiled package vouches the app
+exists and Apple's answer settles this platform at most (the card stays closed
+and says why). An inconclusive
+failure (session, transport, storefront mismatch, or a version id that cannot
+be pinned — a non-iOS ask is not judged without one, and a `bare`/`local`
+record with no pin to read may first have one guessed: the ids adjacent to the
+newest one in its iOS list are probed against the target platform's exchange,
+nearest first (±1, ±2, … up to six steps each way), six at a time, and the
+first one served becomes the pin; an id the iOS list itself carries is never a
+candidate, since it is known to be an iOS build) keeps the card closed
+and says why. The verification is region-
+and platform-scoped: switching either re-runs it with the new dimension's
+account and entity — the list cache alone never re-settles across regions, and
+`ensureVersionList` takes a flow key so the new dimension starts a fresh
+exchange. The probe follows the delisted
+flow otherwise — 选择版本/查版本号 fetch versions (iOS natively; other
+platforms need a version id) and the download proceeds from them.
+Bundle-id misses and empty name searches stay an empty result set — shown as
+its own 未找到相关应用 panel (the store's `searched` flag separates it from
+the pre-search empty state). A name search also merges the package-app index's matches in on
+top — tagged, newest first, and never duplicating a storefront hit — so
+delisted apps are findable by name. It pairs with an optional 版本 ID field (validated as digits)
+whose value rides along as the version pin: the delisted background fetch,
+the detail picker's fetch and preselect, and the download's fallback target.
+A delisted hit is tagged 「已下架 · 本地记录」 (a bare record 「无商店数据」)
+right in the result row, and its version list is fetched in the background
+as soon as the search resolves it — for a bare record, and for a package-index
+record with no build for the platform in view, that fetch *is* the probe —
+before the detail view opens, so 选择版本 can start from the cache.
+
+Product detail carries the version picking now that the separate version
+history page is retired (its route and lazy import are gone; the component
+file is kept on disk, unreferenced, per the user's call): 「选择版本」 opens an
+inline picker — fetched with the license-aware flow and cached per
+app+platform — and 「下载」 downloads the picked version; delisted apps fetch
+their list in the background on open so the picker starts from the cache.
+Picking resets whenever the storefront or platform changes, and the preview
+mode simulates the action like its siblings. With the automation switch off,
+the picker offers 「查版本号」 next to 「下载」 — the same on-demand fill
+(`force`). A route-supplied version id (from the search page's optional
+field) pins the picker fetch and becomes the download target when nothing
+else is picked. When the entry region has no account, the actions hide behind
+a notice asking for another region's account — the account selector stays
+usable and already drives the region (picking one refetches). Switching to a
+region or platform the app does not exist in snaps back to the previous
+selection with a toast — the page never dead-ends on not-found; only the
+newest lookup may apply. Delisted records carry the same 「已下架 · 本地记录」 tag on
+the detail header plus the local-record note, and missing detail values
+(version, size, minimum OS, seller, date) render as an em dash — the package
+enrichment backfills them once a build is downloaded.
 
 ### App icon extraction
 
@@ -420,11 +511,25 @@ The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using No
 
 ### Version Metadata Cache
 
-`services/versionMetadataCache.ts` + `routes/versionMetadata.ts` serve a read-only, instance-wide `(appId, versionId) -> (displayVersion, releaseDate)` directory via `GET /api/version-metadata/:appId`. Entries are seeded **passively only** — the download pipeline records what compiled packages read back (the two `applyPackageMetadata` sites in downloadManager, including the startup `repairFinishedPackages` pass). There is no client write-back and the server never queries Apple itself (it holds no credentials), so the zero-trust invariant is untouched; the data is storefront-public and carries no account binding, but reads still ride `accessAuth`. Entries are immutable (a version id names a fixed build), capped at `VERSION_METADATA_MAX_ENTRIES` (oldest evicted first), and persisted to `DATA_DIR/version-metadata.json`. The frontend consumes the cache best-effort (`api/versionMetadata.ts`, `hooks/useVersionMetadata.ts`, `utils/versionLabels.ts`) and falls back to the live Apple exchange for uncached versions.
+`services/versionMetadataCache.ts` + `routes/versionMetadata.ts` serve a read-only, instance-wide `(appId, versionId) -> (displayVersion, releaseDate)` directory via `GET /api/version-metadata/:appId`. Entries are seeded **passively only** — the download pipeline records what compiled packages read back (the two `applyPackageMetadata` sites in downloadManager, including the startup `repairFinishedPackages` pass). There is no client write-back and the server never queries Apple itself (it holds no credentials), so the zero-trust invariant is untouched; the data is storefront-public and carries no account binding, but reads still ride `accessAuth`. Entries are immutable (a version id names a fixed build), capped at `VERSION_METADATA_MAX_ENTRIES` (oldest evicted first), and persisted to `DATA_DIR/version-metadata.json`. The frontend consumes the cache best-effort (`api/versionMetadata.ts`, `hooks/useVersionMetadata.ts`, `utils/versionLabels.ts`) and falls back to the live Apple exchange for uncached versions. The hook marks versions whose lookup is in flight as `pending` (`store/versionMetadata.ts`), so the pickers and rows can show a fetching marker (`search.versions.fetching`) instead of a bare id while it runs. A list load fills up to a hundred missing versions — the first twenty five wide, the rest one at a time — and leaving the page cancels the queue; results already fetched keep their write-back (keepalive requests, so a closing tab still delivers them). With the automation switch off, the version picker offers the same fill on demand: a 「查版本号」 button left of 「下载」, styled like 「选择版本」 (`search.product.checkVersionNumbers`; it passes `force` to run the fill even though the automatic path is off).
 
 ### Version Pin Store
 
-`services/versionPinStore.ts` + `routes/versionPins.ts` serve a read-only, instance-wide `(appId, platform) -> externalVersionId` record via `GET /api/version-pins/:appId`. It exists because listing versions for tvOS / visionOS / macOS requires pinning the download-product exchange to a version id that exists for that platform — and the catalogue lookup that normally supplies it has no answer left for **delisted apps**. A past download of the app left the id behind in its finished package, so recording it keeps those apps queryable. Seeded **passively only** (the completion and `repairFinishedPackages` paths of the download pipeline; no client write-back, no server-side Apple queries), the newest (largest) id per app+platform wins, and the store persists to `DATA_DIR/version-pins.json`. The frontend consumes it best-effort in `apple/versionPins.ts` (`recordedVersionIdFor` / `withRecordedFallback`): the live catalogue lookup stays first; the recorded pin is the fallback for both version listing (`apple/versionFinder.ts`, which also accepts a caller-provided pin) and the download flow's pin resolution (`apple/downloadProduct.ts`). The by-ID page passes a hand-entered version id as the exchange pin directly.
+`services/versionPinStore.ts` + `routes/versionPins.ts` serve a read-only, instance-wide `(appId, platform) -> externalVersionId` record via `GET /api/version-pins/:appId`. It exists because listing versions for tvOS / visionOS / macOS requires pinning the download-product exchange to a version id that exists for that platform — and the catalogue lookup that normally supplies it has no answer left for **delisted apps**. A past download of the app left the id behind in its finished package, so recording it keeps those apps queryable. Seeded **passively only** (the completion and `repairFinishedPackages` paths of the download pipeline; no client write-back, no server-side Apple queries), the newest (largest) id per app+platform wins, and the store persists to `DATA_DIR/version-pins.json`. The frontend consumes it best-effort in `apple/versionPins.ts` (`recordedVersionIdFor` / `withRecordedFallback`): the live catalogue lookup stays first; the recorded pin is the fallback for both version listing (`apple/versionFinder.ts`, which also accepts a caller-provided pin) and the download flow's pin resolution (`apple/downloadProduct.ts`). The search page passes a hand-entered version id as the exchange pin
+directly.
+
+`services/packageAppStore.ts` is the companion index for delisted apps
+themselves: `appId -> { bundleID, name, builds }`, written by
+`rememberPackageApp` from the same compile / repair call sites that feed the
+version cache and pins, and persisted to `DATA_DIR/package-apps.json`. Builds
+are tracked per platform — the same app ships different versions for different
+platforms (`Forward` was 1.3.18 on iOS and 1.3.19 on tvOS) — and `/api/lookup`
+answers with the requested platform's build, omitting the version when that
+platform has no recorded package (legacy flat files migrate to the platform
+they recorded). It consults the index when the storefront answers nothing, so
+a delisted app stays findable by bundle id (or enriched when looked up by id);
+the response carries `metadataSource: "local"` and the UI labels it. Storefront
+answers always win.
 
 ## Frontend
 
@@ -445,7 +550,8 @@ The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using No
 - **Modal** — `<Modal open={bool} onClose={fn} title={string}>` for dialog overlays
 - **Spinner** — inline SVG loading spinner for buttons
 - **CountrySelect** — optgroup-based country dropdown with "Available Regions" + "All Regions"
-- **AppIcon** — 3 sizes (40/56/80px), rounded corners, letter fallback
+- **AppIcon** — 3 sizes (40/56/80px), rounded corners; a real name falls back to its letter, the `App <id>` placeholder name to the Apple mark
+- **AccountAvatar** — account avatar: probes the email's gravatar (MD5-keyed, `?d=404`) and swaps the image in only once it loads; accounts without one keep the initial-letter gradient. No CSP is set, so the image loads unobstructed
 - **Badge** — color-coded status pill
 - **ProgressBar** — gray track, blue fill, percentage label
 - **ToastContainer** / `utils/toast.ts` — toast notifications (incl. account-context helpers)
@@ -456,7 +562,8 @@ The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using No
 
 - `utils/error.ts` — `getErrorMessage(e, fallback)` for standardized catch-block error extraction
 - `utils/crypto.ts` — AES-GCM encrypt/decrypt for account export/import
-- `utils/account.ts` — `accountHash()`, `accountStoreCountry()`, `firstAccountCountry()`
+- `utils/account.ts` — `accountHash()`, `accountStoreCountry()`, `firstAccountCountry()`, `accountSelectLabel()` (region · name (email), joined with a middle dot)
+- `utils/avatar.ts` — `gravatarUrl()` + a local RFC 1321 `md5()`: the account-avatar probe (lowercase email digest; `d=404` makes a missing avatar fail fast)
 - `utils/toast.ts` — toast helpers (pairs with `ToastContainer`)
 - `utils/version.ts` — numeric dot-separated version string comparison
 - `utils/versionLabels.ts` — `versionOptionLabel` / `versionRowLabel`: render a cached display version in the version pickers (uncached entries keep the raw id)
@@ -490,6 +597,7 @@ The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using No
 
 - **Apple API responses** (bag XML, iTunes search results, `customerMessage` fields) are treated as trusted content. No additional sanitization is applied beyond what React's text rendering provides (no `dangerouslySetInnerHTML`).
 - **Apple CDN redirects** during IPA download are trusted. The initial URL is validated against `*.apple.com`, and redirect targets from Apple's CDN infrastructure (e.g., Akamai) are followed. The response body is saved to disk — it is never reflected back to the requester.
+- **Version-metadata CDN range fetch** (`backend/src/services/packageVersionMetadata.ts`, `versionMetadataFromDownloadURL`) follows the same trust model: only the initial URL is validated via `validateDownloadURL` against `*.apple.com`, and the native `fetch` follows the CDN redirect chain (Akamai and friends) without re-checking each hop. The downloaded bytes are only parsed for a plist and returned to the caller as version metadata — never reflected — and every fetch is range/HEAD bounded, so this matches the main download pipeline's posture rather than adding a stricter redirect check.
 
 ### Browser as Security Boundary
 
@@ -584,8 +692,9 @@ npx wrangler deploy
 
 - `index.css` overrides the Tailwind palette with iOS-flavored values: `blue-600` = `#007aff` (system blue) and a full iOS gray ramp. `orange` is **not** overridden (stock Tailwind). In computed styles, overridden hex colors surface as `rgb(...)` while stock Tailwind v4 colors surface as `oklch(...)` — assert accordingly in tests.
 - `button, input, select, textarea { font: inherit }` is declared **unlayered**, so it beats Tailwind v4's `@layer utilities`: any `text-*` / `font-*` utility on a `<button>` is silently ignored (buttons render at the inherited 16px / 400). Links (`<a>`) are unaffected.
-  - Consequence: to make an `<a>` styled as a button (e.g. 「历史版本」 next to 「下载」) match its button siblings, leave the font utilities OFF it so both sides inherit identically.
-- Secondary-action pattern (low presence, mirrors 「获取许可证」): tinted background + colored text, e.g. `bg-orange-50 text-orange-600 hover:bg-orange-100` with `dark:bg-orange-950/60 dark:text-orange-400 dark:hover:bg-orange-950`. Use for version-action buttons (选择版本 / 查询版本 / 历史版本); solid `bg-blue-600` stays for primary download actions.
+  - Consequence: to make an `<a>` styled as a button match its button siblings, leave the font utilities OFF it so both sides inherit identically.
+- Secondary-action pattern (low presence, mirrors 「获取许可证」): tinted background + colored text, e.g. `bg-orange-50 text-orange-600 hover:bg-orange-100` with `dark:bg-orange-950/60 dark:text-orange-400 dark:hover:bg-orange-950`. Use for version-action buttons (选择版本 / 查版本号); solid `bg-blue-600` stays for primary download actions.
+- Dropdown menus open with a small heading naming their content — set each option's `group` (`SelectOption.group`, rendered as a muted `text-xs` row above its section): 平台 / 账号 / 版本 / 语言 / 国家 / 地区. The country menus keep their structured sections instead (可用国家 / 地区 · 所有国家 / 地区). Dropdowns carry no caption above them (a short-lived experiment, reverted) — only inputs do: the search box, the version ID field, and the settings selects keep their field labels.
 
 ### Typography
 
@@ -627,6 +736,26 @@ npx wrangler deploy
 ## Frontend Cleanup Rules
 
 These rules prevent the codebase from becoming messy after merging PRs. Enforce them on every change.
+
+### Mount-Effect Guards (`mountedRef`)
+
+A `mountedRef` that is only cleared on cleanup mutes itself forever under React
+StrictMode (dev): the mount cycle runs setup → cleanup → setup, and the first
+cleanup's `false` survives into the second run. **Re-arm it in setup**:
+
+```ts
+useEffect(() => {
+  mountedRef.current = true;
+  return () => {
+    mountedRef.current = false;
+  };
+}, []);
+```
+
+Symptom when forgotten: every settled promise guards on `!mountedRef.current`
+and returns without touching state, so async work hangs mid-flight (the search
+page's bare-App-ID probe stayed on 正在确认 forever). Unit tests do not run
+StrictMode — cover the pattern with a StrictMode-wrapped render test.
 
 ### `transition-colors` Usage Policy
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { apiGet, apiPost, apiDelete } from "../../src/api/client";
+import { apiGet, apiPost, apiPut, apiDelete } from "../../src/api/client";
 
 describe("api/client", () => {
   beforeEach(() => {
@@ -95,6 +95,39 @@ describe("api/client", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: undefined,
+      });
+    });
+  });
+
+  describe("apiPut", () => {
+    it("should make PUT request with JSON body", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ saved: true }),
+      } as Response);
+
+      const result = await apiPut("/api/test/1", { data: "value" });
+      expect(result).toEqual({ saved: true });
+      expect(fetch).toHaveBeenCalledWith("/api/test/1", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: "value" }),
+        keepalive: undefined,
+      });
+    });
+
+    it("should forward keepalive for unload-safe writes", async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({}),
+      } as Response);
+
+      await apiPut("/api/test/1", { data: "value" }, { keepalive: true });
+      expect(fetch).toHaveBeenCalledWith("/api/test/1", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: "value" }),
+        keepalive: true,
       });
     });
   });

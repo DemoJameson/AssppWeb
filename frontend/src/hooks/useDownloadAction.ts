@@ -7,16 +7,50 @@ import { DownloadError, getDownloadInfo } from "../apple/download";
 import { purchaseApp } from "../apple/purchase";
 import { authenticate } from "../apple/authenticate";
 import { FAILURE_LICENSE_NOT_FOUND } from "../apple/config";
+import { needsPlatformPin } from "../apple/platform";
 import { listVersions } from "../apple/versionFinder";
+import { getCachedVersionList, versionListKey } from "../store/versionLists";
 import { apiPost, apiGet } from "../api/client";
-import { accountHash } from "../utils/account";
+import { accountHash, accountStoreCountry } from "../utils/account";
 import { getErrorMessage } from "../utils/error";
 import { getAccountContext } from "../utils/toast";
 import type { Account, Software } from "../types";
 
 /**
+ * The version a download falls back to when its caller named none. tvOS,
+ * visionOS and macOS downloads must carry a version id (`needsPlatformPin`):
+ * without one the exchange has to resolve it from the catalogue or from the
+ * pin a past download recorded, and a delisted app has neither — it fails with
+ * "no version to pin" even though the version list, fetched through the pin
+ * guess, names real builds.
+ *
+ * The list's newest entry *is* such a build (it is what the list exchange was
+ * pinned to), so borrowing it keeps the download on the same footing as picking
+ * that version in the picker — no extra Apple traffic, and nothing to guess.
+ * A platform that needs no pin is left alone: an unpinned iOS request is the
+ * historical path, and pinning it would only narrow what the account may get.
+ */
+function versionPinFallback(
+  app: Software,
+  account: Account,
+  country?: string,
+): string | undefined {
+  if (!needsPlatformPin(app.platform)) return undefined;
+  // The cache is keyed by the region the exchange ran under. The page that
+  // writes the list keys it with its own `country` state — the same source the
+  // account's storefront is derived from — so an explicit region is used when
+  // the caller has one (it matches the write even on the first frame, before
+  // the account selection settles); otherwise the account's storefront is the
+  // best available name for it.
+  const region = country ?? accountStoreCountry(account);
+  return getCachedVersionList(
+    versionListKey(app.id, app.platform, region),
+  )?.[0];
+}
+
+/**
  * Shared hook for download & purchase actions.
- * Eliminates the duplicated flow across ProductDetail, VersionHistory, and AddDownload.
+ * Eliminates the duplicated flow across the pages that trigger downloads.
  */
 export function useDownloadAction() {
   const { updateAccount } = useAccounts();
@@ -28,9 +62,11 @@ export function useDownloadAction() {
     account: Account,
     app: Software,
     versionId?: string,
+    country?: string,
   ) {
     const ctx = getAccountContext(account, t);
     const appName = app.name;
+    const pin = versionId || versionPinFallback(app, account, country);
 
     try {
       const settings = await apiGet<{ maxDownloadMB: number }>("/api/settings");
@@ -58,7 +94,7 @@ export function useDownloadAction() {
     let currentAccount = account;
     let download: Awaited<ReturnType<typeof getDownloadInfo>>;
     try {
-      download = await getDownloadInfo(currentAccount, app, versionId);
+      download = await getDownloadInfo(currentAccount, app, pin);
     } catch (err) {
       if (
         !(err instanceof DownloadError) ||
@@ -75,7 +111,7 @@ export function useDownloadAction() {
         t("toast.title.licenseSuccess"),
       );
 
-      download = await getDownloadInfo(currentAccount, app, versionId);
+      download = await getDownloadInfo(currentAccount, app, pin);
     }
 
     const { output, updatedCookies } = download;

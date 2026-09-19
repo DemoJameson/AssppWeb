@@ -10,6 +10,7 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useSelectedAccount } from "../../hooks/useSelectedAccount";
 import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
+import { formatDateISO } from "../../utils/software";
 import { storeIdToCountry } from "../../apple/config";
 import { getVersionMetadata } from "../../apple/versionLookup";
 import { lookupAppById } from "../../api/search";
@@ -56,7 +57,7 @@ export default function VersionHistory() {
   );
   const { selectedAccount } = useSelectedAccount(filteredAccounts);
   const [versions, setVersions] = useState<string[]>([]);
-  const { versionMeta, ensureLoaded, recordMetadata, prefetchMissing } =
+  const { versionMeta, pendingMeta, ensureLoaded, recordMetadata, prefetchMissing } =
     useVersionMetadataMap();
   const [loading, setLoading] = useState(false);
   const [loadingMeta, setLoadingMeta] = useState<Record<string, boolean>>({});
@@ -206,6 +207,7 @@ export default function VersionHistory() {
             {versions.map((versionId) => {
               const meta = versionMeta[versionId];
               const isLoadingMeta = loadingMeta[versionId];
+              const isPendingMeta = pendingMeta[versionId];
               const isDownloading = downloadingVersion === versionId;
 
               return (
@@ -219,10 +221,10 @@ export default function VersionHistory() {
                     </p>
                     {meta && (
                       <p className="text-sm text-gray-500 [overflow-wrap:anywhere] dark:text-gray-400">
-                        {new Date(meta.releaseDate).toLocaleDateString()}
+                        {formatDateISO(meta.releaseDate) ?? meta.releaseDate}
                       </p>
                     )}
-                    {!meta && !isLoadingMeta && (
+                    {!meta && !isLoadingMeta && !isPendingMeta && (
                       <button
                         onClick={() => handleLoadMeta(versionId)}
                         className="max-w-full py-1 text-left text-sm text-blue-600 [overflow-wrap:anywhere] transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
@@ -230,9 +232,11 @@ export default function VersionHistory() {
                         {t("search.versions.loadDetails")}
                       </button>
                     )}
-                    {isLoadingMeta && (
+                    {(isLoadingMeta || isPendingMeta) && (
                       <span className="text-sm text-gray-400 [overflow-wrap:anywhere] dark:text-gray-500">
-                        {t("search.versions.loading")}
+                        {isLoadingMeta
+                          ? t("search.versions.loading")
+                          : t("search.versions.fetching")}
                       </span>
                     )}
                   </div>

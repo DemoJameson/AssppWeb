@@ -2,7 +2,10 @@ import { Router, Request, Response } from "express";
 import {
   getVersionMetadataForApp,
   saveClientVersionMetadata,
+  seedVersionMetadata,
 } from "../services/versionMetadataCache.js";
+import { versionMetadataFromDownloadURL } from "../services/packageVersionMetadata.js";
+import type { PackageMetadata } from "../services/sinfInjector.js";
 
 const router = Router();
 
@@ -65,6 +68,66 @@ router.put(
     }
 
     res.json(result);
+  },
+);
+
+/**
+ * Reads one version's metadata out of its own package — ipatool's
+ * `readVersionMetadataFromIPA`. The download-product exchange does report a
+ * release date, but it dates the *app*: every pinned version of an app comes
+ * back with the same day (and the `iTunesMetadata.plist` inside the download
+ * says the same thing), which is how a picker ends up printing one date for
+ * every row. The package is the per-build source of truth, as it already is for
+ * compiled downloads.
+ *
+ * The client hands over the download URL it got from the pinned exchange; the
+ * package is never fetched whole, and the URL is validated first like every
+ * other package address.
+ */
+router.post(
+  "/version-metadata/:appId/:versionId/package",
+  async (req: Request, res: Response) => {
+    const rawAppId = req.params.appId;
+    const rawVersionId = req.params.versionId;
+    const appId = Array.isArray(rawAppId) ? rawAppId[0] : rawAppId;
+    const versionId = Array.isArray(rawVersionId)
+      ? rawVersionId[0]
+      : rawVersionId;
+    if (!/^\d+$/.test(appId) || !/^\d+$/.test(versionId)) {
+      res.status(400).json({ error: "Invalid app or version id" });
+      return;
+    }
+
+    const body = (req.body ?? {}) as { downloadURL?: unknown };
+    if (typeof body.downloadURL !== "string" || body.downloadURL === "") {
+      res.status(400).json({ error: "downloadURL is required" });
+      return;
+    }
+
+    try {
+      const metadata = await versionMetadataFromDownloadURL(body.downloadURL);
+      seedVersionMetadata(appId, {
+        externalVersionId: versionId,
+        version: metadata.displayVersion,
+        releaseDate: metadata.releaseDate,
+      } as PackageMetadata);
+
+      res.json({
+        saved: true,
+        entry: {
+          versionId,
+          displayVersion: metadata.displayVersion,
+          releaseDate: metadata.releaseDate,
+        },
+      });
+    } catch (error) {
+      res.status(502).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not read the version from its package",
+      });
+    }
   },
 );
 

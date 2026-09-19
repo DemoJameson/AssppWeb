@@ -14,8 +14,12 @@ import {
   seedVersionMetadata,
 } from "./versionMetadataCache.js";
 import { initVersionPinStore, recordVersionPin } from "./versionPinStore.js";
+import {
+  initPackageAppStore,
+  rememberPackageApp,
+} from "./packageAppStore.js";
 import { ChunkedDownloader, removePartFiles } from "./chunkedDownloader.js";
-import type { DownloadTask, Software, Sinf } from "../types/index.js";
+import type { DownloadTask, Platform, Software, Sinf } from "../types/index.js";
 
 const tasks = new Map<string, DownloadTask>();
 const abortControllers = new Map<string, AbortController>();
@@ -61,9 +65,9 @@ export function appPathSegment(software: Software): string {
  * declares. A value the storefront reported always wins, so a download created
  * from search results is left untouched.
  *
- * The download-by-ID page labels an app it could not look up as `App <id>`
- * (see `placeholderSoftware` in the frontend's DownloadById page); that label
- * counts as "no name yet" so the package can supply the real one.
+ * A download created from a bare app id labels the app `App <id>` (see
+ * `bareSoftwareById` in the frontend's `utils/software`); that label counts as
+ * "no name yet" so the package can supply the real one.
  */
 /** Fields of `Software` that a package can supply when the request did not. */
 type FillableField =
@@ -85,9 +89,9 @@ export function applyPackageMetadata(
 ): boolean {
   let changed = false;
 
-  // The download-by-ID page labels an app it could not look up `App <id>`
-  // (see `placeholderSoftware` in the frontend's DownloadById page); that
-  // label counts as "no name yet" so the package can supply the real one.
+  // A download created from a bare app id labels the app `App <id>` (see
+  // `bareSoftwareById` in the frontend's `utils/software`); that label counts
+  // as "no name yet" so the package can supply the real one.
   if (
     metadata.name &&
     (!software.name || software.name === `App ${software.id}`)
@@ -211,6 +215,32 @@ export function validateDownloadURL(url: string): void {
   }
 }
 
+/**
+ * Refuses a macOS package for a task that is not a macOS one.
+ *
+ * macOS downloads arrive as `.pkg` (a xar container): they carry no sinfs and
+ * cannot be unpacked the way an IPA is, so the task would fail only after the
+ * whole package had been fetched. The platform is the caller's choice while the
+ * build is selected by the version pin — and that pin can have been *guessed*
+ * (see the frontend's `versionFinder`, which probes neighbouring version ids) —
+ * so a tvOS or visionOS task really can be handed a Mac package. The URL says
+ * so, so the task is refused before anything is downloaded.
+ *
+ * Only this direction is checked: a `.ipa` for a macOS task fails loudly enough
+ * in the compile step, and a URL without an extension is no signal at all.
+ */
+export function assertPackageMatchesPlatform(
+  url: string,
+  platform?: Platform,
+): void {
+  if (platform === "macos") return;
+  if (!new URL(url).pathname.toLowerCase().endsWith(".pkg")) return;
+
+  throw new Error(
+    `A ${platform ?? "non-macOS"} download was offered a macOS package (.pkg)`,
+  );
+}
+
 // --- Security: sanitize task for API responses ---
 export function sanitizeTaskForResponse(
   task: DownloadTask,
@@ -223,13 +253,25 @@ export function sanitizeTaskForResponse(
   };
 }
 
+/**
+ * The software shape written to tasks.json. `metadataSource` marks where the
+ * search found the record (`bare`/`local`) — a per-request hint, not a property
+ * of the compiled package — so it is dropped before persistence: reloading a
+ * finished task would otherwise read it back as a stale verdict. Files that
+ * already carry it still load fine, since nothing reads the field off a task.
+ */
+export function softwareForPersistence(software: Software): Software {
+  const { metadataSource: _metadataSource, ...rest } = software;
+  return rest;
+}
+
 // --- Persistence: save only completed task metadata (no secrets) ---
 function persistTasks() {
   const completed = Array.from(tasks.values())
     .filter((t) => t.status === "completed" && t.filePath)
     .map((t) => ({
       id: t.id,
-      software: t.software,
+      software: softwareForPersistence(t.software),
       accountHash: t.accountHash,
       downloadURL: "",
       sinfs: [],
@@ -355,6 +397,10 @@ function initOnStartup() {
   // finished packages.
   initVersionPinStore();
 
+  // Load the package-app index before the repair pass records what finished
+  // packages know about their apps.
+  initPackageAppStore();
+
   // Load completed tasks from previous run
   if (fs.existsSync(TASKS_FILE)) {
     try {
@@ -450,6 +496,7 @@ async function repairFinishedPackages(): Promise<void> {
       task.software.platform,
       task.software.externalVersionId,
     );
+    rememberPackageApp(task.software);
 
     const stored = iconPathFor(task);
     const { icon } = info;
@@ -667,6 +714,8 @@ export function createTask(
 ): DownloadTask {
   // Validate download URL
   validateDownloadURL(downloadURL);
+  // …and that what Apple offered is a package this task's platform can use.
+  assertPackageMatchesPlatform(downloadURL, software.platform);
 
   // Validate path segments. The app id is the one field a download cannot do
   // without: it is what Apple is asked for, and it names the directory when the
@@ -809,6 +858,8 @@ async function startDownload(task: DownloadTask) {
       // The package is the trusted source for the shared version metadata
       // cache — the same read-back, recorded for every client of the instance.
       seedVersionMetadata(task.software.id, metadata);
+      // And the app index: a delisted app stays findable by bundle id.
+      rememberPackageApp(task.software);
       writeTaskIcon(task, icon);
     }
 

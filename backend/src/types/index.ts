@@ -40,6 +40,11 @@ export interface Software {
   platform?: Platform;
   /** Apple's external version identifier, read from the compiled package. */
   externalVersionId?: string;
+  /**
+   * Where the record came from: `store` (Apple answered) or `local` (the
+   * package-app index — a delisted app recalled from past downloads).
+   */
+  metadataSource?: "store" | "local";
 }
 
 export interface Sinf {

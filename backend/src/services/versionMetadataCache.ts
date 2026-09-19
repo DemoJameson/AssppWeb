@@ -179,12 +179,17 @@ function publicEntry({
   versionId,
   displayVersion,
   releaseDate,
+  source,
 }: VersionMetadataEntry): {
   versionId: string;
   displayVersion: string;
   releaseDate: string;
+  source: VersionMetadataSource;
 } {
-  return { versionId, displayVersion, releaseDate };
+  // The source rides along because it is the difference between a date that
+  // belongs to the build (package) and one that dates the app (client) — the
+  // frontend must know which it is printing.
+  return { versionId, displayVersion, releaseDate, source };
 }
 
 /** Writes the cache immediately, skipping the debounce (tests, shutdown). */

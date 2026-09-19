@@ -8,6 +8,7 @@ import { useSettingsStore } from "../../store/settings";
 import { useToastStore } from "../../store/toast";
 import { apiGet } from "../../api/client";
 import { encryptData, decryptData } from "../../utils/crypto";
+import { formatDateTimeISO } from "../../utils/software";
 import { PLATFORMS, PLATFORM_LABELS } from "../../apple/platform";
 import { countryCodeMap } from "../../apple/config";
 import type { Account } from "../../types";
@@ -219,12 +220,12 @@ export default function SettingsPage() {
                   addToast(t("settings.language.changed"), "success");
                 }}
                 options={[
-                  { value: "en-US", label: "English (US)" },
-                  { value: "zh-CN", label: "简体中文" },
-                  { value: "zh-TW", label: "繁體中文" },
-                  { value: "ja", label: "日本語" },
-                  { value: "ko", label: "한국어" },
-                  { value: "ru", label: "Русский" },
+                  { value: "en-US", label: "English (US)", group: t("settings.language.title") },
+                  { value: "zh-CN", label: "简体中文", group: t("settings.language.title") },
+                  { value: "zh-TW", label: "繁體中文", group: t("settings.language.title") },
+                  { value: "ja", label: "日本語", group: t("settings.language.title") },
+                  { value: "ko", label: "한국어", group: t("settings.language.title") },
+                  { value: "ru", label: "Русский", group: t("settings.language.title") },
                 ]}
                 className="block min-w-0 max-w-full w-full truncate rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
               />
@@ -254,6 +255,7 @@ export default function SettingsPage() {
                 options={sortedCountries.map((code) => ({
                   value: code,
                   label: `${t(`countries.${code}`, code)} (${code})`,
+                  group: t("regions.label"),
                 }))}
                 className="block min-w-0 max-w-full w-full truncate rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
               />
@@ -275,6 +277,7 @@ export default function SettingsPage() {
                 options={PLATFORMS.map((platform) => ({
                   value: platform,
                   label: PLATFORM_LABELS[platform],
+                  group: t("downloads.platform.label"),
                 }))}
                 className="block min-w-0 max-w-full w-full truncate rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
               />
@@ -460,7 +463,7 @@ export default function SettingsPage() {
                   compact
                   valueTitle={serverInfo.buildDate}
                 >
-                    {new Date(serverInfo.buildDate).toLocaleString()}
+                    {formatDateTimeISO(serverInfo.buildDate) ?? "—"}
                 </SettingsInfoRow>
               )}
             </dl>

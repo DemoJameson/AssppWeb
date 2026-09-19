@@ -79,6 +79,22 @@ export function metadataPlatformFor(platform?: Platform): string | undefined {
 }
 
 /**
+ * Whether the download exchange must pin a platform-specific version before
+ * the first request. tvOS and visionOS builds share an adam id with the iOS
+ * app, so an unpinned volumeStore request returns the iOS ipa. macOS apps can
+ * share an adam id with the iOS app too, and the legacy MDM lookup returns an
+ * iOS offer even with platform=osx, so the Mac storefront page selects the
+ * native Mac offer. iOS/iPad are the default device class and need no pin.
+ *
+ * It lives here rather than next to the exchange so callers that only need the
+ * rule — a hook deciding whether a download has to bring its own version id —
+ * do not have to import the libcurl-backed request graph.
+ */
+export function needsPlatformPin(platform?: Platform): boolean {
+  return platform === "tvos" || platform === "visionos" || platform === "macos";
+}
+
+/**
  * Lenient reader for persisted settings and query strings: accepts ipatool's
  * aliases and returns undefined for anything unknown.
  */

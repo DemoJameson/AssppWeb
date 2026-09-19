@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useVersionMetadataMap } from "../../src/hooks/useVersionMetadata";
 import {
+  fetchPackageVersionMetadata,
   fetchVersionMetadata,
   saveVersionMetadata,
 } from "../../src/api/versionMetadata";
+import { getDownloadInfo } from "../../src/apple/download";
 import { getVersionMetadata } from "../../src/apple/versionLookup";
 import { useVersionMetadataStore } from "../../src/store/versionMetadata";
 import { useSettingsStore } from "../../src/store/settings";
@@ -18,10 +20,26 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../src/api/versionMetadata", () => ({
   fetchVersionMetadata: vi.fn(),
   saveVersionMetadata: vi.fn(),
+  fetchPackageVersionMetadata: vi.fn(),
 }));
 
 vi.mock("../../src/apple/versionLookup", () => ({
   getVersionMetadata: vi.fn(),
+}));
+
+// The hook's accurate-date path goes through the pinned download exchange, and
+// its transport must stay out of the jsdom graph (libcurl aborts on import).
+vi.mock("../../src/apple/download", () => ({
+  DownloadError: class DownloadError extends Error {},
+  getDownloadInfo: vi.fn(),
+}));
+vi.mock("../../src/apple/request", () => ({
+  appleRequest: vi.fn(),
+}));
+vi.mock("../../src/apple/bag", () => ({
+  fetchBag: vi.fn(),
+  defaultAuthURL:
+    "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate",
 }));
 
 vi.mock("../../src/store/accounts", () => ({
@@ -68,7 +86,7 @@ describe("useVersionMetadataMap", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.accounts = [account];
-    useVersionMetadataStore.setState({ entries: {} });
+    useVersionMetadataStore.setState({ entries: {}, pending: {} });
     useSettingsStore.setState({
       autoFetchVersionInfo: true,
       autoAcquireLicense: true,
@@ -122,7 +140,7 @@ describe("useVersionMetadataMap", () => {
     });
   });
 
-  it("prefetches only missing versions, capped at twenty", async () => {
+  it("prefetches only missing versions, capped at one hundred", async () => {
     vi.mocked(getVersionMetadata).mockResolvedValue({
       metadata: { displayVersion: "1.0.0", releaseDate: "d" },
       updatedCookies: [],
@@ -132,7 +150,7 @@ describe("useVersionMetadataMap", () => {
     });
     const versions = [
       "known",
-      ...Array.from({ length: 25 }, (_, index) => `missing-${index}`),
+      ...Array.from({ length: 125 }, (_, index) => `missing-${index}`),
     ];
 
     const { result } = renderHook(() => useVersionMetadataMap());
@@ -140,9 +158,12 @@ describe("useVersionMetadataMap", () => {
       result.current.prefetchMissing(account, app, versions);
     });
 
-    await vi.waitFor(() => {
-      expect(getVersionMetadata).toHaveBeenCalledTimes(20);
-    });
+    await vi.waitFor(
+      () => {
+        expect(getVersionMetadata).toHaveBeenCalledTimes(100);
+      },
+      { timeout: 5000 },
+    );
     const asked = vi
       .mocked(getVersionMetadata)
       .mock.calls.map((call) => call[2]);
@@ -178,10 +199,162 @@ describe("useVersionMetadataMap", () => {
     expect(maxActive).toBe(5);
   });
 
+  it("keeps the tail past the first twenty serial", async () => {
+    let active = 0;
+    let maxActive = 0;
+    let started = 0;
+    const starts: Array<{ index: number; active: number }> = [];
+    vi.mocked(getVersionMetadata).mockImplementation(async () => {
+      started += 1;
+      active += 1;
+      starts.push({ index: started, active });
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 3));
+      active -= 1;
+      return {
+        metadata: { displayVersion: "1.0.0", releaseDate: "d" },
+        updatedCookies: [],
+      };
+    });
+
+    const versions = Array.from({ length: 26 }, (_, index) => `v-${index}`);
+    const { result } = renderHook(() => useVersionMetadataMap());
+    act(() => {
+      result.current.prefetchMissing(account, app, versions);
+    });
+
+    await vi.waitFor(() => {
+      expect(getVersionMetadata).toHaveBeenCalledTimes(26);
+    });
+    await vi.waitFor(() => {
+      expect(active).toBe(0);
+    });
+
+    expect(maxActive).toBe(5);
+    const tail = starts.filter((sample) => sample.index > 20);
+    expect(tail).toHaveLength(6);
+    for (const sample of tail) {
+      expect(sample.active).toBe(1);
+    }
+  });
+
+  it("interrupts the queue when the page goes away, keeping finished writes", async () => {
+    vi.mocked(getDownloadInfo).mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return {
+        output: {
+          downloadURL: "https://iosapps.example.com/app.ipa",
+          sinfs: [],
+          bundleShortVersionString: "1.0.0",
+          bundleVersion: "100",
+          bundleID: "com.example.utility",
+        },
+        updatedCookies: [],
+      };
+    });
+    vi.mocked(fetchPackageVersionMetadata).mockResolvedValue({
+      displayVersion: "1.0.0",
+      releaseDate: "2026-01-01T00:00:00Z",
+      source: "package",
+    });
+
+    const versions = Array.from({ length: 100 }, (_, index) => `v-${index}`);
+    const { result, unmount } = renderHook(() => useVersionMetadataMap());
+    act(() => {
+      result.current.prefetchMissing(account, app, versions);
+    });
+
+    await vi.waitFor(() => {
+      expect(getDownloadInfo).toHaveBeenCalledTimes(5);
+    });
+    unmount();
+
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    // Nothing new was queued after leaving…
+    expect(getDownloadInfo).toHaveBeenCalledTimes(5);
+    // …and the five already in flight still delivered their package reads —
+    // the POST route is what writes those into the shared cache.
+    expect(fetchPackageVersionMetadata).toHaveBeenCalledTimes(5);
+  });
+
+  it("does not start a fill that only begins after the page is gone", async () => {
+    // The silent policy waits for the shared cache before filling: leaving in
+    // the meantime must not queue lookups for a page nobody is on.
+    let releaseCache: (() => void) | undefined;
+    vi.mocked(fetchVersionMetadata).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseCache = () => resolve({});
+        }),
+    );
+
+    const { result, unmount } = renderHook(() => useVersionMetadataMap());
+    act(() => {
+      void result.current.fillVersionsSilently(account, app, ["800", "801"]);
+    });
+
+    unmount();
+    releaseCache?.();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(getVersionMetadata).not.toHaveBeenCalled();
+  });
+
+  it("ignores a prefetch asked for after the page is gone", async () => {
+    const { result, unmount } = renderHook(() => useVersionMetadataMap());
+    unmount();
+
+    await act(async () => {
+      await result.current.prefetchMissing(account, app, ["700"]);
+    });
+
+    expect(getVersionMetadata).not.toHaveBeenCalled();
+  });
+
+  it("marks versions as pending while their lookup runs", async () => {
+    let releaseFetch: (() => void) | undefined;
+    vi.mocked(getVersionMetadata).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseFetch = () =>
+            resolve({
+              metadata: { displayVersion: "1.0.0", releaseDate: "d" },
+              updatedCookies: [],
+            });
+        }),
+    );
+
+    const { result } = renderHook(() => useVersionMetadataMap());
+    act(() => {
+      result.current.prefetchMissing(account, app, ["900"]);
+    });
+
+    await vi.waitFor(() => {
+      expect(useVersionMetadataStore.getState().pending["900"]).toBe(true);
+    });
+
+    releaseFetch?.();
+    await vi.waitFor(() => {
+      expect(useVersionMetadataStore.getState().pending["900"]).toBeUndefined();
+    });
+  });
+
   it("records prefetched metadata and refreshes the session", async () => {
-    vi.mocked(getVersionMetadata).mockResolvedValue({
-      metadata: { displayVersion: "2.2.2", releaseDate: "2026-05-05" },
+    vi.mocked(getDownloadInfo).mockResolvedValue({
+      output: {
+        downloadURL: "https://iosapps.example.com/app.ipa",
+        sinfs: [],
+        bundleShortVersionString: "2.2.2",
+        bundleVersion: "222",
+        bundleID: "com.example.utility",
+      },
       updatedCookies: [],
+    });
+    vi.mocked(fetchPackageVersionMetadata).mockResolvedValue({
+      displayVersion: "2.2.2",
+      releaseDate: "2026-05-05T00:00:00Z",
+      source: "package",
     });
 
     const { result } = renderHook(() => useVersionMetadataMap());
@@ -192,10 +365,12 @@ describe("useVersionMetadataMap", () => {
     await vi.waitFor(() => {
       expect(result.current.versionMeta["101"]?.displayVersion).toBe("2.2.2");
     });
-    expect(saveVersionMetadata).toHaveBeenCalledWith(app.id, "102", {
-      displayVersion: "2.2.2",
-      releaseDate: "2026-05-05",
-    });
+    // The backend reads the date out of the package the pinned exchange named.
+    expect(fetchPackageVersionMetadata).toHaveBeenCalledWith(
+      app.id,
+      "102",
+      "https://iosapps.example.com/app.ipa",
+    );
     await vi.waitFor(() => {
       expect(mocks.updateAccount).toHaveBeenCalledTimes(2);
     });
@@ -250,5 +425,26 @@ describe("useVersionMetadataMap", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(getVersionMetadata).not.toHaveBeenCalled();
+  });
+
+  it("runs the same fill on demand when the switch is off and force is passed", async () => {
+    useSettingsStore.setState({ autoFetchVersionInfo: false });
+    vi.mocked(getVersionMetadata).mockResolvedValue({
+      metadata: { displayVersion: "1.0.0", releaseDate: "d" },
+      updatedCookies: [],
+    });
+
+    const { result } = renderHook(() => useVersionMetadataMap());
+    let run!: Promise<void>;
+    act(() => {
+      run = result.current.prefetchMissing(account, app, ["1", "2"], {
+        force: true,
+      });
+    });
+
+    await vi.waitFor(() => {
+      expect(getVersionMetadata).toHaveBeenCalledTimes(2);
+    });
+    await expect(run).resolves.toBeUndefined();
   });
 });

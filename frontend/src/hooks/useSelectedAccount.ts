@@ -1,16 +1,13 @@
 import { useEffect, useState } from "react";
-import { useSettingsStore } from "../store/settings";
 import type { Account } from "../types";
 
 /**
- * Account selection shared by the pages that pick one. The last explicit
- * choice is remembered in the settings store (persisted), so every selector
- * reuses it while the account is still present and falls back to the first
- * available account otherwise.
+ * Account selection shared by the pages that pick one. The choice lives for
+ * the page: entering a view falls back to the first available account, and
+ * the search page's region selection brings the matching account along on
+ * the detail view (see ProductDetail).
  */
 export function useSelectedAccount(accounts: Account[]) {
-  const defaultAccount = useSettingsStore((s) => s.defaultAccount);
-  const setDefaultAccount = useSettingsStore((s) => s.setDefaultAccount);
   const [selectedAccount, setSelectedAccount] = useState("");
 
   useEffect(() => {
@@ -19,15 +16,12 @@ export function useSelectedAccount(accounts: Account[]) {
       return;
     }
     if (accounts.some((a) => a.email === selectedAccount)) return;
+    setSelectedAccount(accounts[0].email);
+  }, [accounts, selectedAccount]);
 
-    const preferred = accounts.find((a) => a.email === defaultAccount);
-    setSelectedAccount(preferred ? preferred.email : accounts[0].email);
-  }, [accounts, selectedAccount, defaultAccount]);
-
-  /** Picks an account for this page and remembers it for the next visit. */
+  /** Picks an account for this page. */
   function selectAccount(email: string) {
     setSelectedAccount(email);
-    setDefaultAccount(email);
   }
 
   return { selectedAccount, selectAccount };

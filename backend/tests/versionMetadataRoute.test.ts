@@ -60,6 +60,7 @@ describe("Version Metadata Route", () => {
           versionId: "888154622",
           displayVersion: "1.3.18",
           releaseDate: "2026-07-11T15:06:44.000Z",
+          source: "package",
         },
       ],
     });
@@ -80,6 +81,7 @@ describe("Version Metadata Route", () => {
         versionId: "900000001",
         displayVersion: "2.0.0",
         releaseDate: "2026-08-01T00:00:00.000Z",
+        source: "client",
       },
     });
 

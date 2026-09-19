@@ -13,6 +13,7 @@ import {
   previewDownloadTasks,
 } from './previewTasks';
 import { useAccounts } from '../../hooks/useAccounts';
+import { formatDateISO, formatDateTimeISO } from '../../utils/software';
 import { useDownloadAction } from '../../hooks/useDownloadAction';
 import { useDownloads } from '../../hooks/useDownloads';
 import { useVersionMetadataMap } from '../../hooks/useVersionMetadata';
@@ -47,7 +48,7 @@ export default function PackageDetail() {
   const [latestApp, setLatestApp] = useState<Software | null>(null);
   const [availableVersions, setAvailableVersions] = useState<string[]>([]);
   const [selectedVersion, setSelectedVersion] = useState('');
-  const { versionMeta, ensureLoaded, prefetchMissing } =
+  const { versionMeta, pendingMeta, fillVersionsSilently } =
     useVersionMetadataMap();
 
   const previewEnabled = isDownloadPreviewEnabled(location.search);
@@ -154,9 +155,8 @@ export default function PackageDetail() {
         const result = await listVersionsWithLicense(account, app);
         setAvailableVersions(result.versions);
         setSelectedVersion(result.versions[0] || '');
-        await ensureLoaded(app.id);
-        // Fill the missing labels silently in the background.
-        prefetchMissing(account, app, result.versions);
+        // Shared cache first, then the missing labels filled silently.
+        fillVersionsSilently(account, app, result.versions);
         setShowUpdateModal(true);
       } else {
         addToast(t('downloads.package.noUpdate'), 'info');
@@ -225,7 +225,7 @@ export default function PackageDetail() {
               <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
                 <Badge status={task.status} />
                 <span className="min-w-0 break-all text-sm text-gray-500 dark:text-gray-400">
-                  v{task.software.version}
+                  {task.software.version}
                 </span>
               </div>
             </div>
@@ -296,7 +296,7 @@ export default function PackageDetail() {
               {task.software.sellerName || task.software.artistName}
             </PackageDetailRow>
             <PackageDetailRow
-              label={t('downloads.package.softwareId')}
+              label={t('downloads.package.appId')}
               valueTitle={String(task.software.id)}
               mono
             >
@@ -310,18 +310,17 @@ export default function PackageDetail() {
               {task.software.bundleID}
             </PackageDetailRow>
             <PackageDetailRow
-              label={t('downloads.package.versionId')}
-              valueTitle={task.software.externalVersionId}
-              mono
-            >
-              {task.software.externalVersionId || '—'}
-            </PackageDetailRow>
-            <PackageDetailRow
               label={t('downloads.package.version')}
-              valueTitle={task.software.version}
+              valueTitle={
+                task.software.externalVersionId
+                  ? `${task.software.version} (${task.software.externalVersionId})`
+                  : task.software.version
+              }
               mono
             >
-              {task.software.version}
+              {task.software.externalVersionId
+                ? `${task.software.version} (${task.software.externalVersionId})`
+                : task.software.version}
             </PackageDetailRow>
             <PackageDetailRow
               label={t('downloads.package.account')}
@@ -330,7 +329,7 @@ export default function PackageDetail() {
               {accountLabel}
             </PackageDetailRow>
             <PackageDetailRow label={t('downloads.package.created')}>
-              {new Date(task.createdAt).toLocaleString()}
+              {formatDateTimeISO(task.createdAt) ?? '—'}
             </PackageDetailRow>
           </dl>
         </section>
@@ -451,7 +450,8 @@ export default function PackageDetail() {
                 onChange={setSelectedVersion}
                 options={availableVersions.map((version) => ({
                   value: version,
-                  label: versionRowLabel(version, versionMeta[version]),
+                  label: versionRowLabel(version, versionMeta[version], pendingMeta[version]),
+                  group: t('search.product.version'),
                 }))}
                 ariaLabel={t('downloads.package.selectVersion')}
                 className="min-h-11 w-full min-w-0 max-w-full truncate rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
@@ -525,6 +525,5 @@ function PackageDetailRow({
 }
 
 function formatDate(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString();
+  return formatDateISO(value) ?? '—';
 }

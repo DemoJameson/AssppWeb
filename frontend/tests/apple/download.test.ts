@@ -4,6 +4,7 @@ import { getDownloadInfo } from "../../src/apple/download";
 import { appleRequest } from "../../src/apple/request";
 import { fetchBag } from "../../src/apple/bag";
 import { apiGet } from "../../src/api/client";
+import i18n from "../../src/i18n";
 import type { Account, Software } from "../../src/types";
 
 vi.mock("../../src/apple/request", () => ({
@@ -92,6 +93,19 @@ const downloadDoc = (metadata: Record<string, unknown> = {}) =>
     ],
   });
 
+/** A macOS build: Apple hands those out as .pkg containers, not as IPAs. */
+const macPackageDoc = () =>
+  buildPlist({
+    pings: [],
+    songList: [
+      {
+        URL: "https://iosapps.example.com/app.pkg",
+        sinfs: [{ id: 0, sinf: "AAAA" }],
+        metadata: { bundleShortVersionString: "1.2.3", bundleVersion: "123" },
+      },
+    ],
+  });
+
 /** What updateProduct answers: one item that must identify itself. */
 const updateDoc = (versionId: string, overrides: Record<string, unknown> = {}) =>
   downloadDoc({
@@ -165,6 +179,30 @@ describe("apple/download", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].host).toBe("p25-buy.itunes.apple.com");
     expect(calls[0].path).toContain("/volumeStoreDownloadProduct?guid=aabbccddeeff");
+  });
+
+  it("refuses a macOS package for a task that is not a macOS one", async () => {
+    // Which build Apple serves is decided by the version pin, and that pin can
+    // have been guessed (see `versionFinder`) — so a tvOS request really can be
+    // handed a Mac package. It is refused here, in the user's language, before a
+    // task is created for something the IPA pipeline cannot compile.
+    const tvosApp = { ...app, platform: "tvos" } as Software;
+    downloadReplies = [reply(macPackageDoc())];
+
+    await expect(getDownloadInfo(account, tvosApp)).rejects.toThrow(
+      i18n.t("errors.download.macOSPackage"),
+    );
+  });
+
+  it("lets a macOS task keep its own package", async () => {
+    const macApp = { ...app, platform: "macos" } as Software;
+    downloadReplies = [reply(macPackageDoc())];
+
+    // Pinned explicitly: the macOS catalogue lookup is not what this test is
+    // about, and a caller-provided version skips that resolution.
+    const { output } = await getDownloadInfo(account, macApp, "891042628");
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.pkg");
   });
 
   it("sends the payload ipatool sends, with salableAdamId as an integer", async () => {

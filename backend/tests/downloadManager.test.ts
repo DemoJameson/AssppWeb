@@ -5,7 +5,9 @@ import path from "path";
 import {
   appPathSegment,
   applyPackageMetadata,
+  assertPackageMatchesPlatform,
   iconPathFor,
+  softwareForPersistence,
 } from "../src/services/downloadManager.js";
 import type { DownloadTask, Software } from "../src/types/index.js";
 
@@ -28,6 +30,46 @@ function software(overrides: Partial<Software>): Software {
     ...overrides,
   };
 }
+
+describe("assertPackageMatchesPlatform", () => {
+  const pkgUrl = "https://iosapps.example.com/app.pkg";
+  const ipaUrl = "https://iosapps.example.com/app.ipa";
+
+  it("refuses a macOS package for a task that is not a macOS one", () => {
+    // The version pin that selects the build can have been guessed, so a tvOS or
+    // visionOS task really can be offered a Mac package — and it would only fail
+    // after the whole thing had been downloaded.
+    expect(() => assertPackageMatchesPlatform(pkgUrl, "tvos")).toThrow(
+      /macOS package/,
+    );
+    expect(() => assertPackageMatchesPlatform(pkgUrl, "visionos")).toThrow();
+    expect(() => assertPackageMatchesPlatform(pkgUrl, "ios")).toThrow();
+    expect(() => assertPackageMatchesPlatform(pkgUrl, undefined)).toThrow();
+  });
+
+  it("lets a macOS task keep its package", () => {
+    expect(() => assertPackageMatchesPlatform(pkgUrl, "macos")).not.toThrow();
+  });
+
+  it("does not mind an IPA, or a URL with no extension", () => {
+    for (const platform of ["ios", "tvos", "visionos", "macos"] as const) {
+      expect(() => assertPackageMatchesPlatform(ipaUrl, platform)).not.toThrow();
+      expect(() =>
+        assertPackageMatchesPlatform(
+          "https://iosapps.example.com/download",
+          platform,
+        ),
+      ).not.toThrow();
+    }
+  });
+
+  it("looks at the path, not the query", () => {
+    expect(() =>
+      assertPackageMatchesPlatform(`${ipaUrl}?token=.pkg`, "tvos"),
+    ).not.toThrow();
+    expect(() => assertPackageMatchesPlatform(`${pkgUrl}?x=1`, "tvos")).toThrow();
+  });
+});
 
 describe("appPathSegment", () => {
   it("uses the bundle identifier when the storefront reported one", () => {
@@ -204,5 +246,22 @@ describe("applyPackageMetadata", () => {
     // The startup repair relies on this to know what to persist.
     expect(applyPackageMetadata(software({}), {})).toBe(false);
     expect(applyPackageMetadata(software({}), fromPackage)).toBe(true);
+  });
+});
+
+describe("softwareForPersistence", () => {
+  it("strips the search-origin marker without mutating the input", () => {
+    const withSource = software({ metadataSource: "local" });
+
+    const stripped = softwareForPersistence(withSource);
+
+    expect(stripped.metadataSource).toBeUndefined();
+    expect(stripped.id).toBe(1492142120);
+    // The in-memory task keeps its marker; only the on-disk copy drops it.
+    expect(withSource.metadataSource).toBe("local");
+  });
+
+  it("leaves software without a marker unchanged in shape", () => {
+    expect(softwareForPersistence(software({}))).toEqual(software({}));
   });
 });

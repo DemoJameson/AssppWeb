@@ -6,16 +6,18 @@
 // inside the download flow. Callers supply a pin (or an empty string) and then
 // apply their own failure mapping to the reply.
 
-import type { Account, Software, Cookie, Platform } from "../types";
+import type { Account, Software, Cookie } from "../types";
 import { appleRequest, type AppleRequestOptions, type AppleResponse } from "./request";
 import { buildPlist, parsePlist } from "./plist";
 import { extractAndMergeCookies } from "./cookies";
 import { fetchBag } from "./bag";
+import { DownloadError, UnexpectedAppleResponseError } from "./errors";
 import {
   lookupLatestExternalVersionId,
   lookupLatestMacOSVersionId,
 } from "./platformVersion";
 import { withRecordedFallback } from "./versionPins";
+import { needsPlatformPin } from "./platform";
 import {
   REDOWNLOAD_PRODUCT_PATH,
   UPDATE_PRODUCT_PATH,
@@ -26,38 +28,13 @@ import {
 } from "./config";
 import i18n from "../i18n";
 
+// The error types themselves live in `errors.ts` (importable without the
+// libcurl graph); they are re-exported here, the module whose protocol they
+// describe, so existing import sites keep working.
+export { DownloadError, UnexpectedAppleResponseError };
+
 /** Apple's own cap on the number of redirects it will route a download through. */
 const MAX_REDIRECTS = 10;
-
-export class DownloadError extends Error {
-  constructor(
-    message: string,
-    public readonly code?: string,
-  ) {
-    super(message);
-    this.name = "DownloadError";
-  }
-}
-
-/**
- * Apple answered with something that is not a plist — an HTML error page, or a
- * status with nothing in it. Mirrors ipatool's `UnexpectedResponseError`; the
- * `snippet` is what the redownload recovery path inspects to tell an empty HTTP
- * 500 apart from a real failure.
- */
-export class UnexpectedAppleResponseError extends Error {
-  constructor(
-    readonly status: number,
-    readonly snippet: string,
-  ) {
-    super(
-      `unexpected response from Apple (HTTP ${status}): ${
-        snippet || "empty or non-plist body"
-      }`,
-    );
-    this.name = "UnexpectedAppleResponseError";
-  }
-}
 
 export interface DownloadSession {
   account: Account;
@@ -378,18 +355,6 @@ function isEmptyRedownloadError(error: unknown): boolean {
 }
 
 /**
- * Whether the download exchange must pin a platform-specific version before
- * the first request. tvOS and visionOS builds share an adam id with the iOS
- * app, so an unpinned volumeStore request returns the iOS ipa. macOS apps can
- * share an adam id with the iOS app too, and the legacy MDM lookup returns an
- * iOS offer even with platform=osx, so the Mac storefront page selects the
- * native Mac offer. iOS/iPad are the default device class and need no pin.
- */
-function needsPlatformPin(platform?: Platform): boolean {
-  return platform === "tvos" || platform === "visionos" || platform === "macos";
-}
-
-/**
  * Resolves the newest external version id that redownload and updateProduct
  * need. A failure is fatal here, as in ipatool: an unpinned redownload can
  * return a tvOS build for a universal app, and the rest of the flow has no way
@@ -422,6 +387,9 @@ async function pinnedLatestVersionId(session: DownloadSession): Promise<string> 
   );
 
   if (!versionId) {
+    // A pinned version is required here and neither the catalogue nor a
+    // recorded pin has one. That is not proof of a missing app (see
+    // `appPresenceFromProbeError`), so this stays a plain, open-ended failure.
     throw new DownloadError(i18n.t("errors.download.missingVersion"));
   }
 

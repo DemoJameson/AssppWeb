@@ -5,6 +5,7 @@ import PageContainer from "../Layout/PageContainer";
 import { useAccountsStore } from "../../store/accounts";
 import { useSapWarmup } from "../../hooks/useSapWarmup";
 import { storeIdToCountry } from "../../apple/config";
+import { AccountAvatar } from "./AccountAvatar";
 
 export default function AccountList() {
   const { t } = useTranslation();
@@ -94,11 +95,7 @@ export default function AccountList() {
                     }`
                   }
                 >
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-lg font-semibold text-white">
-                    {(account.firstName || account.email)
-                      .charAt(0)
-                      .toUpperCase()}
-                  </div>
+                  <AccountAvatar account={account} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold text-gray-900 dark:text-white">
                       {account.firstName} {account.lastName}

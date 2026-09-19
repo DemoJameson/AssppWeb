@@ -8,6 +8,11 @@ import { authenticate } from "../../src/apple/authenticate";
 import { apiGet, apiPost } from "../../src/api/client";
 import { useToastStore } from "../../src/store/toast";
 import { useSettingsStore } from "../../src/store/settings";
+import {
+  rememberVersionList,
+  useVersionListsStore,
+  versionListKey,
+} from "../../src/store/versionLists";
 import type { Account, Software } from "../../src/types";
 
 const mocks = vi.hoisted(() => ({
@@ -109,6 +114,7 @@ const output = {
 describe("useDownloadAction", () => {
   beforeEach(() => {
     useToastStore.setState({ toasts: [] });
+    useVersionListsStore.setState({ lists: {} });
     useSettingsStore.setState({
       autoFetchVersionInfo: true,
       autoAcquireLicense: true,
@@ -216,6 +222,89 @@ describe("useDownloadAction", () => {
     expect(purchaseApp).not.toHaveBeenCalled();
     expect(authenticate).not.toHaveBeenCalled();
     expect(getDownloadInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it("borrows the cached newest version when the platform needs a pin", async () => {
+    // A tvOS download has to name a version id up front; for a delisted app the
+    // catalogue and the recorded pin both have nothing, but the version list —
+    // fetched through the pin guess — names real builds, so its newest entry is
+    // borrowed instead of failing with "no version to pin".
+    const tvosApp = { ...app, platform: "tvos" as const };
+    rememberVersionList(versionListKey(app.id, "tvos", "US"), ["900", "800"]);
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, tvosApp);
+    });
+
+    expect(getDownloadInfo).toHaveBeenCalledWith(account, tvosApp, "900");
+  });
+
+  it("borrows the pin from the page's region when one is supplied", async () => {
+    // The page keys its list cache with its own `country` state; on the first
+    // frame that can differ from the account's storefront, so the fallback must
+    // read the key the page wrote under.
+    const tvosApp = { ...app, platform: "tvos" as const };
+    rememberVersionList(versionListKey(app.id, "tvos", "JP"), ["900"]);
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, tvosApp, undefined, "JP");
+    });
+
+    expect(getDownloadInfo).toHaveBeenCalledWith(account, tvosApp, "900");
+  });
+
+  it("lets an explicit version win over the cached one", async () => {
+    const tvosApp = { ...app, platform: "tvos" as const };
+    rememberVersionList(versionListKey(app.id, "tvos", "US"), ["900", "800"]);
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, tvosApp, "800");
+    });
+
+    expect(getDownloadInfo).toHaveBeenCalledWith(account, tvosApp, "800");
+  });
+
+  it("passes no version when the platform needs no pin, cache or not", async () => {
+    // iOS keeps the historical unpinned request: pinning it would narrow what
+    // the account may receive for no reason.
+    rememberVersionList(versionListKey(app.id, "ios"), ["900"]);
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, app);
+    });
+
+    expect(getDownloadInfo).toHaveBeenCalledWith(account, app, undefined);
+  });
+
+  it("passes no version when a pinned platform has no cached list", async () => {
+    const tvosApp = { ...app, platform: "tvos" as const };
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, tvosApp);
+    });
+
+    expect(getDownloadInfo).toHaveBeenCalledWith(account, tvosApp, undefined);
+  });
+
+  it("reuses the borrowed pin for the retry after a purchase", async () => {
+    const tvosApp = { ...app, platform: "tvos" as const };
+    rememberVersionList(versionListKey(app.id, "tvos", "US"), ["900"]);
+    vi.mocked(getDownloadInfo)
+      .mockRejectedValueOnce(new DownloadError("license", "9610"))
+      .mockResolvedValueOnce({ output, updatedCookies: [] });
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, tvosApp);
+    });
+
+    expect(getDownloadInfo).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(getDownloadInfo).mock.calls[1][2]).toBe("900");
   });
 
   it("lists versions and stores the refreshed session", async () => {

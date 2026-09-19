@@ -18,6 +18,11 @@ export async function searchApps(
   return apiGet<Software[]>(`/api/search?${params}`);
 }
 
+/**
+ * Resolves an app from a bundle id. When the storefront no longer lists the
+ * app (delisted), the backend answers from its package-app index — what past
+ * downloads' compiled packages recorded — instead of returning nothing.
+ */
 export async function lookupApp(
   bundleId: string,
   country: string,
@@ -27,9 +32,9 @@ export async function lookupApp(
 }
 
 /**
- * Resolves an app from its numeric App Store id. The backend forwards the query
- * to Apple's lookup endpoint verbatim, so `id` works the same way `bundleId`
- * does. Returns null when the id is unknown to that storefront.
+ * Resolves an app from its numeric App Store id — by the same route a bundle
+ * id takes, with the backend's package-app index as the fallback when the
+ * storefront no longer knows the id. Returns null when nothing does.
  */
 export async function lookupAppById(
   id: string | number,
