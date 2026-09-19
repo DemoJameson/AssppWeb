@@ -34,6 +34,8 @@ i18n
   .use(initReactI18next)
   .init({
     resources,
+    supportedLngs: ["en-US", "zh-CN", "zh-TW", "ja", "ko", "ru"],
+    load: "currentOnly",
     fallbackLng: "en-US",
     interpolation: {
       escapeValue: false,

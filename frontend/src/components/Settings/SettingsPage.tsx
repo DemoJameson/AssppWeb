@@ -196,14 +196,8 @@ export default function SettingsPage() {
           </h2>
           <div className="space-y-4">
             <div>
-              <label
-                htmlFor="language"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3"
-              >
-                {t("settings.language.label")}
-              </label>
               <Select
-                id="language"
+                ariaLabel={t("settings.language.label")}
                 value={i18n.resolvedLanguage || "en-US"}
                 onChange={async (value) => {
                   await i18n.changeLanguage(value);
