@@ -49,6 +49,7 @@
 .dynamodb/
 .env
 .env.test
+*.local
 .eslintcache
 .fseventsd
 .fusebox/

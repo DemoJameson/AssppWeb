@@ -353,10 +353,13 @@ function isUrlExpired(url: string): boolean {
 }
 
 function resolveDownloadUrl(url: string): string {
-  const base = import.meta.env.DEV
-    ? 'http://localhost:8080'
-    : window.location.origin;
-  return new URL(url, base).href;
+  if (import.meta.env.DEV) {
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return new URL(url, 'http://localhost:8080').href;
+    }
+  }
+  return new URL(url, window.location.origin).href;
 }
 
 function InstallIcon() {
