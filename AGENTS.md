@@ -220,8 +220,12 @@ a tvOS build for a universal app.
 transports, one per platform family:
 
 - **iOS / iPad / tvOS** — the MDM catalogue at `uclient-api.itunes.apple.com`
-  with `p=mdm-lockup` and a per-platform `platform` parameter
-  (`enterprisestore` / `atv9`).
+  with `p=mdm-lockup` and a per-platform `platform` parameter. iOS/iPad start
+  at the enterprise catalogue (`enterprisestore`) and fall back to the
+  consumer `iphone`/`ipad` catalogues — some storefronts have no enterprise
+  listing even when a consumer catalogue has the app (ipatool e5211d6). Each
+  lookup keeps the account's country code, and tvOS stays on the single `atv9`
+  catalogue.
 - **visionOS** — Apple's MDM catalogue does not carry visionOS offers, so the
   storefront product page at `apps.apple.com/{cc}/app/id{id}?platform=vision`
   is used instead. The `<script id="serialized-server-data">` JSON is parsed

@@ -79,6 +79,32 @@ export function metadataPlatformFor(platform?: Platform): string | undefined {
 }
 
 /**
+ * The MDM catalogues `lookupLatestExternalVersionId` consults, in order.
+ * Mirrors ipatool's `lookupLatestExternalVersionID` (e5211d6): tvOS stays on
+ * its single Apple TV catalogue, while iPhone/iPad — and the default device
+ * class — start at the enterprise catalogue and fall back to the consumer
+ * iphone/ipad catalogues, because some storefronts have no enterprise listing
+ * even when a consumer catalogue has the app. visionOS and macOS never reach
+ * the MDM lookup, so they have no catalogues.
+ */
+export function mdmCataloguesFor(platform?: Platform): string[] | undefined {
+  if (platform === "visionos" || platform === "macos") {
+    return undefined;
+  }
+
+  const primary = metadataPlatformFor(platform);
+  if (!primary) {
+    return undefined;
+  }
+
+  if (platform === "tvos") {
+    return [primary];
+  }
+
+  return [primary, "iphone", "ipad"];
+}
+
+/**
  * Whether the download exchange must pin a platform-specific version before
  * the first request. tvOS and visionOS builds share an adam id with the iOS
  * app, so an unpinned volumeStore request returns the iOS ipa. macOS apps can

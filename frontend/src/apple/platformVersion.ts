@@ -6,8 +6,10 @@
 // Three transports, one per platform family:
 //
 //   - iOS / iPad / tvOS — the MDM catalogue at uclient-api.itunes.apple.com
-//     with p=mdm-lockup and a per-platform `platform` parameter
-//     (enterprisestore / atv9). This is what the redownload fallback needs.
+//     with p=mdm-lockup and a per-platform `platform` parameter. iOS/iPad start
+//     at the enterprise catalogue and fall back to the consumer iphone/ipad
+//     catalogues (some storefronts have no enterprise listing); tvOS stays on
+//     the single atv9 catalogue. This is what the redownload fallback needs.
 //
 //   - visionOS — Apple's MDM catalogue does not carry visionOS offers, so
 //     ipatool short-circuits to the storefront product page at
@@ -21,7 +23,7 @@
 //     Mac offer the same way.
 
 import { appleRequest } from "./request";
-import { metadataPlatformFor } from "./platform";
+import { mdmCataloguesFor } from "./platform";
 import type { Platform, Cookie } from "../types";
 
 const LOOKUP_HOST = "uclient-api.itunes.apple.com";
@@ -36,6 +38,11 @@ const STOREFRONT_HOST = "apps.apple.com";
  * visionOS is routed through the storefront product page, not the MDM
  * catalogue — ipatool's `lookupLatestExternalVersionID` does the same.
  * macOS is not handled here; use {@link lookupLatestMacOSVersionId}.
+ *
+ * iPhone/iPad (and the default device class) walk the MDM catalogues returned
+ * by {@link mdmCataloguesFor} in order; the lookup throws with the catalogues
+ * tried once none of them answers, so a failure surfaces to the caller instead
+ * of reading as "no version".
  */
 export async function lookupLatestExternalVersionId(
   appId: string | number,
@@ -51,12 +58,12 @@ export async function lookupLatestExternalVersionId(
     return undefined;
   }
 
-  const cataloguePlatform = metadataPlatformFor(platform);
-  if (!cataloguePlatform) {
+  const catalogues = mdmCataloguesFor(platform);
+  if (!catalogues) {
     return undefined;
   }
 
-  return lookupLatestMDMVersionId(appId, countryCode, cataloguePlatform, cookies);
+  return lookupLatestMDMVersionId(appId, countryCode, catalogues, cookies);
 }
 
 /**
@@ -115,50 +122,76 @@ async function lookupLatestVisionOSVersionId(
 async function lookupLatestMDMVersionId(
   appId: string | number,
   countryCode: string,
-  cataloguePlatform: string,
+  catalogues: string[],
   cookies?: Cookie[],
 ): Promise<string | undefined> {
   const id = String(appId);
-  const query = new URLSearchParams({
-    version: "2",
-    id,
-    p: "mdm-lockup",
-    caller: "MDM",
-    platform: cataloguePlatform,
-    cc: countryCode.toLowerCase(),
-    l: "en",
-  });
+  let lastError: Error | undefined;
 
-  const response = await appleRequest({
-    method: "GET",
-    host: LOOKUP_HOST,
-    path: `${LOOKUP_PATH}?${query.toString()}`,
-    cookies,
-  });
+  for (const catalogue of catalogues) {
+    const query = new URLSearchParams({
+      version: "2",
+      id,
+      p: "mdm-lockup",
+      caller: "MDM",
+      platform: catalogue,
+      cc: countryCode.toLowerCase(),
+      l: "en",
+    });
 
-  if (response.status !== 200) {
-    throw new Error(`Version lookup returned ${response.status}`);
+    const response = await appleRequest({
+      method: "GET",
+      host: LOOKUP_HOST,
+      path: `${LOOKUP_PATH}?${query.toString()}`,
+      cookies,
+    });
+
+    if (response.status !== 200) {
+      throw new Error(`Version lookup returned ${response.status}`);
+    }
+
+    const parsed = JSON.parse(response.body) as {
+      results?: Record<
+        string,
+        {
+          offers?: Array<{
+            version?: { externalId?: string | number };
+            buyParams?: string;
+          }>;
+        }
+      >;
+    };
+
+    const item = parsed.results?.[id];
+    if (!item) {
+      lastError = new Error("Version lookup returned no app");
+      continue;
+    }
+
+    if (!item.offers || item.offers.length === 0) {
+      lastError = new Error("Version lookup returned no offers");
+      continue;
+    }
+
+    const offer = item.offers[0];
+    const externalId = offer.version?.externalId;
+    if (externalId !== undefined && externalId !== null && externalId !== "") {
+      return String(externalId);
+    }
+
+    const fromBuyParams = buyParamsExternalVersionId(offer.buyParams);
+    if (fromBuyParams) {
+      return fromBuyParams;
+    }
+
+    // An offer with no resolvable version id is a real answer about a real app,
+    // not a signal to try another catalogue.
+    throw new Error("Version lookup returned no external version id");
   }
 
-  const parsed = JSON.parse(response.body) as {
-    results?: Record<
-      string,
-      {
-        offers?: Array<{
-          version?: { externalId?: string | number };
-          buyParams?: string;
-        }>;
-      }
-    >;
-  };
-
-  const offer = parsed.results?.[id]?.offers?.[0];
-  const externalId = offer?.version?.externalId;
-  if (externalId !== undefined && externalId !== null) {
-    return String(externalId);
-  }
-
-  return buyParamsExternalVersionId(offer?.buyParams);
+  throw new Error(
+    `app ${id} in storefront ${countryCode} (catalogs: ${catalogues.join(", ")}): ${lastError?.message ?? "no catalogue answered"}`,
+  );
 }
 
 function buyParamsExternalVersionId(buyParams?: string): string | undefined {
