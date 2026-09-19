@@ -125,7 +125,7 @@
       "preparingSigner": "Initializing the request signer…",
       "signerFailed": "Failed to prepare signing components: {{error}}",
       "signerFirstRun": "First run: preparing the signing component (~14 MB, this once).",
-      "signerRetry": "Retry"
+      "retrySignIn": "Retry Sign In"
     },
     "detail": {
       "title": "Account Details",

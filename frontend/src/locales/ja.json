@@ -125,7 +125,7 @@
       "preparingSigner": "署名器を初期化中…",
       "signerFailed": "署名コンポーネントの準備に失敗しました：{{error}}",
       "signerFirstRun": "初回のみ署名コンポーネントを準備します（約 14 MB）。",
-      "signerRetry": "再試行"
+      "retrySignIn": "サインインを再試行"
     },
     "detail": {
       "title": "アカウントの詳細",

@@ -125,7 +125,7 @@
       "preparingSigner": "서명자 초기화 중…",
       "signerFailed": "서명 구성 요소 준비 실패: {{error}}",
       "signerFirstRun": "처음 한 번만 서명 구성 요소를 준비합니다(약 14 MB).",
-      "signerRetry": "다시 시도"
+      "retrySignIn": "로그인 재시도"
     },
     "detail": {
       "title": "계정 세부 정보",

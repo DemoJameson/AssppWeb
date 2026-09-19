@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { act, render, screen } from "@testing-library/react";
 import SapStatus from "../../src/components/common/SapStatus";
 import { useSapStore } from "../../src/store/sap";
 import i18n from "../../src/i18n";
@@ -47,25 +47,17 @@ describe("SapStatus", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("shows the whole error and offers a retry", () => {
+  it("shows the whole error, with the retry living on the submit button", () => {
     useSapStore.setState({ stage: "error", error: "boom" });
-    const onRetry = vi.fn();
-    render(<SapStatus onRetry={onRetry} />);
+    render(<SapStatus />);
 
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent(/签名组件准备失败/);
     expect(alert).toHaveTextContent(/boom/);
     // The actionable part must not be cut off by a truncation.
-    expect(alert.querySelector("span")?.className).not.toContain("truncate");
-
-    fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    expect(onRetry).toHaveBeenCalledTimes(1);
-  });
-
-  it("omits the retry when the caller has nothing to retry with", () => {
-    useSapStore.setState({ stage: "error", error: "boom" });
-    render(<SapStatus />);
-
+    expect(alert.className).not.toContain("truncate");
+    // The component itself offers no button — the form's submit button is
+    // the retry.
     expect(screen.queryByRole("button")).toBeNull();
   });
 });

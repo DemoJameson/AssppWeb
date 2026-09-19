@@ -31,7 +31,8 @@ export default function AddAccountForm() {
   /**
    * What the submit button says while it waits: the signer's own stage first —
    * the first run downloads its assets before anything can be signed — then
-   * the ordinary busy label.
+   * the ordinary busy label. After the signer failed, the same button is the
+   * retry: it relabels, and submitting runs the whole sign-in again.
    */
   function submitLabel(): string {
     if (loading && sapStage === "assets") {
@@ -41,6 +42,9 @@ export default function AddAccountForm() {
     }
     if (loading && sapStage === "setup") {
       return t("accounts.addForm.preparingSigner");
+    }
+    if (!loading && sapStage === "error") {
+      return t("accounts.addForm.retrySignIn");
     }
     return needsCode
       ? t("accounts.addForm.verify")
@@ -204,7 +208,7 @@ export default function AddAccountForm() {
                 {t("accounts.addForm.cancel")}
               </button>
             </div>
-            <SapStatus onRetry={submitAccount} />
+            <SapStatus />
           </div>
         </form>
       </div>
