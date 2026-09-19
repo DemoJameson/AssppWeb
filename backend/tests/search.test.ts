@@ -52,10 +52,17 @@ const iTunesPayload = {
   ],
 };
 
-function replyWithJson(body: unknown) {
-  iTunesFetch.mockResolvedValue({
-    json: () => Promise.resolve(body),
-  });
+function replyWithJson(body: unknown, lookupBody?: unknown) {
+  iTunesFetch.mockImplementation((url: string) =>
+    Promise.resolve({
+      json: () =>
+        Promise.resolve(
+          url.includes("/lookup") && lookupBody !== undefined
+            ? lookupBody
+            : body,
+        ),
+    }),
+  );
 }
 
 afterEach(() => {
@@ -131,7 +138,7 @@ describe("Search Route", () => {
   });
 
   it("GET /api/search merges delisted package-app matches into a name search", async () => {
-    replyWithJson(iTunesPayload);
+    replyWithJson(iTunesPayload, { resultCount: 0, results: [] });
     mockedSearchLocal.mockReturnValue([
       {
         appId: "6503940939",
@@ -165,6 +172,53 @@ describe("Search Route", () => {
     // The catalogue results follow, untouched.
     expect(res.body[1].id).toBe(1492142120);
     expect(res.body[1].metadataSource).toBeUndefined();
+  });
+
+  it("GET /api/search re-checks local matches by bundle id and drops the local tag when the storefront still has the app", async () => {
+    const storefrontForward = {
+      trackId: 6503940939,
+      bundleId: "flux.inchmade.app",
+      trackName: "Forward",
+      version: "1.3.19",
+      artistName: "Forward Team",
+      description: "Forward app",
+      averageUserRating: 4.5,
+      userRatingCount: 100,
+      artworkUrl100: "https://icon.png",
+      screenshotUrls: [],
+      minimumOsVersion: "17.0",
+      fileSizeBytes: "1000000",
+      currentVersionReleaseDate: "2026-09-01T00:00:00Z",
+      formattedPrice: "Free",
+      primaryGenreName: "Utilities",
+    };
+    replyWithJson(
+      { resultCount: 0, results: [] },
+      { resultCount: 1, results: [storefrontForward] },
+    );
+    mockedSearchLocal.mockReturnValue([
+      {
+        appId: "6503940939",
+        bundleID: "flux.inchmade.app",
+        name: "Forward",
+        artistName: "Forward Team",
+        builds: { ios: { version: "1.3.18", updatedAt: 5 } },
+        updatedAt: 6,
+      },
+    ]);
+
+    const res = await request(app).get(
+      "/api/search?term=fwd&country=US&entity=software&platform=ios",
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0]).toMatchObject({
+      id: 6503940939,
+      name: "Forward",
+      version: "1.3.19",
+    });
+    expect(res.body[0].metadataSource).toBeUndefined();
   });
 
   it("GET /api/search keeps the storefront result when the index knows the same app", async () => {

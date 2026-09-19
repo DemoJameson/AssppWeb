@@ -72,15 +72,47 @@ router.get("/search", async (req: Request, res: Response) => {
     );
     // Delisted apps live in the package-app index, not the catalogue: merge
     // their name matches in on top, tagged so the list can say so — and never
-    // when the storefront already lists the same app.
+    // when the storefront already lists the same app. A name match against the
+    // index only proves we downloaded the app once, not that it was delisted:
+    // the search term may simply not have matched (e.g. "sen" does not find
+    // "SenPlayer"). Re-check each match by bundle id against the storefront —
+    // if it is still there, use that data untagged; only when the storefront
+    // has nothing do we tag it as a local record.
     const term = typeof req.query.term === "string" ? req.query.term : "";
     if (term.trim()) {
       const seen = new Set(results.map((item: any) => item.id));
-      const locals = searchPackageAppsByName(term)
+      const country =
+        typeof req.query.country === "string" ? req.query.country : "us";
+      const localMatches = searchPackageAppsByName(term)
         .filter((record) => !seen.has(Number(record.appId)))
-        .slice(0, 10)
-        .map((record) => softwareFromRecord(record, platform));
-      results.unshift(...locals);
+        .slice(0, 10);
+
+      const rechecked = await Promise.all(
+        localMatches.map(async (record) => {
+          try {
+            const lookupResponse = await fetch(
+              `https://itunes.apple.com/lookup?bundleId=${encodeURIComponent(record.bundleID)}&country=${encodeURIComponent(country)}`,
+            );
+            const lookupData = await lookupResponse.json();
+            if (lookupData.resultCount > 0 && lookupData.results?.length > 0) {
+              const storefrontApp = mapSoftware(
+                lookupData.results[0],
+                platform,
+              );
+              if (seen.has(storefrontApp.id)) return null;
+              seen.add(storefrontApp.id);
+              return storefrontApp;
+            }
+          } catch {
+            // Lookup failed — fall through to the local record.
+          }
+          return softwareFromRecord(record, platform);
+        }),
+      );
+
+      for (const item of rechecked) {
+        if (item) results.unshift(item);
+      }
     }
     res.json(results);
   } catch (err) {
