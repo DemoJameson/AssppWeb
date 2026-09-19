@@ -32,9 +32,10 @@ describe("Version Metadata Route", () => {
     } satisfies PackageMetadata);
   });
 
-  afterAll(() => {
-    cache.flushVersionMetadataCache();
-    fs.rmSync(TEMP_DIR, { recursive: true, force: true });
+  afterAll(async () => {
+    const { closeDb } = await import("../src/services/db.js");
+    closeDb();
+    fs.rmSync(TEMP_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it("returns an empty list for an app with no cached versions", async () => {
@@ -123,5 +124,28 @@ describe("Version Metadata Route", () => {
       .put("/api/version-metadata/1/2")
       .send({ displayVersion: "", releaseDate: "d" });
     expect(blankValue.status).toBe(400);
+  });
+
+  describe("POST /api/version-metadata/:appId/:versionId/package (client write-back)", () => {
+    // The download URL in the request body is fetched by the server only when
+    // it passes the same allowlist as every package address — otherwise the
+    // route refuses it. Each of these is rejected in `validateDownloadURL`
+    // before any network connection is made, so they run offline.
+    const cases: Array<[string, string]> = [
+      ["non-HTTPS", "http://example.com/app.ipa"],
+      ["non-Apple host", "https://evil.example.com/app.ipa"],
+      ["plain IP", "https://93.184.216.34/app.ipa"],
+      ["IPv6 literal", "https://[::1]/app.ipa"],
+    ];
+
+    for (const [label, downloadURL] of cases) {
+      it(`refuses a ${label} download URL`, async () => {
+        const res = await request(createApp())
+          .post("/api/version-metadata/6503940939/888154622/package")
+          .send({ downloadURL });
+        expect(res.status).toBe(502);
+        expect(typeof res.body.error).toBe("string");
+      });
+    }
   });
 });

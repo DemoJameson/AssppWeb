@@ -1,16 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
 import type { Software } from "../src/types/index.js";
 
-// Isolate the store (and its persist file) to a scratch directory before the
-// service — and config.ts underneath it — are first imported.
+// Isolate the store (and its DB) to a scratch directory before the service —
+// and config.ts underneath it — are first imported.
 const TEMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "package-apps-"));
 process.env.DATA_DIR = TEMP_DIR;
 
 const store = await import("../src/services/packageAppStore.js");
-const APPS_FILE = path.join(TEMP_DIR, "package-apps.json");
 
 function software(overrides: Partial<Software> = {}): Software {
   return {
@@ -38,14 +37,12 @@ describe("packageAppStore", () => {
     store.initPackageAppStore();
   });
 
-  afterEach(() => {
-    // A changed record now schedules a debounced write; clear any pending timer
-    // so it cannot fire into the next test's assertions.
-    store.flushPackageAppStore();
-  });
-
-  afterAll(() => {
-    fs.rmSync(TEMP_DIR, { recursive: true, force: true });
+  afterAll(async () => {
+    // Close the DB handle so the WAL files settle. The temp directory is left
+    // for the OS to reap — on Windows the SQLite WAL files can stay locked
+    // briefly after close, and `fs.rmSync` would EPERM.
+    const { closeDb } = await import("../src/services/db.js");
+    closeDb();
   });
 
   it("skips records without a numeric app id or a bundle id", () => {
@@ -108,112 +105,44 @@ describe("packageAppStore", () => {
   });
 
   it("skips the rewrite when a fresh read carries nothing new", () => {
-    const spy = vi.spyOn(fs, "writeFileSync");
-
+    // SQLite writes are immediate; the no-op is observed via the DB row staying
+    // the same. A second remember with no changed fields must not throw and the
+    // record must be unchanged.
     store.rememberPackageApp(software());
-    expect(spy).not.toHaveBeenCalled();
-
-    store.rememberPackageApp(software({ version: "4.9.0" }));
-    // The write is debounced; nothing lands until the timer is flushed.
-    expect(spy).not.toHaveBeenCalled();
-
-    store.flushPackageAppStore();
-    expect(spy).toHaveBeenCalledTimes(1);
-
-    spy.mockRestore();
+    const before = store.findPackageAppByAppId(6503940939);
+    store.rememberPackageApp(software());
+    const after = store.findPackageAppByAppId(6503940939);
+    expect(after).toEqual(before);
   });
 
   it("persists per-platform builds and reloads them on restart", async () => {
     store.rememberPackageApp(software({ platform: "tvos", version: "4.9.1" }));
-    store.flushPackageAppStore();
 
-    const raw = JSON.parse(fs.readFileSync(APPS_FILE, "utf-8")) as {
-      schema: number;
-      apps: Record<string, { bundleID: string; builds: Record<string, unknown> }>;
-    };
-    expect(raw.schema).toBe(2);
-    expect(raw.apps["6503940939"].bundleID).toBe("com.example.legacy");
-    expect(Object.keys(raw.apps["6503940939"].builds).sort()).toEqual([
-      "ios",
-      "tvos",
-    ]);
+    const dbPath = path.join(TEMP_DIR, "asspp.db");
+    expect(fs.existsSync(dbPath)).toBe(true);
 
-    // Simulate a restart: fresh module graph reads the persisted file.
-    vi.resetModules();
-    const reloaded = await import("../src/services/packageAppStore.js");
-    reloaded.initPackageAppStore();
-    const record = reloaded.findPackageAppByBundleId("com.example.legacy");
+    // Simulate a restart: close the handle (the DB file persists) and reset the
+    // store so it re-prepars its statements against the reopened connection.
+    const { closeDb } = await import("../src/services/db.js");
+    closeDb();
+    store.resetPackageAppStoreForTest();
+    store.initPackageAppStore();
+    const record = store.findPackageAppByBundleId("com.example.legacy");
     expect(record?.builds.tvos?.version).toBe("4.9.1");
-    expect(record?.builds.ios?.version).toBe("4.9.0");
+    expect(record?.builds.ios?.version).toBe("4.8.2");
   });
 
-  it("migrates legacy flat records (schema 1) into per-platform builds", async () => {
-    fs.writeFileSync(
-      APPS_FILE,
-      JSON.stringify({
-        schema: 1,
-        apps: {
-          "6503940939": {
-            bundleID: "com.example.legacy",
-            name: "Legacy App",
-            version: "1.3.19",
-            minimumOsVersion: "17.0",
-            platform: "tvos",
-            updatedAt: 1,
-          },
-        },
-      }),
+  it("searches by name, most recently updated first", () => {
+    store.rememberPackageApp(
+      software({ id: 1111111111, bundleID: "com.example.alpha", name: "Alpha One" }),
     );
-
-    vi.resetModules();
-    const fresh = await import("../src/services/packageAppStore.js");
-    fresh.initPackageAppStore();
-
-    const record = fresh.findPackageAppByBundleId("com.example.legacy");
-    expect(record?.name).toBe("Legacy App");
-    expect(fresh.buildForPlatform(record, "tvos")?.version).toBe("1.3.19");
-    // The old record was a tvOS one; iOS must not inherit its version.
-    expect(fresh.buildForPlatform(record, "ios")).toBeUndefined();
-  });
-
-  it("tolerates a corrupted store file", async () => {
-    fs.writeFileSync(APPS_FILE, "{not json");
-
-    vi.resetModules();
-    const fresh = await import("../src/services/packageAppStore.js");
-    fresh.initPackageAppStore();
-    expect(fresh.findPackageAppByAppId(6503940939)).toBeUndefined();
-  });
-
-  it("coalesces a burst of records into a single write", () => {
-    vi.useFakeTimers();
-    try {
-      const spy = vi.spyOn(fs, "writeFileSync");
-      const freshId = 4242424242;
-
-      store.rememberPackageApp(
-        software({ id: freshId, bundleID: "com.example.coalesce", version: "1.0.0" }),
-      );
-      store.rememberPackageApp(
-        software({ id: freshId, bundleID: "com.example.coalesce", version: "1.0.1" }),
-      );
-      store.rememberPackageApp(
-        software({ id: freshId, bundleID: "com.example.coalesce", version: "1.0.2" }),
-      );
-
-      // The debounce window has not elapsed: nothing has been written yet.
-      expect(spy).not.toHaveBeenCalled();
-
-      vi.advanceTimersByTime(100);
-      expect(spy).toHaveBeenCalledTimes(1);
-
-      const raw = JSON.parse(fs.readFileSync(APPS_FILE, "utf-8")) as {
-        apps: Record<string, { builds: Record<string, { version?: string }> }>;
-      };
-      // The single write carries the final state, not an intermediate one.
-      expect(raw.apps[String(freshId)].builds.ios.version).toBe("1.0.2");
-    } finally {
-      vi.useRealTimers();
-    }
+    store.rememberPackageApp(
+      software({ id: 2222222222, bundleID: "com.example.alpha2", name: "Alpha Two" }),
+    );
+    const matches = store.searchPackageAppsByName("alpha");
+    expect(matches).toHaveLength(2);
+    // Both should match; order is by updatedAt desc, both just written.
+    const names = matches.map((m) => m.name).sort();
+    expect(names).toEqual(["Alpha One", "Alpha Two"]);
   });
 });

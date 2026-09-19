@@ -2,7 +2,7 @@
 # Build stages run on the build machine's native architecture (BUILDPLATFORM)
 # and produce platform-independent artifacts; only the runtime layer is built
 # per target platform. This keeps linux/386 builds as cheap as amd64/arm64.
-FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-build
+FROM --platform=$BUILDPLATFORM node:24-alpine AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN --mount=type=cache,target=/root/.npm \
@@ -14,7 +14,7 @@ RUN npm run build
 # extraction stage below. This node_modules is NOT copied into the runtime
 # image: native binaries (napi) must match the target platform, which is
 # installed there per-arch instead.
-FROM --platform=$BUILDPLATFORM node:20-alpine AS backend-build
+FROM --platform=$BUILDPLATFORM node:24-alpine AS backend-build
 RUN apk add --no-cache python3 make g++
 WORKDIR /app/backend
 COPY backend/package*.json ./
@@ -27,13 +27,13 @@ RUN npm run build
 # requests), verifies the pinned digests, strips fat binaries to their x86_64
 # slices, and emits ~22.5 MB of assets. Docker layer caching makes this a
 # no-op on rebuilds unless the pinned digests change.
-FROM --platform=$BUILDPLATFORM node:20-alpine AS sap-assets
+FROM --platform=$BUILDPLATFORM node:24-alpine AS sap-assets
 WORKDIR /app/backend
 COPY --from=backend-build /app/backend ./
 ARG SAP_ASSETS_OUT=/out
 RUN DATA_DIR=/tmp/sap-extract-work node --import tsx scripts/extract-sap-assets.mts ${SAP_ASSETS_OUT}
 
-FROM node:20-alpine
+FROM node:24-alpine
 RUN apk add --no-cache zip
 WORKDIR /app
 COPY --from=backend-build /app/backend/dist ./dist

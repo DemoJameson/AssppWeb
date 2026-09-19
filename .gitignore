@@ -147,6 +147,7 @@ frontend/src/apple/sap/vendor/unicorn-dbg.*
 
 # Local agent workspace
 .video_agent/
+.codegraph/
 # Backend build output and runtime data
 backend/public/
 backend/data/

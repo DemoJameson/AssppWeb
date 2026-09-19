@@ -1,23 +1,24 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
 
-// Isolate the store (and its persist file) to a scratch directory before the
-// service — and config.ts underneath it — are first imported.
+// Isolate the store (and its DB) to a scratch directory before the service —
+// and config.ts underneath it — are first imported.
 const TEMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "version-pins-"));
 process.env.DATA_DIR = TEMP_DIR;
 
 const store = await import("../src/services/versionPinStore.js");
-const PINS_FILE = path.join(TEMP_DIR, "version-pins.json");
 
 describe("versionPinStore", () => {
   beforeAll(() => {
     store.initVersionPinStore();
   });
 
-  afterAll(() => {
-    fs.rmSync(TEMP_DIR, { recursive: true, force: true });
+  afterAll(async () => {
+    const { closeDb } = await import("../src/services/db.js");
+    closeDb();
+    fs.rmSync(TEMP_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it("rejects invalid app ids, platforms and version ids", () => {
@@ -51,35 +52,33 @@ describe("versionPinStore", () => {
     ]);
   });
 
-  it("persists to DATA_DIR/version-pins.json and reloads on restart", async () => {
-    const raw = JSON.parse(fs.readFileSync(PINS_FILE, "utf-8")) as {
-      schema: number;
-      pins: Record<string, Record<string, { versionId: string }>>;
-    };
-    expect(raw.schema).toBe(1);
-    expect(raw.pins["6503940939"]["tvos"].versionId).toBe("888154700");
+  it("persists to SQLite and reloads on restart", async () => {
+    // The DB file exists and holds the rows written above.
+    const dbPath = path.join(TEMP_DIR, "asspp.db");
+    expect(fs.existsSync(dbPath)).toBe(true);
 
-    // Simulate a restart: fresh module graph reads the persisted file.
-    vi.resetModules();
-    const reloaded = await import("../src/services/versionPinStore.js");
-    reloaded.initVersionPinStore();
-    expect(reloaded.getVersionPinsForApp(6503940939)).toEqual([
+    // Simulate a restart: close the handle (the DB file persists) and reset the
+    // store so it re-prepars its statements against the reopened connection.
+    const { closeDb } = await import("../src/services/db.js");
+    closeDb();
+    store.resetVersionPinStoreForTest();
+    store.initVersionPinStore();
+    expect(store.getVersionPinsForApp(6503940939)).toEqual([
       { platform: "tvos", versionId: "888154700" },
     ]);
   });
 
-  it("tolerates a corrupted store file", async () => {
-    fs.writeFileSync(PINS_FILE, "{not json");
-
-    vi.resetModules();
-    const fresh = await import("../src/services/versionPinStore.js");
-    fresh.initVersionPinStore();
-    expect(fresh.getVersionPinsForApp(6503940939)).toEqual([]);
-
-    // Recording still works after starting fresh from a bad file.
-    fresh.recordVersionPin(6503940939, "macos", "700000001");
-    expect(fresh.getVersionPinsForApp(6503940939)).toEqual([
+  it("continues recording after a restart", async () => {
+    const { closeDb } = await import("../src/services/db.js");
+    closeDb();
+    store.resetVersionPinStoreForTest();
+    store.initVersionPinStore();
+    store.recordVersionPin(6503940939, "macos", "700000001");
+    const pins = store.getVersionPinsForApp(6503940939);
+    // Ordered by platform: macos before tvos.
+    expect(pins).toEqual([
       { platform: "macos", versionId: "700000001" },
+      { platform: "tvos", versionId: "888154700" },
     ]);
   });
 });

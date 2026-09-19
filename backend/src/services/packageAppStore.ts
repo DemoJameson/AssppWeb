@@ -1,31 +1,27 @@
-import fs from "fs";
-import path from "path";
-import { config } from "../config.js";
+import { getDb } from "./db.js";
 import type { Platform, Software } from "../types/index.js";
 
 /**
  * The instance-wide package-app index: what past downloads' compiled packages
  * know about the apps they contain — `appId -> { bundleID, name, builds }`.
  *
- * The App Store forgets apps once they are delisted: a lookup by bundle id
- * comes back empty even though the app was downloaded before. The compiled
- * package still remembers what the storefront knew at download time (the
- * iTunesMetadata the package carries), so this index is what lets a delisted
- * app be found by its bundle id again. It complements the version-pin store:
- * pins keep a delisted app's version list alive, this keeps the app itself
- * findable.
+ * Backed by the `package_apps` + `package_app_builds` SQLite tables. The App
+ * Store forgets apps once they are delisted: a lookup by bundle id comes back
+ * empty even though the app was downloaded before. The compiled package still
+ * remembers what the storefront knew at download time (the iTunesMetadata the
+ * package carries), so this index is what lets a delisted app be found by its
+ * bundle id again. It complements the version-pin store: pins keep a delisted
+ * app's version list alive, this keeps the app itself findable.
  *
  * Builds are tracked per platform: the same app ships different versions for
  * different platforms (`Forward` was 1.3.18 on iOS and 1.3.19 on tvOS), so a
  * lookup answers with the build of the platform it asked for — and says
  * nothing about the version when that platform has no recorded package.
  *
- * Server-written only (no client write-back), like the version metadata cache:
- * entries come from `rememberPackageApp` call sites in downloadManager — the
- * compile pipeline and the startup repair pass.
+ * Server-written only (no client write-back): entries come from
+ * `rememberPackageApp` call sites in downloadManager — the compile pipeline
+ * and the startup repair pass.
  */
-
-const APPS_FILE = path.join(config.dataDir, "package-apps.json");
 
 const PLATFORM_SET: ReadonlySet<string> = new Set([
   "ios",
@@ -35,7 +31,6 @@ const PLATFORM_SET: ReadonlySet<string> = new Set([
   "macos",
 ]);
 
-/** One platform's build of the app, as a compiled package described it. */
 export interface PackageBuild {
   version?: string;
   minimumOsVersion?: string;
@@ -49,38 +44,83 @@ export interface PackageAppRecord {
   artistName?: string;
   artworkUrl?: string;
   primaryGenreName?: string;
-  /** platform -> build (versions differ per platform) */
   builds: Record<string, PackageBuild>;
   updatedAt: number;
 }
 
-/** appId -> record */
-const apps = new Map<string, PackageAppRecord>();
+let initialized = false;
 
-let loaded = false;
-let persistTimer: NodeJS.Timeout | null = null;
+// Module-level prepared statements — prepared once, reused across calls.
+let stmtSelectAppByBundle: import("better-sqlite3").Statement<[string]> | undefined;
+let stmtSelectAppByName: import("better-sqlite3").Statement<[string]> | undefined;
+let stmtSelectApp: import("better-sqlite3").Statement<[number]> | undefined;
+let stmtSelectBuilds: import("better-sqlite3").Statement<[number]> | undefined;
+let stmtUpsertApp: import("better-sqlite3").Statement<
+  [number, string, string | undefined, string | undefined, string | undefined, string | undefined, number]
+> | undefined;
+let stmtUpsertBuild: import("better-sqlite3").Statement<
+  [number, string, string | undefined, string | undefined, number]
+> | undefined;
 
-/** Loads the on-disk index; idempotent, safe to call from any entry point. */
+/** Ensures the tables exist; idempotent, safe to call from any entry point. */
 export function initPackageAppStore(): void {
-  if (loaded) return;
-  loaded = true;
+  if (initialized) return;
+  initialized = true;
+  const db = getDb();
+  stmtSelectAppByBundle = db.prepare<[string]>(
+    "SELECT app_id FROM package_apps WHERE bundle_id = ? COLLATE NOCASE LIMIT 1",
+  );
+  stmtSelectAppByName = db.prepare<[string]>(
+    `SELECT app_id FROM package_apps
+     WHERE name IS NOT NULL AND LOWER(name) LIKE ? ESCAPE '\\'
+     ORDER BY updated_at DESC`,
+  );
+  stmtSelectApp = db.prepare<[number]>(
+    "SELECT app_id, bundle_id, name, artist_name, artwork_url, primary_genre, updated_at FROM package_apps WHERE app_id = ?",
+  );
+  stmtSelectBuilds = db.prepare<[number]>(
+    "SELECT platform, version, minimum_os, updated_at FROM package_app_builds WHERE app_id = ?",
+  );
+  stmtUpsertApp = db.prepare<
+    [number, string, string | undefined, string | undefined, string | undefined, string | undefined, number]
+  >(
+    `INSERT INTO package_apps
+       (app_id, bundle_id, name, artist_name, artwork_url, primary_genre, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(app_id) DO UPDATE SET
+       bundle_id = excluded.bundle_id,
+       name = excluded.name,
+       artist_name = excluded.artist_name,
+       artwork_url = excluded.artwork_url,
+       primary_genre = excluded.primary_genre,
+       updated_at = excluded.updated_at`,
+  );
+  stmtUpsertBuild = db.prepare<
+    [number, string, string | undefined, string | undefined, number]
+  >(
+    `INSERT INTO package_app_builds
+       (app_id, platform, version, minimum_os, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(app_id, platform) DO UPDATE SET
+       version = excluded.version,
+       minimum_os = excluded.minimum_os,
+       updated_at = excluded.updated_at`,
+  );
+}
 
-  if (!fs.existsSync(APPS_FILE)) return;
-
-  try {
-    const data = JSON.parse(fs.readFileSync(APPS_FILE, "utf-8")) as {
-      apps?: unknown;
-    };
-    if (typeof data.apps !== "object" || data.apps === null) return;
-
-    for (const [appId, raw] of Object.entries(data.apps)) {
-      if (!isNumericId(appId)) continue;
-      const record = validateRecord(appId, raw);
-      if (record) apps.set(appId, record);
-    }
-  } catch {
-    // Corrupted file — start fresh, the same tolerance the other stores get.
-  }
+/**
+ * Drops the cached connection-bound statements and un-initializes the store.
+ * Call after the DB has been reset/closed and before the next
+ * `initPackageAppStore`, which re-prepares against the fresh connection.
+ */
+export function resetPackageAppStoreForTest(): void {
+  initialized = false;
+  stmtSelectAppByBundle = undefined;
+  stmtSelectAppByName = undefined;
+  stmtSelectApp = undefined;
+  stmtSelectBuilds = undefined;
+  stmtUpsertApp = undefined;
+  stmtUpsertBuild = undefined;
 }
 
 /**
@@ -101,7 +141,8 @@ export function rememberPackageApp(software: Software): void {
       ? software.platform
       : "ios";
 
-  const existing = apps.get(appKey);
+  const existing = loadRecord(appKey);
+
   const previousBuild = existing?.builds[platform];
   const build: PackageBuild = {
     version: clean(software.version) ?? previousBuild?.version,
@@ -122,12 +163,25 @@ export function rememberPackageApp(software: Software): void {
     updatedAt: Date.now(),
   };
 
-  // Boot-time repair re-reads every package; skip the write when the record
-  // already says the same thing.
   if (existing && sameRecord(existing, record)) return;
 
-  apps.set(appKey, record);
-  schedulePersist();
+  const db = getDb();
+  const tx = db.transaction(() => {
+    stmtUpsertApp!.run(
+      Number(appKey),
+      bundleID,
+      record.name,
+      record.artistName,
+      record.artworkUrl,
+      record.primaryGenreName,
+      record.updatedAt,
+    );
+
+    for (const [plat, b] of Object.entries(record.builds)) {
+      stmtUpsertBuild!.run(Number(appKey), plat, b.version, b.minimumOsVersion, b.updatedAt);
+    }
+  });
+  tx();
 }
 
 /** Bundle-id lookup for the catalogue fallback. Case-insensitive. */
@@ -135,14 +189,12 @@ export function findPackageAppByBundleId(
   bundleId: string,
 ): PackageAppRecord | undefined {
   initPackageAppStore();
-
   const key = bundleId.trim().toLowerCase();
   if (!key) return undefined;
 
-  for (const record of apps.values()) {
-    if (record.bundleID.toLowerCase() === key) return record;
-  }
-  return undefined;
+  const row = stmtSelectAppByBundle!.get(key) as { app_id: number } | undefined;
+  if (!row) return undefined;
+  return loadRecord(String(row.app_id));
 }
 
 /** App-id lookup for the catalogue fallback. */
@@ -150,7 +202,7 @@ export function findPackageAppByAppId(
   appId: string | number,
 ): PackageAppRecord | undefined {
   initPackageAppStore();
-  return apps.get(String(appId).trim());
+  return loadRecord(String(appId).trim());
 }
 
 /**
@@ -163,13 +215,17 @@ export function searchPackageAppsByName(term: string): PackageAppRecord[] {
   const needle = term.trim().toLowerCase();
   if (needle.length < 2) return [];
 
+  const escaped = needle.replace(/[%_\\]/g, "\\$&");
+  const rows = stmtSelectAppByName!.all(`%${escaped}%`) as Array<{
+    app_id: number;
+  }>;
+
   const matches: PackageAppRecord[] = [];
-  for (const record of apps.values()) {
-    if (record.name && record.name.toLowerCase().includes(needle)) {
-      matches.push(record);
-    }
+  for (const row of rows) {
+    const record = loadRecord(String(row.app_id));
+    if (record) matches.push(record);
   }
-  return matches.sort((a, b) => b.updatedAt - a.updatedAt);
+  return matches;
 }
 
 /**
@@ -185,6 +241,49 @@ export function buildForPlatform(
     return record.builds[platform];
   }
   return Object.values(record.builds)[0];
+}
+
+function loadRecord(appKey: string): PackageAppRecord | undefined {
+  if (!isNumericId(appKey)) return undefined;
+  const app = stmtSelectApp!.get(Number(appKey)) as
+    | {
+        app_id: number;
+        bundle_id: string;
+        name: string | null;
+        artist_name: string | null;
+        artwork_url: string | null;
+        primary_genre: string | null;
+        updated_at: number;
+      }
+    | undefined;
+  if (!app) return undefined;
+
+  const buildRows = stmtSelectBuilds!.all(Number(appKey)) as Array<{
+    platform: string;
+    version: string | null;
+    minimum_os: string | null;
+    updated_at: number;
+  }>;
+
+  const builds: Record<string, PackageBuild> = {};
+  for (const b of buildRows) {
+    builds[b.platform] = {
+      version: b.version ?? undefined,
+      minimumOsVersion: b.minimum_os ?? undefined,
+      updatedAt: b.updated_at,
+    };
+  }
+
+  return {
+    appId: String(app.app_id),
+    bundleID: app.bundle_id,
+    name: app.name ?? undefined,
+    artistName: app.artist_name ?? undefined,
+    artworkUrl: app.artwork_url ?? undefined,
+    primaryGenreName: app.primary_genre ?? undefined,
+    builds,
+    updatedAt: app.updated_at,
+  };
 }
 
 function clean(value: string | undefined): string | undefined {
@@ -203,71 +302,6 @@ function cleanName(
 
 function isNumericId(value: string): boolean {
   return /^\d+$/.test(value);
-}
-
-function stringField(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() !== ""
-    ? value.trim()
-    : undefined;
-}
-
-function numberOr(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function validateRecord(
-  appId: string,
-  raw: unknown,
-): PackageAppRecord | undefined {
-  if (typeof raw !== "object" || raw === null) return undefined;
-
-  const record = raw as Record<string, unknown>;
-  const bundleID =
-    typeof record.bundleID === "string" ? record.bundleID.trim() : "";
-  if (!bundleID) return undefined;
-
-  const builds = validateBuilds(record.builds);
-
-  // Legacy (schema 1) shape: a flat record scoped to a single platform.
-  if (
-    Object.keys(builds).length === 0 &&
-    typeof record.platform === "string" &&
-    PLATFORM_SET.has(record.platform)
-  ) {
-    builds[record.platform] = {
-      version: stringField(record.version),
-      minimumOsVersion: stringField(record.minimumOsVersion),
-      updatedAt: numberOr(record.updatedAt, Date.now()),
-    };
-  }
-
-  return {
-    appId,
-    bundleID,
-    name: stringField(record.name),
-    artistName: stringField(record.artistName),
-    artworkUrl: stringField(record.artworkUrl),
-    primaryGenreName: stringField(record.primaryGenreName),
-    builds,
-    updatedAt: numberOr(record.updatedAt, Date.now()),
-  };
-}
-
-function validateBuilds(raw: unknown): Record<string, PackageBuild> {
-  const builds: Record<string, PackageBuild> = {};
-  if (typeof raw !== "object" || raw === null) return builds;
-
-  for (const [platform, value] of Object.entries(raw)) {
-    if (!PLATFORM_SET.has(platform) || typeof value !== "object" || value === null)
-      continue;
-    const build = value as Record<string, unknown>;
-    builds[platform] = {
-      version: stringField(build.version),
-      minimumOsVersion: stringField(build.minimumOsVersion),
-      updatedAt: numberOr(build.updatedAt, Date.now()),
-    };
-  }
-  return builds;
 }
 
 /** True when a fresh read carries nothing new (updatedAt alone doesn't count). */
@@ -299,45 +333,4 @@ function sameBuilds(
     }
   }
   return true;
-}
-
-/** Writes the index immediately, skipping the debounce (tests, shutdown). */
-export function flushPackageAppStore(): void {
-  if (persistTimer) {
-    clearTimeout(persistTimer);
-    persistTimer = null;
-  }
-  persistNow();
-}
-
-// Seeding arrives in bursts (a repair pass reads many packages in a row), so
-// the file write is debounced and always persists the full current state.
-function schedulePersist(): void {
-  if (persistTimer) return;
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    persistNow();
-  }, 100);
-}
-
-function persistNow(): void {
-  const entries: Record<string, Omit<PackageAppRecord, "appId">> = {};
-  for (const [appId, record] of apps) {
-    const { appId: _appId, ...rest } = record;
-    entries[appId] = rest;
-  }
-
-  try {
-    fs.mkdirSync(config.dataDir, { recursive: true });
-    fs.writeFileSync(
-      APPS_FILE,
-      JSON.stringify({ schema: 2, apps: entries }, null, 2),
-    );
-  } catch (err) {
-    console.warn(
-      `[packageAppStore] Could not persist the index: ${
-        err instanceof Error ? err.message : err
-      }`,
-    );
-  }
 }

@@ -88,6 +88,12 @@ export async function readVersionMetadataFromRanges(
 /**
  * Reads that metadata for a version from its download URL, which is validated
  * like every other package address before a byte of it is fetched.
+ *
+ * This is the client-write path (`POST /version-metadata/:appId/:versionId/package`):
+ * the URL comes from the request body, so its hostname is allowlisted to
+ * `*.apple.com` first (via `validateDownloadURL`). Redirects are refused rather
+ * than followed — an allowlisted URL could otherwise return a 3xx to an internal
+ * or otherwise arbitrary address and the server would blindly chase it.
  */
 export async function versionMetadataFromDownloadURL(
   downloadURL: string,
@@ -98,6 +104,7 @@ export async function versionMetadataFromDownloadURL(
   const read: RangeReader = async (start, end) => {
     const response = await fetch(downloadURL, {
       headers: { Range: `bytes=${start}-${end}` },
+      redirect: "error",
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) {
@@ -232,6 +239,7 @@ async function readEntry(
 async function readContentLength(url: string): Promise<number> {
   const response = await fetch(url, {
     method: "HEAD",
+    redirect: "error",
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (response.ok) {
@@ -242,6 +250,7 @@ async function readContentLength(url: string): Promise<number> {
   // total in `Content-Range`.
   const ranged = await fetch(url, {
     headers: { Range: "bytes=0-0" },
+    redirect: "error",
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const range = ranged.headers.get("content-range");

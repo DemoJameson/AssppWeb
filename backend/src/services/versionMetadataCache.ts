@@ -1,80 +1,84 @@
-import fs from "fs";
-import path from "path";
-import { config, VERSION_METADATA_MAX_ENTRIES } from "../config.js";
+import { getDb } from "./db.js";
+import { VERSION_METADATA_MAX_ENTRIES } from "../config.js";
 import type { PackageMetadata } from "./sinfInjector.js";
 
 /**
  * The instance-wide version metadata cache: `appId -> versionId -> entry`,
  * served to every client of this instance.
  *
- * Entries come from two sources. The download pipeline seeds what compiled
- * packages read back (the `seedVersionMetadata` call sites in downloadManager),
- * and clients may save metadata they fetched live from Apple through
- * `saveClientVersionMetadata` — the server itself never contacts Apple (it
- * holds no credentials). Package-sourced entries are immutable and always win
- * over client-saved ones: the IPA is the authority on the build it contains.
+ * Backed by the `version_metadata` SQLite table. Entries come from two
+ * sources: the download pipeline seeds what compiled packages read back
+ * (`seedVersionMetadata`), and clients may save metadata they fetched live
+ * from Apple through `saveClientVersionMetadata` — the server itself never
+ * contacts Apple (it holds no credentials). Package-sourced entries are
+ * immutable and always win over client-saved ones: the IPA is the authority
+ * on the build it contains.
  */
 
 export type VersionMetadataSource = "package" | "client";
 
-export interface VersionMetadataEntry {
-  versionId: string;
-  displayVersion: string;
-  releaseDate: string;
-  /** `package` = read back from a compiled IPA; `client` = saved by a browser. */
-  source: VersionMetadataSource;
-  /** Kept for eviction ordering; not part of the API response. */
-  seededAt: number;
-}
-
-const CACHE_FILE = path.join(config.dataDir, "version-metadata.json");
 const MAX_VALUE_LENGTH = 64;
 
-/** appId -> versionId -> entry */
-const apps = new Map<string, Map<string, VersionMetadataEntry>>();
+let initialized = false;
 
-let loaded = false;
-let persistTimer: NodeJS.Timeout | null = null;
+// Module-level prepared statements — prepared once, reused across calls.
+let stmtSelectSource: import("better-sqlite3").Statement<[number, number]> | undefined;
+let stmtSelectEntry: import("better-sqlite3").Statement<[number, number]> | undefined;
+let stmtUpsertPackage: import("better-sqlite3").Statement<[number, number, string, string, number]> | undefined;
+let stmtUpsertClient: import("better-sqlite3").Statement<[number, number, string, string, number]> | undefined;
+let stmtSelectForApp: import("better-sqlite3").Statement<[number]> | undefined;
+let stmtCount: import("better-sqlite3").Statement<[]> | undefined;
+let stmtEvict: import("better-sqlite3").Statement<[number]> | undefined;
 
-/** Loads the on-disk cache; idempotent, safe to call from any entry point. */
+/** Ensures the table exists; idempotent, safe to call from any entry point. */
 export function initVersionMetadataCache(): void {
-  if (loaded) return;
-  loaded = true;
+  if (initialized) return;
+  initialized = true;
+  const db = getDb();
+  stmtSelectSource = db.prepare<[number, number]>(
+    "SELECT source FROM version_metadata WHERE app_id = ? AND version_id = ?",
+  );
+  stmtSelectEntry = db.prepare<[number, number]>(
+    "SELECT version_id, display_version, release_date, source FROM version_metadata WHERE app_id = ? AND version_id = ?",
+  );
+  stmtUpsertPackage = db.prepare<[number, number, string, string, number]>(
+    `INSERT OR REPLACE INTO version_metadata
+       (app_id, version_id, display_version, release_date, source, seeded_at)
+     VALUES (?, ?, ?, ?, 'package', ?)`,
+  );
+  stmtUpsertClient = db.prepare<[number, number, string, string, number]>(
+    `INSERT OR REPLACE INTO version_metadata
+       (app_id, version_id, display_version, release_date, source, seeded_at)
+     VALUES (?, ?, ?, ?, 'client', ?)`,
+  );
+  stmtSelectForApp = db.prepare<[number]>(
+    `SELECT version_id, display_version, release_date, source
+     FROM version_metadata WHERE app_id = ?`,
+  );
+  stmtCount = db.prepare<[]>("SELECT COUNT(*) AS n FROM version_metadata");
+  stmtEvict = db.prepare<[number]>(
+    `DELETE FROM version_metadata
+     WHERE rowid IN (
+       SELECT rowid FROM version_metadata
+       ORDER BY seeded_at ASC LIMIT ?
+     )`,
+  );
+}
 
-  if (!fs.existsSync(CACHE_FILE)) return;
-
-  try {
-    const data = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8")) as {
-      schema?: unknown;
-      entries?: unknown;
-    };
-    if (
-      data.schema !== 1 ||
-      typeof data.entries !== "object" ||
-      data.entries === null
-    ) {
-      return;
-    }
-
-    for (const [appId, versions] of Object.entries(data.entries)) {
-      if (
-        !isNumericId(appId) ||
-        typeof versions !== "object" ||
-        versions === null
-      ) {
-        continue;
-      }
-
-      const bucket = new Map<string, VersionMetadataEntry>();
-      for (const [versionId, raw] of Object.entries(versions)) {
-        const entry = validateEntry(versionId, raw);
-        if (entry) bucket.set(versionId, entry);
-      }
-      if (bucket.size > 0) apps.set(appId, bucket);
-    }
-  } catch {
-    // Corrupted file — start fresh, the same tolerance tasks.json gets.
-  }
+/**
+ * Drops the cached connection-bound statements and un-initializes the cache.
+ * Call after the DB has been reset/closed and before the next
+ * `initVersionMetadataCache`, which re-prepares against the fresh connection.
+ */
+export function resetVersionMetadataCacheForTest(): void {
+  initialized = false;
+  stmtSelectSource = undefined;
+  stmtSelectEntry = undefined;
+  stmtUpsertPackage = undefined;
+  stmtUpsertClient = undefined;
+  stmtSelectForApp = undefined;
+  stmtCount = undefined;
+  stmtEvict = undefined;
 }
 
 /**
@@ -97,24 +101,15 @@ export function seedVersionMetadata(
   if (!isNumericId(appKey) || !isNumericId(versionId)) return;
   if (!displayVersion || !releaseDate) return;
 
-  let bucket = apps.get(appKey);
-  const existing = bucket?.get(versionId);
-  if (existing?.source === "package") return;
-  if (!bucket) {
-    bucket = new Map<string, VersionMetadataEntry>();
-    apps.set(appKey, bucket);
-  }
 
-  bucket.set(versionId, {
-    versionId,
-    displayVersion,
-    releaseDate,
-    source: "package",
-    seededAt: Date.now(),
-  });
+  const existing = stmtSelectSource!.get(Number(appKey), Number(versionId)) as
+    | { source: string }
+    | undefined;
+  if (existing?.source === "package") return;
+
+  stmtUpsertPackage!.run(Number(appKey), Number(versionId), displayVersion, releaseDate, Date.now());
 
   evictOldest();
-  schedulePersist();
 }
 
 /**
@@ -129,7 +124,7 @@ export function saveClientVersionMetadata(
   releaseDate: unknown,
 ): {
   saved: boolean;
-  entry?: { versionId: string; displayVersion: string; releaseDate: string };
+  entry?: { versionId: string; displayVersion: string; releaseDate: string; source: VersionMetadataSource };
 } {
   initVersionMetadataCache();
 
@@ -141,64 +136,60 @@ export function saveClientVersionMetadata(
   if (!isNumericId(appKey) || !isNumericId(versionKey)) return { saved: false };
   if (!display || !release) return { saved: false };
 
-  let bucket = apps.get(appKey);
-  const existing = bucket?.get(versionKey);
+
+  const existing = stmtSelectEntry!.get(Number(appKey), Number(versionKey)) as
+    | {
+        version_id: number;
+        display_version: string;
+        release_date: string;
+        source: string;
+      }
+    | undefined;
+
   if (existing?.source === "package") {
-    return { saved: false, entry: publicEntry(existing) };
-  }
-  if (!bucket) {
-    bucket = new Map<string, VersionMetadataEntry>();
-    apps.set(appKey, bucket);
+    return {
+      saved: false,
+      entry: {
+        versionId: String(existing.version_id),
+        displayVersion: existing.display_version,
+        releaseDate: existing.release_date,
+        source: "package" as VersionMetadataSource,
+      },
+    };
   }
 
-  const entry: VersionMetadataEntry = {
-    versionId: versionKey,
-    displayVersion: display,
-    releaseDate: release,
-    source: "client",
-    seededAt: Date.now(),
-  };
-  bucket.set(versionKey, entry);
+  stmtUpsertClient!.run(Number(appKey), Number(versionKey), display, release, Date.now());
 
   evictOldest();
-  schedulePersist();
-  return { saved: true, entry: publicEntry(entry) };
+  return {
+    saved: true,
+    entry: {
+      versionId: versionKey,
+      displayVersion: display,
+      releaseDate: release,
+      source: "client" as VersionMetadataSource,
+    },
+  };
 }
 
 /** Read access for the route: storefront-public fields only. */
 export function getVersionMetadataForApp(
   appId: string | number,
-): Array<{ versionId: string; displayVersion: string; releaseDate: string }> {
-  const bucket = apps.get(String(appId).trim());
-  if (!bucket) return [];
+): Array<{ versionId: string; displayVersion: string; releaseDate: string; source: VersionMetadataSource }> {
+  initVersionMetadataCache();
+  const rows = stmtSelectForApp!.all(Number(String(appId).trim())) as Array<{
+    version_id: number;
+    display_version: string;
+    release_date: string;
+    source: string;
+  }>;
 
-  return Array.from(bucket.values()).map(publicEntry);
-}
-
-function publicEntry({
-  versionId,
-  displayVersion,
-  releaseDate,
-  source,
-}: VersionMetadataEntry): {
-  versionId: string;
-  displayVersion: string;
-  releaseDate: string;
-  source: VersionMetadataSource;
-} {
-  // The source rides along because it is the difference between a date that
-  // belongs to the build (package) and one that dates the app (client) — the
-  // frontend must know which it is printing.
-  return { versionId, displayVersion, releaseDate, source };
-}
-
-/** Writes the cache immediately, skipping the debounce (tests, shutdown). */
-export function flushVersionMetadataCache(): void {
-  if (persistTimer) {
-    clearTimeout(persistTimer);
-    persistTimer = null;
-  }
-  persistNow();
+  return rows.map((r) => ({
+    versionId: String(r.version_id),
+    displayVersion: r.display_version,
+    releaseDate: r.release_date,
+    source: r.source as VersionMetadataSource,
+  }));
 }
 
 function isNumericId(value: string): boolean {
@@ -212,91 +203,11 @@ function cleanValue(value: unknown): string | undefined {
   return trimmed;
 }
 
-function validateEntry(
-  versionId: string,
-  raw: unknown,
-): VersionMetadataEntry | undefined {
-  if (!isNumericId(versionId) || typeof raw !== "object" || raw === null) {
-    return undefined;
-  }
-
-  const record = raw as Record<string, unknown>;
-  const displayVersion = cleanValue(record.displayVersion);
-  const releaseDate = cleanValue(record.releaseDate);
-  if (!displayVersion || !releaseDate) return undefined;
-
-  // Files written before sources existed came from packages only.
-  const source: VersionMetadataSource =
-    record.source === "client" ? "client" : "package";
-
-  const seededAt =
-    typeof record.seededAt === "number" && Number.isFinite(record.seededAt)
-      ? record.seededAt
-      : Date.now();
-
-  return { versionId, displayVersion, releaseDate, source, seededAt };
-}
-
 /** Evicts oldest-seeded entries until the directory fits the configured cap. */
 function evictOldest(): void {
-  let total = 0;
-  for (const bucket of apps.values()) total += bucket.size;
+  const count = (stmtCount!.get() as { n: number }).n;
+  if (count <= VERSION_METADATA_MAX_ENTRIES) return;
 
-  while (total > VERSION_METADATA_MAX_ENTRIES) {
-    let oldestApp: string | null = null;
-    let oldestVersionId: string | null = null;
-    let oldestSeededAt = Number.POSITIVE_INFINITY;
-
-    for (const [appId, bucket] of apps) {
-      for (const entry of bucket.values()) {
-        if (entry.seededAt < oldestSeededAt) {
-          oldestSeededAt = entry.seededAt;
-          oldestApp = appId;
-          oldestVersionId = entry.versionId;
-        }
-      }
-    }
-
-    if (oldestApp === null || oldestVersionId === null) return;
-    const bucket = apps.get(oldestApp);
-    bucket?.delete(oldestVersionId);
-    if (bucket && bucket.size === 0) apps.delete(oldestApp);
-    total--;
-  }
-}
-
-// Seeding arrives in bursts (a repair pass reads many packages in a row), so
-// the file write is debounced and always persists the full current state.
-function schedulePersist(): void {
-  if (persistTimer) return;
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    persistNow();
-  }, 100);
-}
-
-function persistNow(): void {
-  const entries: Record<string, Record<string, VersionMetadataEntry>> = {};
-  for (const [appId, bucket] of apps) {
-    if (bucket.size === 0) continue;
-    const versions: Record<string, VersionMetadataEntry> = {};
-    for (const [versionId, entry] of bucket) {
-      versions[versionId] = entry;
-    }
-    entries[appId] = versions;
-  }
-
-  try {
-    fs.mkdirSync(config.dataDir, { recursive: true });
-    fs.writeFileSync(
-      CACHE_FILE,
-      JSON.stringify({ schema: 1, entries }, null, 2),
-    );
-  } catch (err) {
-    console.warn(
-      `[versionMetadataCache] Could not persist the cache: ${
-        err instanceof Error ? err.message : err
-      }`,
-    );
-  }
+  const toEvict = count - VERSION_METADATA_MAX_ENTRIES;
+  stmtEvict!.run(toEvict);
 }

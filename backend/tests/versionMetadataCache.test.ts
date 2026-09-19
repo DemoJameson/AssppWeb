@@ -1,18 +1,17 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
 import type { PackageMetadata } from "../src/services/sinfInjector.js";
 
-// Isolate the cache (and its persist file) to a scratch directory before the
-// service — and config.ts underneath it — are first imported.
+// Isolate the cache (and its DB) to a scratch directory before the service —
+// and config.ts underneath it — are first imported.
 const TEMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "version-metadata-cache-"));
 process.env.DATA_DIR = TEMP_DIR;
 // Small cap so the eviction test needs only a handful of entries.
 process.env.VERSION_METADATA_MAX_ENTRIES = "3";
 
 const cache = await import("../src/services/versionMetadataCache.js");
-const CACHE_FILE = path.join(TEMP_DIR, "version-metadata.json");
 
 function pkg(overrides: Partial<PackageMetadata> = {}): PackageMetadata {
   return {
@@ -28,9 +27,10 @@ describe("versionMetadataCache", () => {
     cache.initVersionMetadataCache();
   });
 
-  afterAll(() => {
-    cache.flushVersionMetadataCache();
-    fs.rmSync(TEMP_DIR, { recursive: true, force: true });
+  afterAll(async () => {
+    const { closeDb } = await import("../src/services/db.js");
+    closeDb();
+    fs.rmSync(TEMP_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it("rejects seeds without numeric app or version ids", () => {
@@ -77,39 +77,17 @@ describe("versionMetadataCache", () => {
     expect(versions).toEqual(["1002", "1003", "1004"]);
   });
 
-  it("persists to DATA_DIR/version-metadata.json and reloads on restart", async () => {
-    cache.flushVersionMetadataCache();
+  it("persists to SQLite and reloads on restart", async () => {
+    const dbPath = path.join(TEMP_DIR, "asspp.db");
+    expect(fs.existsSync(dbPath)).toBe(true);
 
-    const raw = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8")) as {
-      schema: number;
-      entries: Record<string, Record<string, { displayVersion: string }>>;
-    };
-    expect(raw.schema).toBe(1);
-    expect(raw.entries["6503940939"]["1004"].displayVersion).toBe("1.0.3");
-
-    // Simulate a restart: fresh module graph reads the persisted file.
-    vi.resetModules();
-    const reloaded = await import("../src/services/versionMetadataCache.js");
-    reloaded.initVersionMetadataCache();
-    expect(reloaded.getVersionMetadataForApp(6503940939)).toHaveLength(3);
-    reloaded.flushVersionMetadataCache();
-  });
-
-  it("tolerates a corrupted cache file", async () => {
-    fs.writeFileSync(CACHE_FILE, "{not json");
-
-    vi.resetModules();
-    const fresh = await import("../src/services/versionMetadataCache.js");
-    fresh.initVersionMetadataCache();
-    expect(fresh.getVersionMetadataForApp(6503940939)).toEqual([]);
-
-    // Seeding still works after starting fresh from a bad file.
-    fresh.seedVersionMetadata(
-      6503940939,
-      pkg({ externalVersionId: "2001", version: "2.0.0" }),
-    );
-    expect(fresh.getVersionMetadataForApp(6503940939)).toHaveLength(1);
-    fresh.flushVersionMetadataCache();
+    // Simulate a restart: close the handle (the DB file persists) and reset the
+    // cache so it re-prepars its statements against the reopened connection.
+    const { closeDb } = await import("../src/services/db.js");
+    closeDb();
+    cache.resetVersionMetadataCacheForTest();
+    cache.initVersionMetadataCache();
+    expect(cache.getVersionMetadataForApp(6503940939)).toHaveLength(3);
   });
 
   it("saves client metadata and refreshes it on later saves", () => {
@@ -182,7 +160,7 @@ describe("versionMetadataCache", () => {
     );
   });
 
-  it("persists the source alongside each entry", () => {
+  it("persists the source alongside each entry", async () => {
     const clientApp = 785858585;
     cache.saveClientVersionMetadata(
       clientApp,
@@ -190,49 +168,15 @@ describe("versionMetadataCache", () => {
       "6.0.0",
       "2026-04-04T00:00:00.000Z",
     );
-    cache.flushVersionMetadataCache();
 
-    const raw = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8")) as {
-      entries: Record<
-        string,
-        Record<string, { displayVersion: string; source?: string }>
-      >;
-    };
-    expect(raw.entries[String(clientApp)]["5001"].source).toBe("package");
-    expect(raw.entries[String(clientApp)]["5002"].source).toBe("client");
-  });
-
-  it("treats entries without a source as package entries (legacy files)", async () => {
-    fs.writeFileSync(
-      CACHE_FILE,
-      JSON.stringify({
-        schema: 1,
-        entries: {
-          "6503940939": {
-            "3001": {
-              versionId: "3001",
-              displayVersion: "3.0.0",
-              releaseDate: "2026-01-01T00:00:00.000Z",
-              seededAt: 1,
-            },
-          },
-        },
-      }),
-    );
-
-    vi.resetModules();
-    const fresh = await import("../src/services/versionMetadataCache.js");
-    fresh.initVersionMetadataCache();
-
-    // A client write cannot displace it — proving it loaded as a package entry.
-    const result = fresh.saveClientVersionMetadata(
-      6503940939,
-      "3001",
-      "0.0.1",
-      "2026-01-01T00:00:00.000Z",
-    );
-    expect(result.saved).toBe(false);
-    expect(result.entry?.displayVersion).toBe("3.0.0");
-    fresh.flushVersionMetadataCache();
+    // Read straight from the DB to verify the source column.
+    const { getDb } = await import("../src/services/db.js");
+    const db = getDb();
+    const rows = db
+      .prepare("SELECT version_id, source FROM version_metadata WHERE app_id = ?")
+      .all(clientApp) as Array<{ version_id: number; source: string }>;
+    const byVersion = new Map(rows.map((r) => [String(r.version_id), r.source]));
+    expect(byVersion.get("5001")).toBe("package");
+    expect(byVersion.get("5002")).toBe("client");
   });
 });

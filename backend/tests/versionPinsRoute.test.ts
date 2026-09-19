@@ -25,8 +25,10 @@ describe("Version Pins Route", () => {
     store.recordVersionPin(6503940939, "macos", "700000001");
   });
 
-  afterAll(() => {
-    fs.rmSync(TEMP_DIR, { recursive: true, force: true });
+  afterAll(async () => {
+    const { closeDb } = await import("../src/services/db.js");
+    closeDb();
+    fs.rmSync(TEMP_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it("returns an empty list for an app with no recorded pins", async () => {
@@ -46,8 +48,8 @@ describe("Version Pins Route", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       pins: [
-        { platform: "tvos", versionId: "888154622" },
         { platform: "macos", versionId: "700000001" },
+        { platform: "tvos", versionId: "888154622" },
       ],
     });
     expect(JSON.stringify(res.body)).not.toContain("updatedAt");

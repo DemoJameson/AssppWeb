@@ -19,6 +19,7 @@ import {
   rememberPackageApp,
 } from "./packageAppStore.js";
 import { ChunkedDownloader, removePartFiles } from "./chunkedDownloader.js";
+import { getDb } from "./db.js";
 import type { DownloadTask, Platform, Software, Sinf } from "../types/index.js";
 
 const tasks = new Map<string, DownloadTask>();
@@ -27,7 +28,6 @@ const chunkDownloaders = new Map<string, ChunkedDownloader>();
 const progressListeners = new Map<string, Set<(task: DownloadTask) => void>>();
 
 const PACKAGES_DIR = path.join(config.dataDir, "packages");
-const TASKS_FILE = path.join(config.dataDir, "tasks.json");
 // Legacy file from old code — cleaned up on startup
 const LEGACY_DOWNLOADS_FILE = path.join(config.dataDir, "downloads.json");
 
@@ -254,7 +254,7 @@ export function sanitizeTaskForResponse(
 }
 
 /**
- * The software shape written to tasks.json. `metadataSource` marks where the
+ * The software shape persisted with a finished task. `metadataSource` marks where the
  * search found the record (`bare`/`local`) — a per-request hint, not a property
  * of the compiled package — so it is dropped before persistence: reloading a
  * finished task would otherwise read it back as a stale verdict. Files that
@@ -266,24 +266,57 @@ export function softwareForPersistence(software: Software): Software {
 }
 
 // --- Persistence: save only completed task metadata (no secrets) ---
+let stmtDeleteTask: import("better-sqlite3").Statement<[string]>;
+let stmtUpsertTask: import("better-sqlite3").Statement<
+  [string, string, string, string, number, string]
+>;
+let stmtSelectAllTaskIds: import("better-sqlite3").Statement<[]>;
+let stmtSelectAllTasks: import("better-sqlite3").Statement<[]>;
+let persistStmtsReady = false;
+
+function ensurePersistStmts(): void {
+  if (persistStmtsReady) return;
+  const db = getDb();
+  stmtDeleteTask = db.prepare("DELETE FROM tasks WHERE id = ?");
+  stmtUpsertTask = db.prepare<
+    [string, string, string, string, number, string]
+  >(
+    `INSERT OR REPLACE INTO tasks (id, software, account_hash, file_path, has_icon, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  );
+  stmtSelectAllTaskIds = db.prepare("SELECT id FROM tasks");
+  stmtSelectAllTasks = db.prepare(
+    "SELECT id, software, account_hash, file_path, has_icon, created_at FROM tasks",
+  );
+  persistStmtsReady = true;
+}
+
 function persistTasks() {
   const completed = Array.from(tasks.values())
-    .filter((t) => t.status === "completed" && t.filePath)
-    .map((t) => ({
-      id: t.id,
-      software: softwareForPersistence(t.software),
-      accountHash: t.accountHash,
-      downloadURL: "",
-      sinfs: [],
-      status: t.status,
-      progress: t.progress,
-      speed: t.speed,
-      filePath: t.filePath,
-      hasFile: t.hasFile ?? true,
-      hasIcon: t.hasIcon ?? false,
-      createdAt: t.createdAt,
-    }));
-  fs.writeFileSync(TASKS_FILE, JSON.stringify(completed, null, 2));
+    .filter((t) => t.status === "completed" && t.filePath);
+  const currentIds = new Set(completed.map((t) => t.id));
+
+  ensurePersistStmts();
+  const db = getDb();
+  const tx = db.transaction(() => {
+    // Differential delete: remove rows no longer in the completed set.
+    const existingRows = stmtSelectAllTaskIds.all() as Array<{ id: string }>;
+    for (const row of existingRows) {
+      if (!currentIds.has(row.id)) stmtDeleteTask.run(row.id);
+    }
+    // Upsert the current completed tasks.
+    for (const t of completed) {
+      stmtUpsertTask.run(
+        t.id,
+        JSON.stringify(softwareForPersistence(t.software)),
+        t.accountHash,
+        t.filePath!,
+        t.hasIcon ? 1 : 0,
+        t.createdAt,
+      );
+    }
+  });
+  tx();
 }
 
 // Auto-cleanup: delete completed files older than configured days
@@ -389,6 +422,9 @@ function initOnStartup() {
   // Ensure packages dir exists
   fs.mkdirSync(PACKAGES_DIR, { recursive: true });
 
+  // Open the DB (creates tables if absent) before the stores below use it.
+  getDb();
+
   // Load the shared version metadata cache before the repair pass below seeds
   // it from finished packages.
   initVersionMetadataCache();
@@ -401,43 +437,49 @@ function initOnStartup() {
   // packages know about their apps.
   initPackageAppStore();
 
+  // Legacy JSON files (tasks.json and the improve-branch stores) are migrated
+  // into SQLite on the first open of the DB, handled centrally in db.ts.
+
   // Load completed tasks from previous run
-  if (fs.existsSync(TASKS_FILE)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(TASKS_FILE, "utf-8"));
-      if (Array.isArray(data)) {
-        for (const item of data) {
-          // Only restore completed tasks whose IPA file still exists
-          if (
-            item.id &&
-            item.status === "completed" &&
-            item.filePath &&
-            fs.existsSync(item.filePath)
-          ) {
-            const task: DownloadTask = {
-              id: item.id,
-              software: item.software,
-              accountHash: item.accountHash,
-              downloadURL: "",
-              sinfs: [],
-              status: "completed",
-              progress: 100,
-              speed: "0 B/s",
-              filePath: item.filePath,
-              // The restore condition already verified the file exists; the
-              // icon is re-derived once here so old tasks.json entries
-              // (without the cached fields) come back correct.
-              hasFile: true,
-              createdAt: item.createdAt,
-            };
-            task.hasIcon = Boolean(iconPathFor(task));
-            tasks.set(task.id, task);
-          }
-        }
-      }
-    } catch {
-      // Corrupted file — start fresh
+  ensurePersistStmts();
+  const rows = stmtSelectAllTasks.all() as Array<{
+    id: string;
+    software: string;
+    account_hash: string;
+    file_path: string;
+    has_icon: number;
+    created_at: string;
+  }>;
+
+  for (const row of rows) {
+    // Only restore completed tasks whose IPA file still exists
+    if (!fs.existsSync(row.file_path)) {
+      stmtDeleteTask.run(row.id);
+      continue;
     }
+    let software: Software;
+    try {
+      software = JSON.parse(row.software) as Software;
+    } catch {
+      stmtDeleteTask.run(row.id);
+      continue;
+    }
+    const task: DownloadTask = {
+      id: row.id,
+      software,
+      accountHash: row.account_hash,
+      downloadURL: "",
+      sinfs: [],
+      status: "completed",
+      progress: 100,
+      speed: "0 B/s",
+      filePath: row.file_path,
+      hasFile: true,
+      hasIcon: Boolean(row.has_icon),
+      createdAt: row.created_at,
+    };
+    task.hasIcon = Boolean(iconPathFor(task));
+    tasks.set(task.id, task);
   }
 
   // Clean up orphaned IPA files (files without a task)
@@ -615,9 +657,9 @@ export function getTask(id: string): DownloadTask | undefined {
 }
 
 /**
- * Removes a task, its files, and its bookkeeping without touching the
- * persistence file — the cleanup loops call this repeatedly and persist once
- * at the end instead of rewriting tasks.json per deletion.
+ * Removes a task, its files, and its bookkeeping without writing to the
+ * database — the cleanup loops call this repeatedly and persist once at the
+ * end instead of issuing a transaction per deletion.
  */
 function deleteTaskInternal(id: string): boolean {
   const task = tasks.get(id);
