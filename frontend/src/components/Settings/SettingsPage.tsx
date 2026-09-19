@@ -198,7 +198,7 @@ export default function SettingsPage() {
             <div>
               <label
                 htmlFor="language"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3"
               >
                 {t("settings.language.label")}
               </label>
@@ -444,7 +444,7 @@ export default function SettingsPage() {
       >
         <div className="min-w-0 space-y-4">
           <div className="min-w-0">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3">
               {t("settings.data.passwordPrompt")}
             </label>
             <input
@@ -455,7 +455,7 @@ export default function SettingsPage() {
             />
           </div>
           <div className="min-w-0">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3">
               {t("settings.data.passwordConfirm")}
             </label>
             <input
@@ -490,7 +490,7 @@ export default function SettingsPage() {
       >
         <div className="min-w-0 space-y-4">
           <div className="min-w-0">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3">
               {t("settings.data.passwordPrompt")}
             </label>
             <input

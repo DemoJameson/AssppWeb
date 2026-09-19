@@ -140,7 +140,7 @@ export default function AccountDetail() {
           <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-6">
             <label
               htmlFor="reauth-code"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3"
             >
               {t("accounts.detail.code")}
             </label>

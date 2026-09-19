@@ -442,7 +442,7 @@ export default function PackageDetail() {
           </p>
           {availableVersions.length > 0 && (
             <div className="min-w-0">
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300 pl-3">
                 {t('downloads.package.selectVersion')}
               </label>
               <Select

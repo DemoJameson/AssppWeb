@@ -335,7 +335,7 @@ export default function SearchPage() {
           <div className="min-w-0">
             <label
               htmlFor="search-term"
-              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300 pl-4"
             >
               {t("search.label")}
             </label>
@@ -351,7 +351,7 @@ export default function SearchPage() {
           <div className="min-w-0">
             <label
               htmlFor="search-version-id"
-              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300 pl-4"
             >
               {t("downloads.add.versionId")}
             </label>
@@ -380,7 +380,7 @@ export default function SearchPage() {
             <button
               type="submit"
               disabled={loading || !term.trim()}
-              className="min-h-11 w-full whitespace-nowrap rounded-full bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+              className="mt-1 min-h-11 w-full whitespace-nowrap rounded-full bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:mt-0 sm:w-auto"
             >
               <StableLabel
                 idle={t("search.button")}

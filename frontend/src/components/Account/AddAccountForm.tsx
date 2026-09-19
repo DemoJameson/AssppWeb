@@ -67,7 +67,7 @@ export default function AddAccountForm() {
             <div>
               <label
                 htmlFor="email"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3"
               >
                 {t("accounts.addForm.email")}
               </label>
@@ -86,7 +86,7 @@ export default function AddAccountForm() {
             <div>
               <label
                 htmlFor="password"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3"
               >
                 {t("accounts.addForm.password")}
               </label>
@@ -104,7 +104,7 @@ export default function AddAccountForm() {
             <div>
               <label
                 htmlFor="deviceId"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3"
               >
                 {t("accounts.addForm.deviceId")}
               </label>
@@ -136,7 +136,7 @@ export default function AddAccountForm() {
               <div>
                 <label
                   htmlFor="code"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3"
                 >
                   {t("accounts.addForm.code")}
                 </label>
