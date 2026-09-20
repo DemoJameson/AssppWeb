@@ -88,7 +88,10 @@
       "screenshots": "スクリーンショット",
       "ratings": "件の評価",
       "free": "無料",
-      "noAccountsForRegion": "この地域のアカウントがありません"
+      "noAccountsForRegion": "この地域のアカウントがありません",
+      "downloaded": "ダウンロード済み",
+      "allDownloaded": "すべてのバージョンはダウンロード済みです",
+      "alreadyDownloaded": "このバージョンはすでにダウンロード一覧にあります。再度追加する必要はありません。"
     },
     "versions": {
       "loadFailed": "バージョンの読み込みに失敗しました",
@@ -195,7 +198,7 @@
       "versionId": "バージョン ID（任意）",
       "versionIdPlaceholder": "空欄なら最新バージョン",
       "invalidVersionId": "バージョン ID は数字で入力してください",
-      "localRecordTag": "配信終了 · ローカル記録",
+      "localRecordTag": "配信終了",
       "localRecordNote": "この App は App Store から削除されています、情報は以前にダウンロードしたパッケージの記録によるものです。"
     },
     "package": {
@@ -503,11 +506,15 @@
       "shareAcquired": "リンク取得成功",
       "downloadIpaStarted": "ファイルのダウンロードを開始",
       "deleteSuccess": "削除成功",
-      "downloadLimit": "サイズ制限超過"
+      "downloadLimit": "サイズ制限超過",
+      "alreadyDownloaded": "重複ダウンロードは不要"
     },
     "msg": "{{appName}}\n{{account}}",
     "msgShare": "{{appName}}\n{{account}}\n\nAirDropを使用して友達と共有できます。",
     "msgFailed": "{{appName}}\n{{account}}\n\nエラー: {{error}}",
+    "alreadyDownloaded": {
+      "message": "{{appName}}\n{{account}}\n\nこのバージョンはすでにダウンロード一覧にあります。再度追加する必要はありません。"
+    },
     "downloadLimit": {
       "message": "{{appName}}\nアプリのサイズ {{size}} MB がサーバーの制限 {{limit}} MB を超えています。\n管理者に連絡するか、ご自身でサーバーを展開して再試行してください。"
     }

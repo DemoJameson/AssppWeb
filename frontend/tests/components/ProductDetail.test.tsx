@@ -12,10 +12,11 @@ import {
 } from '../../src/api/versionMetadata';
 import { MissingAppError } from '../../src/apple/errors';
 import { useSettingsStore } from '../../src/store/settings';
+import { useDownloadsStore } from '../../src/store/downloads';
 import { useToastStore } from '../../src/store/toast';
 import { useVersionListsStore } from '../../src/store/versionLists';
 import { useVersionMetadataStore } from '../../src/store/versionMetadata';
-import type { Account, Software } from '../../src/types';
+import type { Account, DownloadTask, Software } from '../../src/types';
 
 const mocks = vi.hoisted(() => ({
   accounts: [] as Account[],
@@ -239,6 +240,7 @@ describe('ProductDetail download action', () => {
     useSettingsStore.setState({ autoAcquireLicense: false });
     useVersionMetadataStore.setState({ entries: {}, attempted: {} });
     useVersionListsStore.setState({ lists: {} });
+    useDownloadsStore.setState({ tasks: [] });
     useToastStore.setState({ toasts: [] });
   });
 
@@ -936,6 +938,96 @@ describe('ProductDetail download action', () => {
       '890657720',
       'US',
     );
+  });
+
+  it('marks a build this server already holds and refuses to download it', async () => {
+    // A completed package of the newest build: the download button has nothing
+    // left to do for it, and the picker says why.
+    const held: DownloadTask = {
+      id: 'held',
+      software: { ...app, platform: 'ios', externalVersionId: '890657720' },
+      accountHash: 'hash',
+      status: 'completed',
+      progress: 100,
+      speed: '',
+      hasFile: true,
+      createdAt: '2026-09-20T00:00:00.000Z',
+    };
+    useDownloadsStore.setState({ tasks: [held] });
+    useVersionListsStore.setState({
+      lists: { '123456:ios:US': ['890657720', '818970197'] },
+    });
+    renderProductDetail(undefined, { metadataSource: 'local' });
+
+    const accountSelect = screen.getByRole('combobox', {
+      name: 'search.product.account',
+    });
+    await waitFor(() => expect(accountSelect).toHaveTextContent(account.email));
+
+    // The build the button would ask for is on the server: it is out, and the
+    // page says so instead of leaving a dead button behind.
+    expect(screen.getByText('search.product.alreadyDownloaded')).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'search.product.download' }),
+    ).toBeDisabled();
+
+    // The picker opens from the cache and marks the held build.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'search.product.selectVersion' }),
+    );
+    const combo = await screen.findByRole('combobox', {
+      name: 'search.product.version',
+    });
+    // The default pick skips a build that is already here.
+    expect(combo).toHaveTextContent('818970197');
+
+    fireEvent.click(combo);
+    const heldOption = screen.getByRole('option', { name: /890657720/ });
+    expect(heldOption).toHaveAttribute('aria-disabled', 'true');
+    expect(heldOption.textContent).toContain('search.product.downloaded');
+    // Picking it does nothing — the selection stays where it was.
+    fireEvent.click(heldOption);
+    expect(combo).toHaveTextContent('818970197');
+
+    // A build nobody holds is still downloadable.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'search.product.download' }),
+    );
+    await waitFor(() => expect(mocks.startDownload).toHaveBeenCalledTimes(1));
+    expect(mocks.startDownload).toHaveBeenCalledWith(
+      account,
+      { ...app, metadataSource: 'local' },
+      '818970197',
+      'US',
+    );
+  });
+
+  it('does not hold a build of another platform against this one', async () => {
+    // The same app as tvOS: the iOS page asks for different packages, so its
+    // download stays available.
+    const held: DownloadTask = {
+      id: 'held-tvos',
+      software: { ...app, platform: 'tvos', externalVersionId: '890657720' },
+      accountHash: 'hash',
+      status: 'completed',
+      progress: 100,
+      speed: '',
+      hasFile: true,
+      createdAt: '2026-09-20T00:00:00.000Z',
+    };
+    useDownloadsStore.setState({ tasks: [held] });
+    useVersionListsStore.setState({ lists: { '123456:ios:US': ['890657720'] } });
+    renderProductDetail(undefined, { metadataSource: 'local' });
+
+    const accountSelect = screen.getByRole('combobox', {
+      name: 'search.product.account',
+    });
+    await waitFor(() => expect(accountSelect).toHaveTextContent(account.email));
+
+    expect(screen.queryByText('search.product.alreadyDownloaded')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'search.product.download' }),
+    ).toBeEnabled();
   });
 
   it('selects the account matching the region picked in search', async () => {

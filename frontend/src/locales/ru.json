@@ -88,7 +88,10 @@
       "screenshots": "Скриншоты",
       "ratings": "оценок",
       "free": "Бесплатно",
-      "noAccountsForRegion": "Аккаунты для этого региона не найдены"
+      "noAccountsForRegion": "Аккаунты для этого региона не найдены",
+      "downloaded": "Скачано",
+      "allDownloaded": "Все версии уже скачаны",
+      "alreadyDownloaded": "Эта версия уже есть в загрузках, повторно добавлять не нужно."
     },
     "versions": {
       "loadFailed": "Не удалось загрузить версии",
@@ -195,7 +198,7 @@
       "versionId": "ID версии (необязательно)",
       "versionIdPlaceholder": "Пусто — последняя версия",
       "invalidVersionId": "ID версии должен быть числом",
-      "localRecordTag": "Удалено из App Store · локальная запись",
+      "localRecordTag": "Удалено из App Store",
       "localRecordNote": "Приложение исчезло из App Store, и сведения взяты из ранее загруженного пакета на этом сервере."
     },
     "package": {
@@ -503,11 +506,15 @@
       "shareAcquired": "Ссылка получена",
       "downloadIpaStarted": "Загрузка файла началась",
       "deleteSuccess": "Успешное удаление",
-      "downloadLimit": "Превышен лимит размера"
+      "downloadLimit": "Превышен лимит размера",
+      "alreadyDownloaded": "Повторная загрузка не нужна"
     },
     "msg": "{{appName}}\n{{account}}",
     "msgShare": "{{appName}}\n{{account}}\n\nВы можете использовать AirDrop, чтобы поделиться ею с друзьями.",
     "msgFailed": "{{appName}}\n{{account}}\n\nОшибка: {{error}}",
+    "alreadyDownloaded": {
+      "message": "{{appName}}\n{{account}}\n\nЭта версия уже есть в загрузках, повторно добавлять не нужно."
+    },
     "downloadLimit": {
       "message": "{{appName}}\nРазмер приложения {{size}} МБ превышает лимит сервера {{limit}} МБ.\nПожалуйста, свяжитесь с администратором или разверните свой собственный сервер."
     }

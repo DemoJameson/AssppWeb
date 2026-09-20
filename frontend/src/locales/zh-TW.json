@@ -88,7 +88,10 @@
       "screenshots": "螢幕截圖",
       "ratings": "個評分",
       "free": "免費",
-      "noAccountsForRegion": "找不到該地區的帳號"
+      "noAccountsForRegion": "找不到該地區的帳號",
+      "downloaded": "已下載",
+      "allDownloaded": "所有版本皆已下載",
+      "alreadyDownloaded": "此版本已在下載清單中，無需重複加入。"
     },
     "versions": {
       "loadFailed": "載入版本失敗",
@@ -195,7 +198,7 @@
       "versionId": "版本 ID（可選）",
       "versionIdPlaceholder": "留空即最新版",
       "invalidVersionId": "版本 ID 必須是數字",
-      "localRecordTag": "已下架 · 安裝包記錄",
+      "localRecordTag": "已下架",
       "localRecordNote": "此 App 已從 App Store 下架，資訊來自本伺服器已下載的安裝包記錄。"
     },
     "package": {
@@ -503,11 +506,15 @@
       "shareAcquired": "連結已獲取",
       "downloadIpaStarted": "開始下載檔案",
       "deleteSuccess": "刪除成功",
-      "downloadLimit": "檔案大小超限"
+      "downloadLimit": "檔案大小超限",
+      "alreadyDownloaded": "無需重複下載"
     },
     "msg": "{{appName}}\n{{account}}",
     "msgShare": "{{appName}}\n{{account}}\n\n您可以使用 Airdrop 分享給您的朋友。",
     "msgFailed": "{{appName}}\n{{account}}\n\n錯誤: {{error}}",
+    "alreadyDownloaded": {
+      "message": "{{appName}}\n{{account}}\n\n此版本已在下載清單中，無需重複加入。"
+    },
     "downloadLimit": {
       "message": "{{appName}}\n應用程式大小 {{size}} MB 超過伺服器限制 {{limit}} MB。\n請聯絡管理員或自行部署後再嘗試。"
     }

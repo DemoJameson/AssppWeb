@@ -13,11 +13,12 @@ import {
   useVersionListsStore,
   versionListKey,
 } from "../../src/store/versionLists";
-import type { Account, Software } from "../../src/types";
+import type { Account, DownloadTask, Software } from "../../src/types";
 
 const mocks = vi.hoisted(() => ({
   updateAccount: vi.fn(),
   fetchTasks: vi.fn(),
+  tasks: [] as DownloadTask[],
 }));
 
 vi.mock("react-i18next", () => ({
@@ -32,9 +33,15 @@ vi.mock("../../src/hooks/useAccounts", () => ({
 }));
 
 vi.mock("../../src/store/downloads", () => ({
-  useDownloadsStore: (
-    selector: (state: { fetchTasks: () => void }) => unknown,
-  ) => selector({ fetchTasks: mocks.fetchTasks }),
+  useDownloadsStore: Object.assign(
+    (
+      selector: (state: {
+        fetchTasks: () => void;
+        tasks: DownloadTask[];
+      }) => unknown,
+    ) => selector({ fetchTasks: mocks.fetchTasks, tasks: mocks.tasks }),
+    { getState: () => ({ fetchTasks: mocks.fetchTasks, tasks: mocks.tasks }) },
+  ),
 }));
 
 vi.mock("../../src/apple/download", async (importOriginal) => {
@@ -122,6 +129,8 @@ describe("useDownloadAction", () => {
     mocks.updateAccount.mockReset();
     mocks.updateAccount.mockResolvedValue(undefined);
     mocks.fetchTasks.mockReset();
+    // Nothing downloaded unless a test says otherwise.
+    mocks.tasks = [];
     vi.mocked(apiGet).mockReset();
     vi.mocked(apiGet).mockResolvedValue({ maxDownloadMB: 0 });
     vi.mocked(apiPost).mockReset();
@@ -222,6 +231,92 @@ describe("useDownloadAction", () => {
     expect(purchaseApp).not.toHaveBeenCalled();
     expect(authenticate).not.toHaveBeenCalled();
     expect(getDownloadInfo).toHaveBeenCalledTimes(1);
+  });
+
+  /** A package the server holds — downloading it again is a duplicate. */
+  function heldTask(overrides: {
+    version?: string;
+    externalVersionId?: string;
+    platform?: Software["platform"];
+    status?: DownloadTask["status"];
+  } = {}): DownloadTask {
+    return {
+      id: "held",
+      software: {
+        ...app,
+        version: overrides.version ?? app.version,
+        platform: overrides.platform ?? app.platform,
+        externalVersionId: overrides.externalVersionId,
+      },
+      accountHash: "hash",
+      status: overrides.status ?? "completed",
+      progress: 100,
+      speed: "",
+      createdAt: "2026-09-20T00:00:00.000Z",
+    };
+  }
+
+  it("refuses a pinned build the server already holds", async () => {
+    mocks.tasks = [heldTask({ externalVersionId: "900" })];
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, app, "900");
+    });
+
+    expect(mocks.fetchTasks).toHaveBeenCalled();
+    expect(getDownloadInfo).not.toHaveBeenCalled();
+    expect(apiPost).not.toHaveBeenCalled();
+    const titles = useToastStore.getState().toasts.map((toast) => toast.title);
+    expect(titles).toEqual(["toast.title.alreadyDownloaded"]);
+  });
+
+  it("refuses a repeat of the version the record names", async () => {
+    // Nothing pinned: Apple picks the build, so the record's own version
+    // number is the only thing the request can be identified by.
+    mocks.tasks = [heldTask({ version: "3.4.5" })];
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, app);
+    });
+
+    expect(getDownloadInfo).not.toHaveBeenCalled();
+    expect(apiPost).not.toHaveBeenCalled();
+  });
+
+  it("still downloads a newer version than the one held", async () => {
+    mocks.tasks = [heldTask({ version: "3.4.4" })];
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, app);
+    });
+
+    expect(apiPost).toHaveBeenCalled();
+  });
+
+  it("lets a retry through when the earlier attempt failed", async () => {
+    mocks.tasks = [heldTask({ version: "3.4.5", status: "failed" })];
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, app);
+    });
+
+    expect(getDownloadInfo).toHaveBeenCalledTimes(1);
+    expect(apiPost).toHaveBeenCalled();
+  });
+
+  it("does not count another platform's package as a duplicate", async () => {
+    mocks.tasks = [heldTask({ version: "3.4.5", platform: "tvos" })];
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, { ...app, platform: "ios" });
+    });
+
+    expect(apiPost).toHaveBeenCalled();
   });
 
   it("borrows the cached newest version when the platform needs a pin", async () => {

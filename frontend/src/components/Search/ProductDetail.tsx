@@ -17,6 +17,7 @@ import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useSelectedAccount } from "../../hooks/useSelectedAccount";
 import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
 import { useToastStore } from '../../store/toast';
+import { useDownloadsStore } from '../../store/downloads';
 import { lookupAppById } from "../../api/search";
 import { useSettingsStore } from "../../store/settings";
 import {
@@ -35,6 +36,7 @@ import {
   needsVersionExchange,
 } from "../../utils/software";
 import { appPresenceFromProbeError } from "../../apple/errors";
+import { downloadedBuilds, isBuildDownloaded } from "../../utils/downloaded";
 import { versionOptionLabel } from "../../utils/versionLabels";
 import { parsePlatform, PLATFORM_LABELS } from "../../apple/platform";
 import { accountSelectLabel, accountStoreCountry } from "../../utils/account";
@@ -104,6 +106,10 @@ export default function ProductDetail() {
     fillVersionsSilently,
   } = useVersionMetadataMap();
 
+  // Every package the server holds: what the version list marks as downloaded,
+  // and what a download refuses to add a second time.
+  const tasks = useDownloadsStore((s) => s.tasks);
+
   const { selectedAccount, selectAccount } = useSelectedAccount(
     productAccounts,
     routeAccountEmail || undefined,
@@ -139,6 +145,31 @@ export default function ProductDetail() {
     versionMeta[latestListVersionId]?.displayVersion === displayVersion
       ? latestListVersionId
       : (app?.externalVersionId || "");
+
+  // The platform the packages are compared against: a record can arrive
+  // without one (a storefront answer asked for iOS does), while the version
+  // list — and everything it is matched with — belongs to the dimension the
+  // page is showing.
+  const appPlatform = app?.platform ?? platform;
+  // The builds the server already holds of this app. A version list is asked
+  // of one platform, so only that platform's packages can answer for the ids
+  // it offers.
+  const downloaded = app
+    ? downloadedBuilds(tasks, app.id, appPlatform)
+    : undefined;
+  /** Whether the build behind this version id is already on the server. */
+  const isVersionDownloaded = (versionId: string) =>
+    !!downloaded &&
+    isBuildDownloaded(
+      downloaded,
+      versionId,
+      versionMeta[versionId]?.displayVersion,
+    );
+  // The build the download button would ask for. Empty when the exchange has
+  // named none — Apple picks the build then, and the button stays available
+  // (the hook makes the same check against the record's own version).
+  const targetVersionId = selectedVersion || routeVersionId || latestListVersionId;
+  const targetDownloaded = !!targetVersionId && isVersionDownloaded(targetVersionId);
 
   // Undefined when nobody priced this app — a delisted or bare record then gets
   // no chip at all rather than a dash standing in for data.
@@ -475,12 +506,15 @@ export default function ProductDetail() {
     setVersions(list);
     // Versions arrived, so the id is answered — nothing is unverified now.
     setProbeNote("");
-    // A route-supplied version id stays the selection when the list carries
-    // it; otherwise the newest build is the default.
+    // A build the server already holds is not offered as the selection:
+    // handing it to the download button could only produce a second copy of
+    // the same package. A route-supplied version id still wins when it names
+    // a build this server does not have.
+    const selectable = list.filter((id) => !isVersionDownloaded(id));
     setSelectedVersion(
-      routeVersionId && list.includes(routeVersionId)
+      routeVersionId && selectable.includes(routeVersionId)
         ? routeVersionId
-        : list[0] || "",
+        : selectable[0] || "",
     );
     setVersionsOpen(true);
     if (account && app) {
@@ -544,7 +578,7 @@ export default function ProductDetail() {
   }
 
   async function handleDownload() {
-    if (!account || !app) return;
+    if (!account || !app || targetDownloaded) return;
     setLoadingAction("download");
     try {
       if (previewEnabled) {
@@ -697,11 +731,30 @@ export default function ProductDetail() {
                 <Select
                   value={selectedVersion}
                   onChange={setSelectedVersion}
-                  options={versions.map((v) => ({
-                    value: v,
-                    label: versionOptionLabel(v, versionMeta[v], pendingMeta[v]),
-                    group: t("search.product.version"),
-                  }))}
+                  options={versions.map((v) => {
+                    const label = versionOptionLabel(
+                      v,
+                      versionMeta[v],
+                      pendingMeta[v],
+                    );
+                    const held = isVersionDownloaded(v);
+                    return {
+                      value: v,
+                      // A build this server already holds says so in the row
+                      // and refuses the pick — there is nothing to gain from
+                      // downloading it twice.
+                      label: held
+                        ? `${label} · ${t("search.product.downloaded")}`
+                        : label,
+                      disabled: held,
+                      group: t("search.product.version"),
+                    };
+                  })}
+                  placeholder={
+                    versions.every((v) => isVersionDownloaded(v))
+                      ? t("search.product.allDownloaded")
+                      : undefined
+                  }
                   ariaLabel={t("search.product.version")}
                   className="min-h-11 w-full min-w-0 max-w-full truncate rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 dark:bg-gray-800 dark:text-white"
                 />
@@ -740,10 +793,10 @@ export default function ProductDetail() {
               <button
                 type="button"
                 onClick={handleDownload}
-                disabled={loadingAction !== null || !account}
+                disabled={loadingAction !== null || !account || targetDownloaded}
                 aria-busy={isDownloading}
                 className={`inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-blue-600 px-2 py-2 text-center text-xs font-semibold leading-tight text-white transition-colors hover:bg-blue-700 active:bg-blue-800 disabled:cursor-not-allowed sm:gap-2 sm:px-5 sm:text-sm ${
-                  !account || (loadingAction !== null && !isDownloading)
+                  !account || targetDownloaded || (loadingAction !== null && !isDownloading)
                     ? 'opacity-50'
                     : ''
                 }`}
@@ -795,6 +848,13 @@ export default function ProductDetail() {
                   </button>
                 )}
               </div>
+            )}
+            {/* Why the download button is out: the build it would ask for is
+                already on the server. */}
+            {!noRegionAccount && targetDownloaded && (
+              <p className="min-w-0 break-words rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
+                {t("search.product.alreadyDownloaded")}
+              </p>
             )}
           </section>
         )}

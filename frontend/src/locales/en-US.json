@@ -88,7 +88,10 @@
       "screenshots": "Screenshots",
       "ratings": "ratings",
       "free": "Free",
-      "noAccountsForRegion": "No accounts found for this region"
+      "noAccountsForRegion": "No accounts found for this region",
+      "downloaded": "Downloaded",
+      "allDownloaded": "Every version is already downloaded",
+      "alreadyDownloaded": "This version is already in Downloads — no need to add it again."
     },
     "versions": {
       "loadFailed": "Failed to load versions",
@@ -195,7 +198,7 @@
       "versionId": "Version ID (optional)",
       "versionIdPlaceholder": "Leave empty for the latest version",
       "invalidVersionId": "The version ID must be numeric",
-      "localRecordTag": "Delisted · local record",
+      "localRecordTag": "Delisted",
       "localRecordNote": "This app left the App Store, and the info comes from a previously downloaded package on this server."
     },
     "package": {
@@ -503,11 +506,15 @@
       "shareAcquired": "Link Acquired",
       "downloadIpaStarted": "Downloading the file",
       "deleteSuccess": "Delete Success",
-      "downloadLimit": "Size Limit Exceeded"
+      "downloadLimit": "Size Limit Exceeded",
+      "alreadyDownloaded": "Already downloaded"
     },
     "msg": "{{appName}}\n{{account}}",
     "msgShare": "{{appName}}\n{{account}}\n\nYou can use AirDrop to share it with your friends.",
     "msgFailed": "{{appName}}\n{{account}}\n\nError: {{error}}",
+    "alreadyDownloaded": {
+      "message": "{{appName}}\n{{account}}\n\nThis version is already in Downloads — no need to add it again."
+    },
     "downloadLimit": {
       "message": "{{appName}}\nApp size {{size}} MB exceeds the server limit of {{limit}} MB.\nPlease contact the administrator or deploy your own instance."
     }

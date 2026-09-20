@@ -88,7 +88,10 @@
       "screenshots": "스크린샷",
       "ratings": "개의 평가",
       "free": "무료",
-      "noAccountsForRegion": "해당 지역의 계정을 찾을 수 없습니다"
+      "noAccountsForRegion": "해당 지역의 계정을 찾을 수 없습니다",
+      "downloaded": "다운로드됨",
+      "allDownloaded": "모든 버전이 이미 다운로드되었습니다",
+      "alreadyDownloaded": "이 버전은 이미 다운로드 목록에 있으므로 다시 추가할 필요가 없습니다."
     },
     "versions": {
       "loadFailed": "버전 불러오기 실패",
@@ -195,7 +198,7 @@
       "versionId": "버전 ID(선택)",
       "versionIdPlaceholder": "비워 두면 최신 버전",
       "invalidVersionId": "버전 ID는 숫자여야 합니다",
-      "localRecordTag": "판매 중지 · 로컬 기록",
+      "localRecordTag": "판매 중지",
       "localRecordNote": "이 앱은 App Store에서 내려갔습니다, 정보는 이전에 다운로드한 패키지 기록에서 가져왔습니다."
     },
     "package": {
@@ -503,11 +506,15 @@
       "shareAcquired": "링크 획득",
       "downloadIpaStarted": "파일 다운로드를 시작합니다",
       "deleteSuccess": "삭제 성공",
-      "downloadLimit": "크기 제한 초과"
+      "downloadLimit": "크기 제한 초과",
+      "alreadyDownloaded": "중복 다운로드 불필요"
     },
     "msg": "{{appName}}\n{{account}}",
     "msgShare": "{{appName}}\n{{account}}\n\nAirDrop을 사용하여 친구와 공유할 수 있습니다.",
     "msgFailed": "{{appName}}\n{{account}}\n\n오류: {{error}}",
+    "alreadyDownloaded": {
+      "message": "{{appName}}\n{{account}}\n\n이 버전은 이미 다운로드 목록에 있으므로 다시 추가할 필요가 없습니다."
+    },
     "downloadLimit": {
       "message": "{{appName}}\n앱 크기 {{size}} MB가 서버 제한 {{limit}} MB를 초과했습니다.\n관리자에게 문의하거나 자체 인스턴스를 배포하여 다시 시도하십시오."
     }

@@ -13,6 +13,7 @@ import { getCachedVersionList, versionListKey } from "../store/versionLists";
 import { apiPost, apiGet } from "../api/client";
 import { accountHash, accountStoreCountry } from "../utils/account";
 import { getErrorMessage } from "../utils/error";
+import { findDuplicateDownload } from "../utils/downloaded";
 import { getAccountContext } from "../utils/toast";
 import type { Account, Software } from "../types";
 
@@ -67,6 +68,25 @@ export function useDownloadAction() {
     const ctx = getAccountContext(account, t);
     const appName = app.name;
     const pin = versionId || versionPinFallback(app, account, country);
+
+    // A build the server already holds — or is still fetching — would only
+    // become a second copy of the same package. The queue is re-read first:
+    // it moves on its own, and a page opened straight from search may never
+    // have read it at all.
+    await fetchTasks();
+    const duplicate = findDuplicateDownload(
+      useDownloadsStore.getState().tasks,
+      app,
+      pin,
+    );
+    if (duplicate) {
+      addToast(
+        t("toast.alreadyDownloaded.message", { appName, ...ctx }),
+        "info",
+        t("toast.title.alreadyDownloaded"),
+      );
+      return;
+    }
 
     try {
       const settings = await apiGet<{ maxDownloadMB: number }>("/api/settings");
