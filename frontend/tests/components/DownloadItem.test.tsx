@@ -183,4 +183,37 @@ describe('DownloadItem app-detail link', () => {
     );
     useAccountsStore.setState({ accounts: previous });
   });
+
+  it('carries the package build even when no account owns it', () => {
+    // The build the link names is what the detail page opens on — its own
+    // numbers, and 已下载 — so it must travel on its own account or not.
+    const task = createTask({
+      software: { ...createTask().software, externalVersionId: '888154623' },
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/downloads/task-id']}>
+        <Routes>
+          <Route
+            path="/downloads/:id"
+            element={
+              <DownloadItem
+                task={task}
+                onPause={() => {}}
+                onResume={() => {}}
+                onDelete={() => {}}
+              />
+            }
+          />
+          <Route path="/search/:appId" element={<StateProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole('link', { name: 'search.product.title' }));
+
+    expect(screen.getByTestId('probe').textContent).toBe(
+      JSON.stringify({ versionId: '888154623' }),
+    );
+  });
 });

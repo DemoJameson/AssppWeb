@@ -104,6 +104,43 @@ describe("packageAppStore", () => {
     expect(record?.builds.ios?.minimumOsVersion).toBe("15.0");
   });
 
+  it("records the build's size and release date, per platform", () => {
+    // The two details a delisted app's detail page can only get from its own
+    // package: how big that build is on disk, and when it was released. Both
+    // belong to the build, like its version and minimum OS.
+    store.rememberPackageApp(
+      software({
+        platform: "tvos",
+        version: "4.9.1",
+        fileSizeBytes: "155759893",
+        releaseDate: "2026-08-02T02:11:44.000Z",
+      }),
+    );
+
+    const record = store.findPackageAppByAppId(6503940939);
+    expect(record?.builds.tvos?.fileSizeBytes).toBe("155759893");
+    expect(record?.builds.tvos?.releaseDate).toBe("2026-08-02T02:11:44.000Z");
+    // The iOS build was never measured, and must not borrow them.
+    expect(record?.builds.ios?.fileSizeBytes).toBeUndefined();
+    expect(record?.builds.ios?.releaseDate).toBeUndefined();
+
+    // A later read that carries neither keeps what the first one measured…
+    store.rememberPackageApp(
+      software({ platform: "tvos", version: "4.9.1", fileSizeBytes: "", releaseDate: "" }),
+    );
+    const kept = store.findPackageAppByAppId(6503940939);
+    expect(kept?.builds.tvos?.fileSizeBytes).toBe("155759893");
+    expect(kept?.builds.tvos?.releaseDate).toBe("2026-08-02T02:11:44.000Z");
+
+    // …while a fresh measurement replaces the old one.
+    store.rememberPackageApp(
+      software({ platform: "tvos", version: "4.9.1", fileSizeBytes: "160000000" }),
+    );
+    expect(
+      store.findPackageAppByAppId(6503940939)?.builds.tvos?.fileSizeBytes,
+    ).toBe("160000000");
+  });
+
   it("skips the rewrite when a fresh read carries nothing new", () => {
     // SQLite writes are immediate; the no-op is observed via the DB row staying
     // the same. A second remember with no changed fields must not throw and the

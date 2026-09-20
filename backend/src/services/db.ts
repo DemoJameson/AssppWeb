@@ -73,16 +73,44 @@ CREATE TABLE IF NOT EXISTS package_app_builds (
   platform    TEXT NOT NULL,
   version     TEXT,
   minimum_os  TEXT,
+  file_size   TEXT,
+  release_date TEXT,
   updated_at  INTEGER NOT NULL,
   PRIMARY KEY (app_id, platform),
   FOREIGN KEY (app_id) REFERENCES package_apps(app_id) ON DELETE CASCADE
 );
 `;
 
-/** Sets `user_version` only on a fresh DB; future migrations branch on it. */
+/**
+ * The schema version this build expects. Bump it whenever ADDED_COLUMNS grows:
+ * a database below it is upgraded in place on open, a fresh one is born at it.
+ */
+const SCHEMA_VERSION = 2;
+
+/** Records the version; a fresh database and an upgraded one both land here. */
 const SCHEMA_VERSION_SQL = `
-PRAGMA user_version = 1;
+PRAGMA user_version = ${SCHEMA_VERSION};
 `;
+
+/**
+ * Columns added after the first SQLite release. A fresh database already has
+ * them from {@link SCHEMA_SQL}; an instance created by an earlier release gets
+ * them here. Each entry is applied only when the column is really missing, so a
+ * re-run (or a database that already carries some of them) is a no-op instead
+ * of an error.
+ */
+const ADDED_COLUMNS: ReadonlyArray<{
+  table: string;
+  column: string;
+  type: string;
+}> = [
+  // What a delisted app's detail page can only learn from its own package: how
+  // large the recorded build is on disk, and when that build was released.
+  // Per build, like `version` and `minimum_os` — an iOS and a tvOS package of
+  // the same app differ in both.
+  { table: "package_app_builds", column: "file_size", type: "TEXT" },
+  { table: "package_app_builds", column: "release_date", type: "TEXT" },
+];
 
 /** Opens (or returns the already-open) database handle. */
 export function getDb(): Database.Database {
@@ -91,14 +119,26 @@ export function getDb(): Database.Database {
   fs.mkdirSync(config.dataDir, { recursive: true });
   db = new Database(DB_FILE);
   db.exec(SCHEMA_SQL);
+  addMissingColumns(db);
   const version = (
     db.prepare("PRAGMA user_version").get() as { user_version?: number }
   ).user_version ?? 0;
-  if (version === 0) {
+  if (version < SCHEMA_VERSION) {
     db.exec(SCHEMA_VERSION_SQL);
   }
   migrateLegacyJsonFiles(db);
   return db;
+}
+
+/** Brings a database from an earlier release up to the columns above. */
+function addMissingColumns(db: Database.Database): void {
+  for (const { table, column, type } of ADDED_COLUMNS) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name: string;
+    }>;
+    if (columns.some((existing) => existing.name === column)) continue;
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
 }
 
 /** Closes the handle and clears the singleton (tests / shutdown). */

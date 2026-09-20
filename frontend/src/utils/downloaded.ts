@@ -86,6 +86,31 @@ export function isBuildDownloaded(
 }
 
 /**
+ * The held package that *is* the build a version list named — the task its
+ * facts can be read from: the compiled package's own version, size, minimum OS
+ * and date, which is what a detail view describes when that build is the one on
+ * screen.
+ *
+ * Identity follows {@link isBuildDownloaded}: the external id decides it, and a
+ * version number only ever speaks for a package that has no id of its own.
+ */
+export function heldBuildFor(
+  tasks: DownloadTask[],
+  appId: number,
+  platform: Platform | undefined,
+  versionId: string,
+  displayVersion?: string,
+): DownloadTask | undefined {
+  if (!versionId && !displayVersion) return undefined;
+  return tasksForApp(tasks, appId, platform).find((task) => {
+    if (!holdsPackage(task)) return false;
+    const id = task.software.externalVersionId?.trim();
+    if (id) return id === versionId;
+    return !!displayVersion && task.software.version === displayVersion;
+  });
+}
+
+/**
  * The task that already covers the build a download would ask for — the one
  * that makes adding it a duplicate, and that the caller should point at
  * instead. Undefined when the build is not covered, or when neither the pin

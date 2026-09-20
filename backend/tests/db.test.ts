@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
+import Database from "better-sqlite3";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import type { Database } from "better-sqlite3";
+import type { Database as DatabaseHandle } from "better-sqlite3";
 
 // The legacy-JSON migration is the one chunk of db.ts that only ever runs on
 // an old instance's first boot, so it is easy for it to rot silently. Each case
@@ -12,14 +13,14 @@ import type { Database } from "better-sqlite3";
 async function withDb<T>(
   dir: string,
   seed: (dir: string) => void,
-  run: (db: Database) => T | Promise<T>,
+  run: (db: DatabaseHandle) => T | Promise<T>,
 ): Promise<T> {
   process.env.DATA_DIR = dir;
   vi.resetModules();
   seed(dir);
   const { getDb, closeDb } = await import("../src/services/db.js");
   try {
-    return await run(getDb() as Database);
+    return await run(getDb() as DatabaseHandle);
   } finally {
     closeDb();
   }
@@ -33,6 +34,115 @@ function scratch(prefix: string): string {
 function leakedJson(dir: string): string[] {
   return fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
 }
+
+/** The columns a table actually has, in declaration order. */
+function columns(db: DatabaseHandle, table: string): string[] {
+  return (
+    db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+  ).map((column) => column.name);
+}
+
+describe("schema upgrades", () => {
+  it("adds the package-build columns a previous release shipped without", async () => {
+    // What an instance created by the first SQLite release looks like: the
+    // package index has no size/date columns, and the schema version is 1.
+    const dir = scratch("asspp-upgrade-");
+    await withDb(
+      dir,
+      (d) => {
+        const old = new Database(path.join(d, "asspp.db"));
+        old.exec(`
+          CREATE TABLE package_apps (
+            app_id        INTEGER PRIMARY KEY,
+            bundle_id     TEXT NOT NULL,
+            name          TEXT,
+            artist_name   TEXT,
+            artwork_url   TEXT,
+            primary_genre TEXT,
+            updated_at    INTEGER NOT NULL
+          );
+          CREATE TABLE package_app_builds (
+            app_id      INTEGER NOT NULL,
+            platform    TEXT NOT NULL,
+            version     TEXT,
+            minimum_os  TEXT,
+            updated_at  INTEGER NOT NULL,
+            PRIMARY KEY (app_id, platform)
+          );
+          PRAGMA user_version = 1;
+        `);
+        old
+          .prepare(
+            "INSERT INTO package_apps (app_id, bundle_id, name, updated_at) VALUES (42, 'com.example.legacy', 'Legacy', 1)",
+          )
+          .run();
+        old
+          .prepare(
+            "INSERT INTO package_app_builds (app_id, platform, version, minimum_os, updated_at) VALUES (42, 'ios', '3.0.0', '15.0', 1)",
+          )
+          .run();
+        old.close();
+      },
+      (db) => {
+        // Appended by ALTER TABLE, so they land after `updated_at` — the order
+        // differs from a fresh database's, which every query here is written to
+        // survive (columns are always named).
+        expect(columns(db, "package_app_builds")).toEqual(
+          expect.arrayContaining([
+            "app_id",
+            "platform",
+            "version",
+            "minimum_os",
+            "updated_at",
+            "file_size",
+            "release_date",
+          ]),
+        );
+        expect(columns(db, "package_app_builds")).toHaveLength(7);
+        // The recorded build survives the upgrade, with the new columns empty.
+        expect(
+          db
+            .prepare(
+              "SELECT app_id, platform, version, file_size, release_date FROM package_app_builds",
+            )
+            .all(),
+        ).toEqual([
+          {
+            app_id: 42,
+            platform: "ios",
+            version: "3.0.0",
+            file_size: null,
+            release_date: null,
+          },
+        ]);
+        expect(db.prepare("PRAGMA user_version").get()).toEqual({
+          user_version: 2,
+        });
+      },
+    );
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  it("leaves an already-upgraded database alone", async () => {
+    const dir = scratch("asspp-upgrade-again-");
+    await withDb(
+      dir,
+      () => {},
+      (db) => {
+        expect(columns(db, "package_app_builds")).toContain("file_size");
+      },
+    );
+    // Second boot on the same file: the guarded ALTERs must not throw.
+    await withDb(
+      dir,
+      () => {},
+      (db) => {
+        expect(columns(db, "package_app_builds")).toContain("release_date");
+      },
+    );
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+});
 
 describe("migrateLegacyJsonFiles", () => {
   it("imports all four legacy JSON stores and renames the files aside", async () => {

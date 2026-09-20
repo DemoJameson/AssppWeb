@@ -119,6 +119,29 @@ describe("Lookup Route — package-app fallback", () => {
     expect(tvos.body.version).toBe("9.9.9");
   });
 
+  it("answers with the recorded build's size and release date", async () => {
+    // What the package knew: measured on disk, and the date it was built. The
+    // detail view has no other source for either once the app is delisted.
+    seedApp({
+      fileSizeBytes: "155759893",
+      releaseDate: "2026-08-02T02:11:44.000Z",
+    });
+    replyWithJson({ resultCount: 0, results: [] });
+
+    const res = await request(app).get(
+      "/api/lookup?bundleId=com.example.legacy&country=US&platform=ios",
+    );
+    expect(res.body.fileSizeBytes).toBe("155759893");
+    expect(res.body.releaseDate).toBe("2026-08-02T02:11:44.000Z");
+
+    // Nothing was recorded for macOS, so neither may be invented for it.
+    const macos = await request(app).get(
+      "/api/lookup?bundleId=com.example.legacy&platform=macos",
+    );
+    expect(macos.body.fileSizeBytes).toBeUndefined();
+    expect(macos.body.releaseDate).toBe("");
+  });
+
   it("stays null when neither Apple nor the index knows the app", async () => {
     replyWithJson({ resultCount: 0, results: [] });
 

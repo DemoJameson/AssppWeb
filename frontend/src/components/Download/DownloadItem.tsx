@@ -36,21 +36,31 @@ export default function DownloadItem({
   const detailsHref = `/downloads/${task.id}${
     preview ? '?preview=downloads' : ''
   }`;
-  // The app's own detail page, carrying the package's platform and the
-  // account that owns it (its storefront travels as `country`). The state
-  // rides the Link's `state` prop — the object form of `to` drops it here.
+  // The app's own detail page, carrying the package's platform, the account
+  // that owns it (its storefront travels as `country`) and the package's own
+  // version id — the build the page opens on, so its 详细信息 answers for this
+  // package and a build already here reads as 已下载. The state rides the
+  // Link's `state` prop — the object form of `to` drops it here.
   const owningAccount = accounts.find((a) => a.email === accountEmail);
   const appDetailHref = task.software.id
     ? `/search/${task.software.id}?platform=${task.software.platform ?? 'ios'}${
         preview ? '&preview=product' : ''
       }`
     : null;
-  const appDetailState = owningAccount
-    ? {
-        accountEmail: owningAccount.email,
-        country: accountStoreCountry(owningAccount),
-      }
-    : null;
+  const appDetailState =
+    owningAccount || task.software.externalVersionId
+      ? {
+          ...(owningAccount
+            ? {
+                accountEmail: owningAccount.email,
+                country: accountStoreCountry(owningAccount),
+              }
+            : {}),
+          ...(task.software.externalVersionId
+            ? { versionId: task.software.externalVersionId }
+            : {}),
+        }
+      : null;
 
   return (
     <article className="min-w-0 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">

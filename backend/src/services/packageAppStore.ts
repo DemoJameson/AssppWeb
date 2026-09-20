@@ -16,7 +16,9 @@ import type { Platform, Software } from "../types/index.js";
  * Builds are tracked per platform: the same app ships different versions for
  * different platforms (`Forward` was 1.3.18 on iOS and 1.3.19 on tvOS), so a
  * lookup answers with the build of the platform it asked for — and says
- * nothing about the version when that platform has no recorded package.
+ * nothing about the version when that platform has no recorded package. Each
+ * build carries everything the package could tell about itself: its version,
+ * minimum OS, release date, and the size it occupies on disk.
  *
  * Server-written only (no client write-back): entries come from
  * `rememberPackageApp` call sites in downloadManager — the compile pipeline
@@ -34,6 +36,19 @@ const PLATFORM_SET: ReadonlySet<string> = new Set([
 export interface PackageBuild {
   version?: string;
   minimumOsVersion?: string;
+  /**
+   * The compiled package's size on disk, as the user would download it. Apple's
+   * `fileSizeBytes` is the installed size instead, so this is the only field
+   * here the package cannot declare — the download pipeline measures it.
+   */
+  fileSizeBytes?: string;
+  /**
+   * When this build was released, read out of the package (its Info.plist, or
+   * the archive entry's timestamp when that carries no date). Per build, not
+   * per app: Apple's own `releaseDate` in the download reply is app-level and
+   * can be stale, which is why the package is the source.
+   */
+  releaseDate?: string;
   updatedAt: number;
 }
 
@@ -59,7 +74,7 @@ let stmtUpsertApp: import("better-sqlite3").Statement<
   [number, string, string | undefined, string | undefined, string | undefined, string | undefined, number]
 > | undefined;
 let stmtUpsertBuild: import("better-sqlite3").Statement<
-  [number, string, string | undefined, string | undefined, number]
+  [number, string, string | undefined, string | undefined, string | undefined, string | undefined, number]
 > | undefined;
 
 /** Ensures the tables exist; idempotent, safe to call from any entry point. */
@@ -79,7 +94,7 @@ export function initPackageAppStore(): void {
     "SELECT app_id, bundle_id, name, artist_name, artwork_url, primary_genre, updated_at FROM package_apps WHERE app_id = ?",
   );
   stmtSelectBuilds = db.prepare<[number]>(
-    "SELECT platform, version, minimum_os, updated_at FROM package_app_builds WHERE app_id = ?",
+    "SELECT platform, version, minimum_os, file_size, release_date, updated_at FROM package_app_builds WHERE app_id = ?",
   );
   stmtUpsertApp = db.prepare<
     [number, string, string | undefined, string | undefined, string | undefined, string | undefined, number]
@@ -96,14 +111,16 @@ export function initPackageAppStore(): void {
        updated_at = excluded.updated_at`,
   );
   stmtUpsertBuild = db.prepare<
-    [number, string, string | undefined, string | undefined, number]
+    [number, string, string | undefined, string | undefined, string | undefined, string | undefined, number]
   >(
     `INSERT INTO package_app_builds
-       (app_id, platform, version, minimum_os, updated_at)
-     VALUES (?, ?, ?, ?, ?)
+       (app_id, platform, version, minimum_os, file_size, release_date, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(app_id, platform) DO UPDATE SET
        version = excluded.version,
        minimum_os = excluded.minimum_os,
+       file_size = excluded.file_size,
+       release_date = excluded.release_date,
        updated_at = excluded.updated_at`,
   );
 }
@@ -128,6 +145,9 @@ export function resetPackageAppStoreForTest(): void {
  * without a bundle id are skipped: they could never answer a bundle-id lookup.
  * Values from the new read win when present; the previous build fills the
  * gaps, and the placeholder label `App <id>` never counts as a name.
+ *
+ * The size is the caller's on-disk measurement rather than anything the package
+ * declares, so it only reaches the index when the completed task carries it.
  */
 export function rememberPackageApp(software: Software): void {
   initPackageAppStore();
@@ -148,6 +168,9 @@ export function rememberPackageApp(software: Software): void {
     version: clean(software.version) ?? previousBuild?.version,
     minimumOsVersion:
       clean(software.minimumOsVersion) ?? previousBuild?.minimumOsVersion,
+    fileSizeBytes:
+      clean(software.fileSizeBytes) ?? previousBuild?.fileSizeBytes,
+    releaseDate: clean(software.releaseDate) ?? previousBuild?.releaseDate,
     updatedAt: Date.now(),
   };
   const name = cleanName(software.name, appKey) ?? existing?.name;
@@ -178,7 +201,15 @@ export function rememberPackageApp(software: Software): void {
     );
 
     for (const [plat, b] of Object.entries(record.builds)) {
-      stmtUpsertBuild!.run(Number(appKey), plat, b.version, b.minimumOsVersion, b.updatedAt);
+      stmtUpsertBuild!.run(
+        Number(appKey),
+        plat,
+        b.version,
+        b.minimumOsVersion,
+        b.fileSizeBytes,
+        b.releaseDate,
+        b.updatedAt,
+      );
     }
   });
   tx();
@@ -262,6 +293,8 @@ function loadRecord(appKey: string): PackageAppRecord | undefined {
     platform: string;
     version: string | null;
     minimum_os: string | null;
+    file_size: string | null;
+    release_date: string | null;
     updated_at: number;
   }>;
 
@@ -270,6 +303,8 @@ function loadRecord(appKey: string): PackageAppRecord | undefined {
     builds[b.platform] = {
       version: b.version ?? undefined,
       minimumOsVersion: b.minimum_os ?? undefined,
+      fileSizeBytes: b.file_size ?? undefined,
+      releaseDate: b.release_date ?? undefined,
       updatedAt: b.updated_at,
     };
   }
@@ -327,7 +362,9 @@ function sameBuilds(
     if (!left || !right) return false;
     if (
       left.version !== right.version ||
-      left.minimumOsVersion !== right.minimumOsVersion
+      left.minimumOsVersion !== right.minimumOsVersion ||
+      left.fileSizeBytes !== right.fileSizeBytes ||
+      left.releaseDate !== right.releaseDate
     ) {
       return false;
     }

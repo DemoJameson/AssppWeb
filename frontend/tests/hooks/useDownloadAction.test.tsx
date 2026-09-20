@@ -188,6 +188,70 @@ describe("useDownloadAction", () => {
     expect(retryAccount.passwordToken).toBe("fresh-token");
   });
 
+  it("leaves a recalled record's per-build facts out of the request", async () => {
+    // A record recalled from the package index describes the build it was
+    // recalled from, while the picker can serve a different one. The date is
+    // re-read from the archive that arrives and the size measured on disk, so
+    // carrying the record's values would hand the task another build's day.
+    const recalled: Software = {
+      ...app,
+      metadataSource: "local",
+      releaseDate: "2026-07-11T00:00:00Z",
+      fileSizeBytes: "155759893",
+    };
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, recalled);
+    });
+
+    const body = vi.mocked(apiPost).mock.calls[0][1];
+    expect(body.software.releaseDate).toBe("");
+    expect(body.software.fileSizeBytes).toBeUndefined();
+    // The app's own facts still travel, and the served build names itself.
+    expect(body.software.name).toBe(app.name);
+    expect(body.software.artistName).toBe(app.artistName);
+    expect(body.software.bundleID).toBe(app.bundleID);
+    expect(body.software.version).toBe(output.bundleShortVersionString);
+  });
+
+  it("keeps a storefront record's own values when it named the served build", async () => {
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, {
+        ...app,
+        fileSizeBytes: "5242880",
+      });
+    });
+
+    const body = vi.mocked(apiPost).mock.calls[0][1];
+    expect(body.software.releaseDate).toBe(app.releaseDate);
+    expect(body.software.fileSizeBytes).toBe("5242880");
+  });
+
+  it("drops them when Apple serves another version than the record named", async () => {
+    // The storefront's date is the *current* version's; picking an older build
+    // in the picker (or the update dialog) serves that one instead, so the date
+    // on hand is another build's — the compiled package supplies its own.
+    vi.mocked(getDownloadInfo).mockResolvedValue({
+      output: { ...output, bundleShortVersionString: "3.4.4" },
+      updatedCookies: [],
+    });
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, {
+        ...app,
+        fileSizeBytes: "5242880",
+      });
+    });
+
+    const body = vi.mocked(apiPost).mock.calls[0][1];
+    expect(body.software.version).toBe("3.4.4");
+    expect(body.software.releaseDate).toBe("");
+    expect(body.software.fileSizeBytes).toBeUndefined();
+  });
+
   it("does not purchase for unrelated failures", async () => {
     vi.mocked(getDownloadInfo).mockRejectedValueOnce(
       new DownloadError("boom", "5002"),

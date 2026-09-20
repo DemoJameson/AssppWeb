@@ -346,7 +346,15 @@ still empty, and the task is persisted with them — so the downloads list and t
 package detail view show the real name, developer, version, minimum OS, genre and
 release date instead of any sparse label the request carried. The package
 build size is filled the same way. A storefront value always wins, so downloads
-started from search results are untouched.
+started from search results are untouched. The one thing a request must not
+carry is a **per-build fact quoted for another build**: the record's
+`releaseDate` and `fileSizeBytes` describe the version the record names, so
+`startDownload` only lets them travel when Apple's reply confirms it is serving
+that same version. Two cases fail that check — the picker can hand back an older
+build than the storefront's current version, and a record recalled from the
+package index is another build's download by nature — and in both the compiled
+package supplies the truth instead (the date read from the archive, the size
+measured after injection).
 
 Until step 3 lands, the on-disk layout uses the app id as the directory segment
 (`appPathSegment`), which is also ipatool's rule of omitting the fields it does
@@ -418,10 +426,24 @@ a notice asking for another region's account — the account selector stays
 usable and already drives the region (picking one refetches). Switching to a
 region or platform the app does not exist in snaps back to the previous
 selection with a toast — the page never dead-ends on not-found; only the
-newest lookup may apply. Delisted records carry the same 「已下架 · 本地记录」 tag on
-the detail header plus the local-record note, and missing detail values
-(version, size, minimum OS, seller, date) render as an em dash — the package
-enrichment backfills them once a build is downloaded.
+newest lookup may apply. The 详细信息 table describes exactly **one build — the
+one the page is about**: the picker's pick when the picker has been used, else
+the package the downloads hop came from (both download links hand their
+package's version id over in the navigation state, and it stays in play only
+while the page is still on the platform that hop named — a tvOS build must not
+name a version on the iOS page, nor pin its exchange), else the newest the
+fetched list named, and nothing named at all leaves the record's own build. Every row
+answers for that build and never borrows another's numbers — a held package
+supplies its own version, size, minimum OS and date (what the downloads view
+shows), a storefront answers for the version it quoted, a package read is the
+only date source (`utils/versionLabels`), and a fact nobody vouched for stays as
+an em dash. The same id drives the 已下载 state, so a package opened from
+downloads reads as already here (button out, note in place) and moving the
+picker to another version moves every row with it — and keeps the carried build
+picked when it is one the server holds. `utils/downloaded.heldBuildFor` is what
+ties a version id to the task that holds it. Delisted records carry the same
+「已下架 · 本地记录」 tag on the detail header plus the local-record note, and the
+developer column falls back to the artist name the package named.
 
 ### App icon extraction
 
@@ -544,13 +566,18 @@ themselves: `appId -> { bundleID, name, builds }`, written by
 version cache and pins, and stored in the `package_apps` / `package_app_builds`
 tables of the backend SQLite DB (`backed by db.ts`). Builds
 are tracked per platform — the same app ships different versions for different
-platforms (`Forward` was 1.3.18 on iOS and 1.3.19 on tvOS) — and `/api/lookup`
+platforms (`Forward` was 1.3.18 on iOS and 1.3.19 on tvOS) — and each build
+carries its version, minimum OS, release date and on-disk package size (the
+download pipeline measures the size after injection, which is the only size a
+delisted app can report). `/api/lookup`
 answers with the requested platform's build, omitting the version when that
 platform has no recorded package (legacy flat files migrate to the platform
 they recorded). It consults the index when the storefront answers nothing, so
 a delisted app stays findable by bundle id (or enriched when looked up by id);
 the response carries `metadataSource: "local"` and the UI labels it. Storefront
-answers always win.
+answers always win. The index holds no seller name — Apple's download metadata
+never carries one — so the detail view falls back to the package's artist name
+where a seller would go.
 
 ## Frontend
 

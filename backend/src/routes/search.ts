@@ -164,9 +164,18 @@ function localSoftwareFrom(query: Record<string, unknown>, platform?: Platform) 
 
 /**
  * One package-app record as the Software shape the frontend renders: the
- * requested platform's build supplies the version and minimum OS (a tvOS
- * build must not pass for an iOS lookup), and `metadataSource` tells the
- * frontend where the record came from.
+ * requested platform's build supplies the version, minimum OS, size and release
+ * date (a tvOS build must not pass for an iOS lookup), and `metadataSource`
+ * tells the frontend where the record came from.
+ *
+ * The storefront knows nothing more to add — it has forgotten the app — so what
+ * is left out here (the price, the description, the screenshots, the seller)
+ * is left out because the package never carried it. `artistName` is the app's
+ * own, and the UI falls back to it where a seller name would go.
+ *
+ * The size is the package's own on-disk size, not Apple's installed size: it is
+ * what a download of this app from this instance would actually transfer, which
+ * is the same number the downloads view prints under 大小.
  */
 function softwareFromRecord(record: PackageAppRecord, platform?: Platform) {
   const build = buildForPlatform(record, platform);
@@ -183,7 +192,8 @@ function softwareFromRecord(record: PackageAppRecord, platform?: Platform) {
     artworkUrl: record.artworkUrl ?? "",
     screenshotUrls: [],
     minimumOsVersion: build?.minimumOsVersion ?? "",
-    releaseDate: "",
+    fileSizeBytes: build?.fileSizeBytes,
+    releaseDate: build?.releaseDate ?? "",
     primaryGenreName: record.primaryGenreName ?? "",
     platform,
     metadataSource: "local" as const,

@@ -152,6 +152,8 @@ describe("Search Route", () => {
     mockedBuildForPlatform.mockReturnValue({
       version: "1.3.18",
       minimumOsVersion: "17.0",
+      fileSizeBytes: "155759893",
+      releaseDate: "2026-07-11T00:00:00.000Z",
       updatedAt: 5,
     });
 
@@ -166,6 +168,10 @@ describe("Search Route", () => {
       name: "Forward",
       version: "1.3.18",
       minimumOsVersion: "17.0",
+      // The same build facts a lookup answers with: the card's record is the
+      // one the detail page opens onto, so it carries them too.
+      fileSizeBytes: "155759893",
+      releaseDate: "2026-07-11T00:00:00.000Z",
       platform: "ios",
       metadataSource: "local",
     });

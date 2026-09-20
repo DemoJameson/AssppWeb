@@ -16,6 +16,7 @@ import { useDownloadsStore } from '../../src/store/downloads';
 import { useToastStore } from '../../src/store/toast';
 import { useVersionListsStore } from '../../src/store/versionLists';
 import { useVersionMetadataStore } from '../../src/store/versionMetadata';
+import { formatBytes } from '../../src/utils/format';
 import type { Account, DownloadTask, Software } from '../../src/types';
 
 const mocks = vi.hoisted(() => ({
@@ -187,6 +188,21 @@ function renderProductDetail(
 /** The caption a control is actually showing. */
 function visibleLabel(control: HTMLElement): string {
   return control.textContent?.trim() ?? '';
+}
+
+/** The details table as `label → value`, in the order the rows are drawn. */
+function detailsTable(): Record<string, string> {
+  const heading = screen.getByRole('heading', {
+    name: 'search.product.details',
+  });
+  const cells = Array.from(
+    heading.closest('section')?.querySelectorAll('dt, dd') ?? [],
+  );
+  const rows: Record<string, string> = {};
+  for (let i = 0; i + 1 < cells.length; i += 2) {
+    rows[cells[i].textContent ?? ''] = cells[i + 1].textContent ?? '';
+  }
+  return rows;
 }
 
 /** A direct visit — no navigation state, so the page looks the id up itself. */
@@ -863,7 +879,7 @@ describe('ProductDetail download action', () => {
     );
   });
 
-  it('marks a delisted record and dashes its missing details', async () => {
+  it('marks a delisted record and dashes what its package never knew', async () => {
     renderProductDetail(undefined, {
       metadataSource: 'local',
       version: '',
@@ -878,10 +894,49 @@ describe('ProductDetail download action', () => {
     });
     // The tag lives on the search card only — the detail header stays clean.
     expect(screen.queryByText('downloads.add.localRecordTag')).toBeNull();
-    // Missing values hold their spot with an em dash.
-    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(3);
+    // Missing values hold their spot with an em dash — except the developer,
+    // which the package does name: it is the artist behind the app.
+    expect(detailsTable()).toEqual({
+      'search.product.appId': String(app.id),
+      'search.product.bundleId': app.bundleID,
+      'search.product.version': '—',
+      'search.product.size': '—',
+      'search.product.minOs': 'iOS 16.0',
+      'search.product.seller': app.artistName,
+      'search.product.released': '—',
+    });
     // No platform rating on the local record — the stars stay hidden.
     expect(screen.queryByText(/★/)).toBeNull();
+  });
+
+  it("shows the size and release date a delisted record's package carried", async () => {
+    // What the package-app index records per platform build: the size the
+    // package occupies on disk and the date that build was released. Without
+    // them the detail view a package opens onto had nothing but dashes.
+    renderProductDetail(undefined, {
+      metadataSource: 'local',
+      version: '1.3.19',
+      externalVersionId: '889244416',
+      fileSizeBytes: '155759893',
+      sellerName: '',
+      releaseDate: '2026-08-02T10:00:00.000Z',
+      minimumOsVersion: '17.0',
+      averageUserRating: 0,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('downloads.add.localRecordNote')).toBeTruthy();
+    });
+    expect(detailsTable()).toEqual({
+      'search.product.appId': String(app.id),
+      'search.product.bundleId': app.bundleID,
+      'search.product.version': '1.3.19 (889244416)',
+      'search.product.size': formatBytes('155759893'),
+      'search.product.minOs': 'iOS 17.0',
+      'search.product.seller': app.artistName,
+      'search.product.released': '2026-08-02',
+    });
+    expect(screen.queryByText('—')).toBeNull();
   });
 
   it("shows the fetched list's newest version instead of the recorded build", async () => {
@@ -1000,6 +1055,216 @@ describe('ProductDetail download action', () => {
       '818970197',
       'US',
     );
+  });
+
+  it('opens on the package the downloads hop came from', async () => {
+    // The 应用详情 link hands over the package's own version id, so the page
+    // describes *that* build — its numbers, not the record's and not the list's
+    // newest — and says it is already here.
+    const held: DownloadTask = {
+      id: 'held-888',
+      software: {
+        ...app,
+        version: '3.4.4',
+        externalVersionId: '888',
+        fileSizeBytes: '12345678',
+        minimumOsVersion: '15.0',
+        releaseDate: '2026-06-01T10:00:00Z',
+      },
+      accountHash: 'hash',
+      status: 'completed',
+      progress: 100,
+      speed: '',
+      hasFile: true,
+      createdAt: '2026-09-20T00:00:00.000Z',
+    };
+    useDownloadsStore.setState({ tasks: [held] });
+    renderProductDetail(
+      undefined,
+      {
+        metadataSource: 'local',
+        version: '3.4.5',
+        fileSizeBytes: '5242880',
+        minimumOsVersion: '16.0',
+        releaseDate: '2026-08-01T00:00:00Z',
+      },
+      '888',
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText('downloads.add.localRecordNote')).toBeTruthy(),
+    );
+    expect(detailsTable()).toEqual({
+      'search.product.appId': String(app.id),
+      'search.product.bundleId': app.bundleID,
+      'search.product.version': '3.4.4 (888)',
+      'search.product.size': formatBytes('12345678'),
+      'search.product.minOs': 'iOS 15.0',
+      'search.product.seller': app.sellerName,
+      'search.product.released': '2026-06-01',
+    });
+    expect(screen.getByText('search.product.alreadyDownloaded')).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'search.product.download' }),
+    ).toBeDisabled();
+  });
+
+  it('follows the picked version in the details table', async () => {
+    // Rows answer for whichever build the picker shows: the carried package
+    // first (kept, not skipped as a held build), then the picked one — whose
+    // size and minimum OS nobody here knows, so they stay as dashes rather
+    // than borrowing the held package's numbers.
+    const held: DownloadTask = {
+      id: 'held-888',
+      software: {
+        ...app,
+        version: '3.4.4',
+        externalVersionId: '888',
+        fileSizeBytes: '12345678',
+        minimumOsVersion: '15.0',
+        releaseDate: '2026-06-01T10:00:00Z',
+      },
+      accountHash: 'hash',
+      status: 'completed',
+      progress: 100,
+      speed: '',
+      hasFile: true,
+      createdAt: '2026-09-20T00:00:00.000Z',
+    };
+    useDownloadsStore.setState({ tasks: [held] });
+    useVersionListsStore.setState({ lists: { '123456:ios:US': ['888', '777'] } });
+    useVersionMetadataStore.setState({
+      entries: {
+        '777': {
+          versionId: '777',
+          displayVersion: '9.9.9',
+          releaseDate: '2026-05-01T00:00:00Z',
+          source: 'package',
+        },
+      },
+    });
+    // Opening the picker fills the labels it is missing; each id keeps its own.
+    vi.mocked(getVersionMetadata).mockImplementation(
+      async (_account, _app, versionId) =>
+        ({
+          metadata: {
+            displayVersion: versionId === '888' ? '3.4.4' : '9.9.9',
+            releaseDate: '2026-05-01T00:00:00Z',
+          },
+          updatedCookies: [],
+        }) as never,
+    );
+    renderProductDetail(
+      undefined,
+      { metadataSource: 'local', version: '3.4.5' },
+      '888',
+    );
+
+    const accountSelect = screen.getByRole('combobox', {
+      name: 'search.product.account',
+    });
+    await waitFor(() => expect(accountSelect).toHaveTextContent(account.email));
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'search.product.selectVersion' }),
+    );
+    const combo = await screen.findByRole('combobox', {
+      name: 'search.product.version',
+    });
+    // Opening the picker keeps the package's build picked, held or not.
+    expect(combo).toHaveTextContent('888');
+    expect(combo).toHaveTextContent('search.product.downloaded');
+    expect(detailsTable()['search.product.version']).toBe('3.4.4 (888)');
+
+    fireEvent.click(combo);
+    fireEvent.click(screen.getByRole('option', { name: /777/ }));
+
+    expect(detailsTable()).toEqual({
+      'search.product.appId': String(app.id),
+      'search.product.bundleId': app.bundleID,
+      'search.product.version': '9.9.9 (777)',
+      'search.product.size': '—',
+      'search.product.minOs': '—',
+      'search.product.seller': app.sellerName,
+      'search.product.released': '2026-05-01',
+    });
+    // Nothing holds that build, so the download is back on offer.
+    expect(screen.queryByText('search.product.alreadyDownloaded')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'search.product.download' }),
+    ).toBeEnabled();
+  });
+
+  it('drops a carried build when the page moves to another platform', async () => {
+    // The hop's version id names a tvOS package. Asking the same app as iOS
+    // must not keep describing it — the id is a build of the platform you came
+    // from, and the iOS record is the one that answers here.
+    const held: DownloadTask = {
+      id: 'held-tvos',
+      software: {
+        ...app,
+        platform: 'tvos',
+        version: '3.4.4',
+        externalVersionId: '888',
+        fileSizeBytes: '12345678',
+        minimumOsVersion: '15.0',
+        releaseDate: '2026-06-01T10:00:00Z',
+      },
+      accountHash: 'hash',
+      status: 'completed',
+      progress: 100,
+      speed: '',
+      hasFile: true,
+      createdAt: '2026-09-20T00:00:00.000Z',
+    };
+    useDownloadsStore.setState({ tasks: [held] });
+    mocks.lookupApp.mockImplementation(async (_id, _country, platform) =>
+      platform === 'ios'
+        ? ({
+            ...app,
+            platform: 'ios',
+            version: '3.4.5',
+            fileSizeBytes: '5242880',
+            releaseDate: '2026-08-01T00:00:00Z',
+            metadataSource: 'local',
+          } as Software)
+        : null,
+    );
+
+    renderProductDetail(
+      undefined,
+      { platform: 'tvos', version: '3.4.4', metadataSource: 'local' },
+      '888',
+    );
+
+    await waitFor(() =>
+      expect(detailsTable()['search.product.version']).toBe('3.4.4 (888)'),
+    );
+    expect(screen.getByText('search.product.alreadyDownloaded')).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole('combobox', { name: 'downloads.platform.label' }),
+    );
+    fireEvent.click(screen.getByRole('option', { name: 'iOS' }));
+
+    await waitFor(() =>
+      expect(detailsTable()['search.product.version']).toBe('3.4.5'),
+    );
+    // Nothing of the tvOS package leaks into the iOS page — not its id, not its
+    // numbers — and the build is no longer held here, so it can be fetched.
+    expect(detailsTable()).toEqual({
+      'search.product.appId': String(app.id),
+      'search.product.bundleId': app.bundleID,
+      'search.product.version': '3.4.5',
+      'search.product.size': formatBytes('5242880'),
+      'search.product.minOs': 'iOS 16.0',
+      'search.product.seller': app.sellerName,
+      'search.product.released': '2026-08-01',
+    });
+    expect(screen.queryByText('search.product.alreadyDownloaded')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'search.product.download' }),
+    ).toBeEnabled();
   });
 
   it('does not hold a build of another platform against this one', async () => {

@@ -14,6 +14,7 @@ import { apiPost, apiGet } from "../api/client";
 import { accountHash, accountStoreCountry } from "../utils/account";
 import { getErrorMessage } from "../utils/error";
 import { findDuplicateDownload } from "../utils/downloaded";
+import { needsVersionExchange } from "../utils/software";
 import { getAccountContext } from "../utils/toast";
 import type { Account, Software } from "../types";
 
@@ -143,6 +144,22 @@ export function useDownloadAction() {
     // reads it out of the compiled package.
     const bundleID = app.bundleID || output.bundleID || "";
 
+    // The record's per-build facts — its release date and its size — were
+    // quoted for *one* build: the version the record names. The download reply
+    // is the authority on which build is actually coming, so they only travel
+    // when it confirms the same version. Two things fail that check: the picker
+    // can hand back an older build than the storefront's current version, and a
+    // recalled record is another build's download by nature (its `version` is
+    // whatever that package happened to be — see `needsVersionExchange`).
+    // Dropping them lets the compiled package supply the truth instead: its own
+    // release date, read out of the archive, and the size the backend measures
+    // after injection. Everything the record knows about the app itself (name,
+    // artist, genre, artwork) still travels either way.
+    const quotedForServedBuild =
+      !needsVersionExchange(app) &&
+      !!app.version &&
+      app.version === output.bundleShortVersionString;
+
     const hash = await accountHash(currentAccount);
 
     await apiPost("/api/downloads", {
@@ -153,6 +170,9 @@ export function useDownloadAction() {
         // The id of the build Apple served; the backend records it as the
         // app+platform's last-known pin for future version queries.
         externalVersionId: output.externalVersionId ?? app.externalVersionId,
+        ...(quotedForServedBuild
+          ? {}
+          : { releaseDate: "", fileSizeBytes: undefined }),
       },
       accountHash: hash,
       downloadURL: output.downloadURL,

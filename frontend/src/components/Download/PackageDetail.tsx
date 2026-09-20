@@ -76,19 +76,29 @@ export default function PackageDetail() {
   const account = accounts.find((item) => item.email === accountEmail);
   const accountLabel = accountEmail || task.accountHash;
   // The app's own detail page, carrying this package's platform and owning
-  // account (its storefront travels as `country`). The state rides the
-  // Link's `state` prop — the object form of `to` drops it here.
+  // account (its storefront travels as `country`). The package's version id
+  // rides along too: it is the build the detail page is about, so it opens on
+  // this package — its own numbers, and 已下载 for a build already here. The
+  // state rides the Link's `state` prop — the object form of `to` drops it here.
   const appDetailHref = task.software.id
     ? `/search/${task.software.id}?platform=${task.software.platform ?? 'ios'}${
         isPreview ? '&preview=product' : ''
       }`
     : null;
-  const appDetailState = account
-    ? {
-        accountEmail: account.email,
-        country: accountStoreCountry(account),
-      }
-    : null;
+  const appDetailState =
+    account || task.software.externalVersionId
+      ? {
+          ...(account
+            ? {
+                accountEmail: account.email,
+                country: accountStoreCountry(account),
+              }
+            : {}),
+          ...(task.software.externalVersionId
+            ? { versionId: task.software.externalVersionId }
+            : {}),
+        }
+      : null;
   const appName = task.software.name;
   const appIcon = (
     <AppIcon url={taskIconUrl(task)} name={appName} size="lg" />

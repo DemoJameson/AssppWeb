@@ -36,7 +36,11 @@ import {
   needsVersionExchange,
 } from "../../utils/software";
 import { appPresenceFromProbeError } from "../../apple/errors";
-import { downloadedBuilds, isBuildDownloaded } from "../../utils/downloaded";
+import {
+  downloadedBuilds,
+  heldBuildFor,
+  isBuildDownloaded,
+} from "../../utils/downloaded";
 import { versionOptionLabel } from "../../utils/versionLabels";
 import { parsePlatform, PLATFORM_LABELS } from "../../apple/platform";
 import { accountSelectLabel, accountStoreCountry } from "../../utils/account";
@@ -73,19 +77,24 @@ export default function ProductDetail() {
     !previewEnabled && typeof routeState?.accountEmail === 'string'
       ? routeState.accountEmail
       : '';
+  const [searchParams] = useSearchParams();
+  // The platform the entry names: the record's own when it carries one (a
+  // package hop does), else the query the search results attached. The selector
+  // below can move the page to another platform afterwards.
+  const entryPlatform: Platform =
+    stateApp?.platform ?? parsePlatform(searchParams.get("platform")) ?? "ios";
+  const [platform, setPlatform] = useState<Platform>(entryPlatform);
+  // A version id from the route speaks only for the platform it came from: it
+  // is a build of the package hop, and switching the selector leaves that
+  // package behind — a foreign id must neither name a version here nor pin this
+  // platform's exchange.
   const routeVersionId =
     !previewEnabled &&
+    platform === entryPlatform &&
     typeof routeState?.versionId === 'string' &&
     /^\d+$/.test(routeState.versionId)
       ? routeState.versionId
       : '';
-  const [searchParams] = useSearchParams();
-  // The app in the router state carries its platform; a direct visit falls
-  // back to the query the search results attached. The selector below can
-  // change it afterwards.
-  const [platform, setPlatform] = useState<Platform>(
-    stateApp?.platform ?? parsePlatform(searchParams.get("platform")) ?? "ios",
-  );
   const [country, setCountry] = useState(stateCountry ?? "US");
   const [app, setApp] = useState<Software | null>(stateApp ?? null);
   const [loading, setLoading] = useState(!stateApp);
@@ -126,25 +135,13 @@ export default function ProductDetail() {
   // storefront), and the search page's prefetch wrote under the same region it
   // navigated in with.
 
-  // The newest version the fetched list knows — it beats the recorded build,
-  // which can be a stale download (a delisted app shows its true latest).
+  // The newest version the fetched list knows. It answers for a build the page
+  // was not opened on, and it beats the recorded build, which can be a stale
+  // download (a delisted app shows its true latest).
   const cachedVersions = useVersionListsStore((s) =>
     app ? s.lists[versionListKey(app.id, app.platform, country)] : undefined,
   );
   const latestListVersionId = cachedVersions?.[0] ?? "";
-  const displayVersion =
-    (latestListVersionId && versionMeta[latestListVersionId]?.displayVersion) ||
-    app?.version ||
-    "";
-
-  // The external id printed next to the display version: the build the list
-  // named when the label came from the exchange, else the one the record or
-  // package carried.
-  const displayVersionId =
-    latestListVersionId &&
-    versionMeta[latestListVersionId]?.displayVersion === displayVersion
-      ? latestListVersionId
-      : (app?.externalVersionId || "");
 
   // The platform the packages are compared against: a record can arrive
   // without one (a storefront answer asked for iOS does), while the version
@@ -165,11 +162,64 @@ export default function ProductDetail() {
       versionId,
       versionMeta[versionId]?.displayVersion,
     );
-  // The build the download button would ask for. Empty when the exchange has
-  // named none — Apple picks the build then, and the button stays available
-  // (the hook makes the same check against the record's own version).
-  const targetVersionId = selectedVersion || routeVersionId || latestListVersionId;
-  const targetDownloaded = !!targetVersionId && isVersionDownloaded(targetVersionId);
+
+  // The build this page is about: what the picker shows once it has been used,
+  // else the package the downloads hop came from (the link hands over its
+  // version id), else the newest the fetched list named. It is what 详细信息
+  // answers for, what a download would ask for, and what the 已下载 state is
+  // read from — one build, one set of numbers.
+  //
+  // Empty when nothing named one: Apple picks the build then, so the button
+  // stays available (the hook makes the same check against the record's own
+  // version) and the rows fall back to the record's build below.
+  const currentVersionId =
+    selectedVersion || routeVersionId || latestListVersionId;
+  const currentMeta = versionMeta[currentVersionId];
+  // The package the server holds of that build, when it holds one: a compiled
+  // package is the authority for its own version, size, minimum OS and date.
+  const heldBuild = app
+    ? heldBuildFor(
+        tasks,
+        app.id,
+        appPlatform,
+        currentVersionId,
+        currentMeta?.displayVersion,
+      )
+    : undefined;
+  // Whether the record describes the build on screen. The record names its
+  // build by version number — the only identity it has (the backend's
+  // `softwareFromRecord`) — so it may answer only when the two agree.
+  const recordIsCurrent =
+    !!app && (!currentVersionId || currentMeta?.displayVersion === app.version);
+  const displayVersion =
+    currentMeta?.displayVersion ||
+    heldBuild?.software.version ||
+    (recordIsCurrent ? app?.version ?? "" : "");
+  // The id printed beside the version. The named build's when one is named;
+  // with nothing named, the record's own — the same build, and the only other
+  // place an id can come from.
+  const displayVersionId =
+    currentVersionId || (recordIsCurrent ? app?.externalVersionId ?? "" : "");
+  const currentFileSizeBytes = heldBuild
+    ? heldBuild.software.fileSizeBytes
+    : recordIsCurrent
+      ? app?.fileSizeBytes
+      : undefined;
+  const currentMinimumOs = heldBuild
+    ? heldBuild.software.minimumOsVersion
+    : recordIsCurrent
+      ? app?.minimumOsVersion ?? ""
+      : "";
+  // A date may only come from a package read (`utils/versionLabels` prints only
+  // those): the exchange dates the *app*, not the build. A held package's own
+  // date is the one the version list shows next to this id; the record's is the
+  // recorded build's.
+  const currentReleaseDate =
+    heldBuild?.software.releaseDate ||
+    (currentMeta?.source === 'package' ? currentMeta.releaseDate : '') ||
+    (recordIsCurrent ? app?.releaseDate ?? '' : '');
+
+  const targetDownloaded = !!currentVersionId && isVersionDownloaded(currentVersionId);
 
   // Undefined when nobody priced this app — a delisted or bare record then gets
   // no chip at all rather than a dash standing in for data.
@@ -506,13 +556,14 @@ export default function ProductDetail() {
     setVersions(list);
     // Versions arrived, so the id is answered — nothing is unverified now.
     setProbeNote("");
-    // A build the server already holds is not offered as the selection:
-    // handing it to the download button could only produce a second copy of
-    // the same package. A route-supplied version id still wins when it names
-    // a build this server does not have.
+    // The build the package hop came from keeps the pick: that is the build the
+    // page was opened on, and its row says 已下载 — moving to the next unheld
+    // build on open would read as the page forgetting which package it is
+    // about. Otherwise the first build the server does not hold is picked, so
+    // the download button has something to ask for.
     const selectable = list.filter((id) => !isVersionDownloaded(id));
     setSelectedVersion(
-      routeVersionId && selectable.includes(routeVersionId)
+      routeVersionId && list.includes(routeVersionId)
         ? routeVersionId
         : selectable[0] || "",
     );
@@ -593,7 +644,7 @@ export default function ProductDetail() {
       await startDownload(
         account,
         app,
-        selectedVersion || routeVersionId || latestListVersionId || undefined,
+        currentVersionId || undefined,
         country,
       );
     } catch (e) {
@@ -864,6 +915,10 @@ export default function ProductDetail() {
             {t("search.product.details")}
           </h2>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            {/* The version row prefers the newest build anybody named (see
+                `displayVersion` above). Every row below answers for that one
+                build, never borrowing another's numbers: the version names it,
+                and a fact nobody vouched for stays as an em dash. */}
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.appId")}
             </dt>
@@ -882,33 +937,36 @@ export default function ProductDetail() {
             <dd className="text-gray-900 dark:text-gray-200">
               {displayVersion
                 ? `${displayVersion}${displayVersionId ? ` (${displayVersionId})` : ""}`
-                : "—"}
+                : displayVersionId || "—"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.size")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200">
-              {app.fileSizeBytes ? formatBytes(app.fileSizeBytes) : "—"}
+              {currentFileSizeBytes ? formatBytes(currentFileSizeBytes) : "—"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.minOs")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200">
-              {app.minimumOsVersion
-                ? `${PLATFORM_LABELS[app.platform || 'ios']} ${app.minimumOsVersion}`
+              {currentMinimumOs
+                ? `${PLATFORM_LABELS[appPlatform]} ${currentMinimumOs}`
                 : "—"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.seller")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200">
-              {app.sellerName || "—"}
+              {/* A delisted record has no seller name — the package it was
+                  recalled from never carried one — so the artist name stands in
+                  for it, exactly as the package detail view does. */}
+              {app.sellerName || app.artistName || "—"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.released")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200">
-              {formatDateISO(app.releaseDate) ?? "—"}
+              {formatDateISO(currentReleaseDate) ?? "—"}
             </dd>
           </dl>
         </section>

@@ -884,7 +884,8 @@ async function startDownload(task: DownloadTask) {
 
     // Inject sinfs — macOS packages cannot carry them, so the download is the
     // final artifact as-is.
-    if (task.sinfs.length > 0 && !isMacOSPackage) {
+    const compiled = task.sinfs.length > 0 && !isMacOSPackage;
+    if (compiled) {
       task.status = "injecting";
       task.progress = 100;
       notifyProgress(task);
@@ -904,15 +905,20 @@ async function startDownload(task: DownloadTask) {
       // The package is the trusted source for the shared version metadata
       // cache — the same read-back, recorded for every client of the instance.
       seedVersionMetadata(task.software.id, metadata);
-      // And the app index: a delisted app stays findable by bundle id.
-      rememberPackageApp(task.software);
       writeTaskIcon(task, icon);
     }
 
     // Apple's fileSizeBytes is the installed (uncompressed) size, not the
     // IPA file size. Overwrite it with the real on-disk size so the UI shows
-    // what the user actually downloads.
+    // what the user actually downloads. Injection rewrites the archive, so the
+    // measurement has to come after it — and it is the size the app index
+    // records below, the only one a delisted app can report.
     task.software.fileSizeBytes = String(fs.statSync(filePath).size);
+
+    // And the app index: a delisted app stays findable by bundle id, and
+    // answers the detail page with everything its package knew — the size above
+    // included.
+    if (compiled) rememberPackageApp(task.software);
 
     // The finished package is the last place a delisted app's version id is
     // still readable; record it so later version queries have a pin to fall
