@@ -91,7 +91,8 @@
       "noAccountsForRegion": "找不到該地區的帳號",
       "downloaded": "已下載",
       "allDownloaded": "所有版本皆已下載",
-      "alreadyDownloaded": "此版本已在下載清單中，無需重複加入。"
+      "alreadyDownloaded": "此版本已在下載清單中，無需重複加入。",
+      "goToDownloads": "前往下載頁"
     },
     "versions": {
       "loadFailed": "載入版本失敗",
@@ -210,7 +211,7 @@
       "appId": "App ID",
       "versionId": "版本 ID",
       "account": "帳號",
-      "created": "建立時間",
+      "downloadedAt": "下載時間",
       "install": "在裝置上安裝",
       "installShort": "安裝",
       "share": "分享",
@@ -224,7 +225,6 @@
       "information": "安裝包資訊",
       "size": "大小",
       "minOs": "最低系統版本",
-      "category": "類別",
       "released": "發佈日期",
       "developer": "開發者",
       "fileUnavailable": "安裝包檔案無法使用。",

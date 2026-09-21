@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DownloadList from "../../src/components/Download/DownloadList";
 import type { DownloadTask } from "../../src/types";
@@ -42,10 +42,15 @@ vi.mock("../../src/store/toast", () => ({
 }));
 
 // The list's own item is heavy; the filter only needs to show what it renders.
+// The highlight flag travels on it, so the mock echoes it.
 vi.mock("../../src/components/Download/DownloadItem", () => ({
-  default: ({ task }: { task: DownloadTask }) => (
-    <div>{task.software.name}</div>
-  ),
+  default: ({
+    task,
+    highlight,
+  }: {
+    task: DownloadTask;
+    highlight?: boolean;
+  }) => <div data-highlight={highlight ? "true" : "false"}>{task.software.name}</div>,
 }));
 
 function task(
@@ -64,9 +69,22 @@ function task(
   } as unknown as DownloadTask;
 }
 
-function renderList() {
+/** What a fresh mount of this entry would read back from the router. */
+function StateProbe() {
+  const location = useLocation();
+  return (
+    <div data-testid="router-state">
+      {JSON.stringify(location.state ?? null)}
+    </div>
+  );
+}
+
+function renderList(state?: unknown, withProbe = false) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter
+      initialEntries={[{ pathname: "/downloads", state: state ?? null }]}
+    >
+      {withProbe ? <StateProbe /> : null}
       <DownloadList />
     </MemoryRouter>,
   );
@@ -155,5 +173,56 @@ describe("DownloadList status filter", () => {
 
     expect(screen.getByText("Alpha")).toBeTruthy();
     expect(screen.queryByText("Bravo")).toBeNull();
+  });
+});
+
+describe("DownloadList highlight hop", () => {
+  beforeEach(() => {
+    mocks.tasks = [
+      task("1", "Alpha", "completed"),
+      task("2", "Bravo", "downloading"),
+    ];
+  });
+
+  it("marks the package a hop from the app page named", () => {
+    renderList({ highlightTaskId: "1" });
+
+    // Only the named package wears the ring; the rest read normally.
+    const rows = screen.getAllByText(/Alpha|Bravo/);
+    expect(rows).toHaveLength(2);
+    expect(rows.find((row) => row.textContent === "Alpha")).toHaveAttribute(
+      "data-highlight",
+      "true",
+    );
+    expect(rows.find((row) => row.textContent === "Bravo")).toHaveAttribute(
+      "data-highlight",
+      "false",
+    );
+  });
+
+  it("highlights nothing on a plain visit", () => {
+    renderList();
+
+    for (const row of screen.getAllByText(/Alpha|Bravo/)) {
+      expect(row).toHaveAttribute("data-highlight", "false");
+    }
+  });
+
+  it("consumes the hop, so reloading that entry highlights nothing", () => {
+    // The entry that carried the hop is rewritten on arrival: what a reload
+    // re-reads — and what stepping back onto the entry finds — names no
+    // package any more.
+    const { unmount } = renderList({ highlightTaskId: "1" }, true);
+
+    // This mount still marks the package it was pointed at.
+    expect(screen.getByText("Alpha")).toHaveAttribute("data-highlight", "true");
+    expect(screen.getByTestId("router-state").textContent).toBe("null");
+    unmount();
+
+    // The same entry again — what F5 gives back — leaves the row unmarked.
+    renderList(null, true);
+    for (const row of screen.getAllByText(/Alpha|Bravo/)) {
+      expect(row).toHaveAttribute("data-highlight", "false");
+    }
   });
 });

@@ -313,7 +313,21 @@ export default function PackageDetail() {
             {t('downloads.package.information')}
           </h3>
 
+          {/* The same four facts the download list row shows, in the same
+              order — the two pages describe one package alike. */}
           <dl className="mt-4 grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
+            <DetailTile
+              label={t('downloads.package.version')}
+              value={
+                task.software.externalVersionId
+                  ? `${task.software.version} (${task.software.externalVersionId})`
+                  : task.software.version
+              }
+            />
+            <DetailTile
+              label={t('downloads.package.released')}
+              value={formatDate(task.software.releaseDate)}
+            />
             <DetailTile
               label={t('downloads.package.size')}
               value={formatBytes(task.software.fileSizeBytes)}
@@ -321,14 +335,6 @@ export default function PackageDetail() {
             <DetailTile
               label={t('downloads.package.minOs')}
               value={task.software.minimumOsVersion ? `${PLATFORM_LABELS[task.software.platform || 'ios']} ${task.software.minimumOsVersion}` : '—'}
-            />
-            <DetailTile
-              label={t('downloads.package.category')}
-              value={task.software.primaryGenreName || '—'}
-            />
-            <DetailTile
-              label={t('downloads.package.released')}
-              value={formatDate(task.software.releaseDate)}
             />
           </dl>
 
@@ -354,25 +360,12 @@ export default function PackageDetail() {
               {task.software.bundleID}
             </PackageDetailRow>
             <PackageDetailRow
-              label={t('downloads.package.version')}
-              valueTitle={
-                task.software.externalVersionId
-                  ? `${task.software.version} (${task.software.externalVersionId})`
-                  : task.software.version
-              }
-              mono
-            >
-              {task.software.externalVersionId
-                ? `${task.software.version} (${task.software.externalVersionId})`
-                : task.software.version}
-            </PackageDetailRow>
-            <PackageDetailRow
               label={t('downloads.package.account')}
               valueTitle={accountLabel}
             >
               {accountLabel}
             </PackageDetailRow>
-            <PackageDetailRow label={t('downloads.package.created')}>
+            <PackageDetailRow label={t('downloads.package.downloadedAt')}>
               {formatDateTimeISO(task.createdAt) ?? '—'}
             </PackageDetailRow>
           </dl>

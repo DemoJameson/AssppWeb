@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 
 export interface SelectOption {
@@ -13,6 +14,13 @@ export interface SelectOption {
   disabled?: boolean;
   /** Optional section header rendered above the first option of each group. */
   group?: string;
+  /**
+   * A control rendered at the row's end, beside the label — a clickable mark
+   * (e.g. a 已下载 chip) that belongs to the row but must not pick the option.
+   * The row stops the propagation of a click inside it, so the trigger keeps
+   * the selection; the trigger button still shows the plain `label`.
+   */
+  trailing?: ReactNode;
 }
 
 interface SelectProps {
@@ -245,7 +253,7 @@ export default function Select({
                   aria-disabled={option.disabled || undefined}
                   onMouseEnter={() => setActiveIndex(index)}
                   onClick={() => applyOption(option)}
-                  className={`cursor-pointer truncate px-3 py-2 transition-colors ${
+                  className={`flex min-w-0 items-center gap-2 px-3 py-2 transition-colors ${
                     option.value === value
                       ? "bg-blue-50 font-medium text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"
                       : `text-gray-700 dark:text-gray-200 ${
@@ -253,9 +261,28 @@ export default function Select({
                             ? "bg-gray-100 dark:bg-gray-700"
                             : "hover:bg-gray-100 dark:hover:bg-gray-700"
                         }`
-                  } ${option.disabled ? "cursor-not-allowed opacity-50" : ""}`}
+                  } ${option.disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
                 >
-                  {option.label}
+                  {/* The dimming sits on the label alone: a parent opacity
+                      cannot be undone inside, and the trailing mark (e.g. a
+                      clickable 已下载) must stay fully readable. */}
+                  <span
+                    className={`min-w-0 flex-1 truncate ${
+                      option.disabled ? "opacity-50" : ""
+                    }`}
+                  >
+                    {option.label}
+                  </span>
+                  {/* A click inside the trailing control must stay with it —
+                      the row's own pick is not what the user aimed at. */}
+                  {option.trailing ? (
+                    <span
+                      className="shrink-0"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {option.trailing}
+                    </span>
+                  ) : null}
                 </li>
               </Fragment>
             );

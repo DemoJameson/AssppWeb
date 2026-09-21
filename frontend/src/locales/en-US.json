@@ -91,7 +91,8 @@
       "noAccountsForRegion": "No accounts found for this region",
       "downloaded": "Downloaded",
       "allDownloaded": "Every version is already downloaded",
-      "alreadyDownloaded": "This version is already in Downloads — no need to add it again."
+      "alreadyDownloaded": "This version is already in Downloads — no need to add it again.",
+      "goToDownloads": "View in Downloads"
     },
     "versions": {
       "loadFailed": "Failed to load versions",
@@ -210,7 +211,7 @@
       "appId": "App ID",
       "versionId": "Version ID",
       "account": "Account",
-      "created": "Created",
+      "downloadedAt": "Downloaded at",
       "install": "Install on Device",
       "installShort": "Install",
       "share": "Share",
@@ -224,7 +225,6 @@
       "information": "Package Information",
       "size": "Size",
       "minOs": "Minimum OS",
-      "category": "Category",
       "released": "Released",
       "developer": "Developer",
       "fileUnavailable": "The package file is unavailable.",

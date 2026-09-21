@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import Modal from "../common/Modal";
@@ -43,6 +43,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export default function DownloadList() {
   const { t } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
   const {
     tasks,
     loading,
@@ -51,6 +52,14 @@ export default function DownloadList() {
     deleteDownload,
     hashToEmail,
   } = useDownloads();
+  // A 「前往下载页」 hop names the package to point at — once. The history
+  // entry is rewritten without it right away, so neither a reload nor a later
+  // step back onto this entry highlights anything again; the list keeps the
+  // package marked for as long as this mount lasts.
+  const hoppedTaskId =
+    (location.state as { highlightTaskId?: string } | null)?.highlightTaskId ??
+    null;
+  const [highlightId, setHighlightId] = useState<string | null>(hoppedTaskId);
   const [filter, setFilter] = useState<StatusFilter>("all");
   const addToast = useToastStore((s) => s.addToast);
   const { accounts } = useAccounts();
@@ -75,6 +84,36 @@ export default function DownloadList() {
   }, []);
 
   const filtered = displayTasks.filter((task) => matchesFilter(task, filter));
+
+  // Take the hop off the entry that carried it. Nothing may read it a second
+  // time: a reload re-reads the entry from the browser, and so would a step
+  // back onto it — both must find the list unmarked.
+  useEffect(() => {
+    if (!hoppedTaskId) return;
+    navigate(`${location.pathname}${location.search}`, {
+      replace: true,
+      state: null,
+    });
+  }, [hoppedTaskId, location.pathname, location.search, navigate]);
+
+  // Scroll the target into view once it is rendered, then let the highlight
+  // fade so the page reads normal again.
+  useEffect(() => {
+    if (!highlightId || (loading && displayTasks.length === 0)) return;
+    if (!displayTasks.some((task) => task.id === highlightId)) return;
+    const raf = window.requestAnimationFrame(() => {
+      document
+        .getElementById(`download-item-${highlightId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    const timer = window.setTimeout(() => setHighlightId(null), 6000);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(timer);
+    };
+    // `displayTasks` is derived per render; its length stands in for it here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightId, loading, displayTasks.length]);
 
   const sortedTasks = [...filtered].sort((a, b) => {
     const timeA = new Date(a.createdAt || 0).getTime();
@@ -385,6 +424,7 @@ export default function DownloadList() {
               task={task}
               preview={previewEnabled}
               accountEmail={hashToEmail[task.accountHash]}
+              highlight={task.id === highlightId}
               onPause={handlePause}
               onResume={handleResume}
               onDelete={handleDelete}

@@ -91,7 +91,8 @@
       "noAccountsForRegion": "未找到该地区的账号",
       "downloaded": "已下载",
       "allDownloaded": "所有版本均已下载",
-      "alreadyDownloaded": "此版本已在下载列表中，无需重复添加。"
+      "alreadyDownloaded": "此版本已在下载列表中，无需重复添加。",
+      "goToDownloads": "前往下载页"
     },
     "versions": {
       "loadFailed": "加载版本失败",
@@ -210,7 +211,7 @@
       "appId": "App ID",
       "versionId": "版本 ID",
       "account": "账号",
-      "created": "创建时间",
+      "downloadedAt": "下载时间",
       "install": "在设备上安装",
       "installShort": "安装",
       "share": "分享",
@@ -224,7 +225,6 @@
       "information": "安装包信息",
       "size": "大小",
       "minOs": "最低系统版本",
-      "category": "类别",
       "released": "发布日期",
       "developer": "开发者",
       "fileUnavailable": "安装包文件不可用。",

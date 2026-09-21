@@ -91,7 +91,8 @@
       "noAccountsForRegion": "해당 지역의 계정을 찾을 수 없습니다",
       "downloaded": "다운로드됨",
       "allDownloaded": "모든 버전이 이미 다운로드되었습니다",
-      "alreadyDownloaded": "이 버전은 이미 다운로드 목록에 있으므로 다시 추가할 필요가 없습니다."
+      "alreadyDownloaded": "이 버전은 이미 다운로드 목록에 있으므로 다시 추가할 필요가 없습니다.",
+      "goToDownloads": "다운로드 목록 보기"
     },
     "versions": {
       "loadFailed": "버전 불러오기 실패",
@@ -210,7 +211,7 @@
       "appId": "앱 ID",
       "versionId": "버전 ID",
       "account": "계정",
-      "created": "생성됨",
+      "downloadedAt": "다운로드 시간",
       "install": "기기에 설치",
       "installShort": "설치",
       "share": "공유",
@@ -224,7 +225,6 @@
       "information": "패키지 정보",
       "size": "크기",
       "minOs": "최소 OS",
-      "category": "카테고리",
       "released": "출시일",
       "developer": "개발자",
       "fileUnavailable": "패키지 파일을 사용할 수 없습니다.",

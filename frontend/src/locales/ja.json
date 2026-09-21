@@ -91,7 +91,8 @@
       "noAccountsForRegion": "この地域のアカウントがありません",
       "downloaded": "ダウンロード済み",
       "allDownloaded": "すべてのバージョンはダウンロード済みです",
-      "alreadyDownloaded": "このバージョンはすでにダウンロード一覧にあります。再度追加する必要はありません。"
+      "alreadyDownloaded": "このバージョンはすでにダウンロード一覧にあります。再度追加する必要はありません。",
+      "goToDownloads": "ダウンロード一覧へ"
     },
     "versions": {
       "loadFailed": "バージョンの読み込みに失敗しました",
@@ -210,7 +211,7 @@
       "appId": "アプリ ID",
       "versionId": "バージョン ID",
       "account": "アカウント",
-      "created": "作成日時",
+      "downloadedAt": "ダウンロード日時",
       "install": "デバイスにインストール",
       "installShort": "インストール",
       "share": "共有",
@@ -224,7 +225,6 @@
       "information": "パッケージ情報",
       "size": "サイズ",
       "minOs": "最小OS",
-      "category": "カテゴリ",
       "released": "リリース日",
       "developer": "開発元",
       "fileUnavailable": "パッケージファイルを利用できません。",

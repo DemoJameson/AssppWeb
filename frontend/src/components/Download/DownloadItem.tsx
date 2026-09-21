@@ -6,6 +6,7 @@ import ProgressBar from '../common/ProgressBar';
 import PackageQuickActions, { dangerButtonClass } from './PackageQuickActions';
 import { useAccounts } from '../../hooks/useAccounts';
 import { accountStoreCountry } from '../../utils/account';
+import { formatDateISO } from '../../utils/software';
 import { formatBytes } from '../../utils/format';
 import { taskIconUrl } from '../../utils/icon';
 import { PLATFORM_LABELS } from '../../apple/platform';
@@ -15,6 +16,8 @@ interface DownloadItemProps {
   task: DownloadTask;
   preview?: boolean;
   accountEmail?: string;
+  /** Drawn when the user was led here from another page to this package. */
+  highlight?: boolean;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
   onDelete: (id: string) => void;
@@ -24,6 +27,7 @@ export default function DownloadItem({
   task,
   preview = false,
   accountEmail,
+  highlight = false,
   onPause,
   onResume,
   onDelete,
@@ -62,8 +66,21 @@ export default function DownloadItem({
         }
       : null;
 
+  // The version label matches the package detail view: the external build id
+  // travels beside the version number, so the two pages speak of one build.
+  const versionLabel = task.software.externalVersionId
+    ? `${task.software.version} (${task.software.externalVersionId})`
+    : task.software.version;
+
   return (
-    <article className="min-w-0 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+    <article
+      id={`download-item-${task.id}`}
+      className={`min-w-0 rounded-lg border border-gray-200 bg-white p-4 transition-shadow dark:border-gray-800 dark:bg-gray-900 ${
+        highlight
+          ? 'ring-2 ring-blue-500 dark:ring-blue-400'
+          : ''
+      }`}
+    >
       <div className="flex min-w-0 items-start gap-3">
         <Link
           to={appDetailHref ?? detailsHref}
@@ -103,10 +120,16 @@ export default function DownloadItem({
         </div>
       </div>
 
-      <dl className="mt-3 grid min-w-0 grid-cols-3 gap-2">
+      {/* The summary answers for the same four facts the package detail page
+          shows: version (with its build id), release date, size, minimum OS. */}
+      <dl className="mt-3 grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
         <SummaryItem
           label={t('downloads.package.version')}
-          value={task.software.version}
+          value={versionLabel}
+        />
+        <SummaryItem
+          label={t('downloads.package.released')}
+          value={formatDateISO(task.software.releaseDate) ?? '—'}
         />
         <SummaryItem
           label={t('downloads.package.size')}

@@ -1,7 +1,7 @@
 import { Profiler, StrictMode } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductDetail from '../../src/components/Search/ProductDetail';
 import { getVersionMetadata } from '../../src/apple/versionLookup';
@@ -142,6 +142,16 @@ function deferredPromise() {
   return { promise, resolve, reject };
 }
 
+/** The navigation state a 「前往下载页」 hop lands with. */
+function DownloadsProbe() {
+  const location = useLocation();
+  return (
+    <div data-testid="downloads-probe">
+      {JSON.stringify(location.state ?? null)}
+    </div>
+  );
+}
+
 function renderProductDetail(
   onRender?: () => void,
   appOverrides: Partial<Software> = {},
@@ -178,6 +188,7 @@ function renderProductDetail(
             )
           }
         />
+        <Route path="/downloads" element={<DownloadsProbe />} />
       </Routes>
     </MemoryRouter>
   );
@@ -1020,8 +1031,12 @@ describe('ProductDetail download action', () => {
     await waitFor(() => expect(accountSelect).toHaveTextContent(account.email));
 
     // The build the button would ask for is on the server: it is out, and the
-    // page says so instead of leaving a dead button behind.
+    // page says so instead of leaving a dead button behind — with the button
+    // that leads to the package on the downloads page.
     expect(screen.getByText('search.product.alreadyDownloaded')).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'search.product.goToDownloads' }),
+    ).toBeTruthy();
     expect(
       screen.getByRole('button', { name: 'search.product.download' }),
     ).toBeDisabled();
@@ -1107,6 +1122,118 @@ describe('ProductDetail download action', () => {
     expect(
       screen.getByRole('button', { name: 'search.product.download' }),
     ).toBeDisabled();
+
+    // The notice's button leads to that package: the downloads page opens
+    // highlighting it (and scrolls it into view).
+    fireEvent.click(
+      screen.getByRole('button', { name: 'search.product.goToDownloads' }),
+    );
+    expect(screen.getByTestId('downloads-probe').textContent).toBe(
+      JSON.stringify({ highlightTaskId: 'held-888' }),
+    );
+  });
+
+  it('ties the record to its build by id, not by a shared version number', async () => {
+    // Apple ships two builds under one version number; the record names its own
+    // build's id, so its numbers may answer for that build only.
+    const numbers = {
+      '900': {
+        versionId: '900',
+        displayVersion: '3.4.5',
+        releaseDate: '2026-08-01T00:00:00Z',
+        source: 'package' as const,
+      },
+      '901': {
+        versionId: '901',
+        displayVersion: '3.4.5',
+        releaseDate: '2026-09-01T00:00:00Z',
+        source: 'package' as const,
+      },
+    };
+    useVersionListsStore.setState({ lists: { '123456:ios:US': ['900', '901'] } });
+    useVersionMetadataStore.setState({ entries: numbers });
+    vi.mocked(getVersionMetadata).mockImplementation(
+      async (_account, _app, versionId) =>
+        ({
+          metadata: numbers[versionId as '900' | '901'],
+          updatedCookies: [],
+        }) as never,
+    );
+
+    renderProductDetail(
+      undefined,
+      {
+        metadataSource: 'local',
+        version: '3.4.5',
+        externalVersionId: '900',
+        fileSizeBytes: '5242880',
+        minimumOsVersion: '16.0',
+        releaseDate: '2026-08-01T00:00:00Z',
+      },
+      '901',
+    );
+
+    // Build 901 is not the recorded one, however alike the numbers look: its
+    // rows stay unknown instead of wearing the record's.
+    await waitFor(() =>
+      expect(detailsTable()['search.product.version']).toBe('3.4.5 (901)'),
+    );
+    expect(detailsTable()['search.product.size']).toBe('—');
+    expect(detailsTable()['search.product.minOs']).toBe('—');
+    expect(detailsTable()['search.product.released']).toBe('2026-09-01');
+
+    // Picking the recorded build brings the record's numbers back.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'search.product.selectVersion' }),
+    );
+    const combo = await screen.findByRole('combobox', {
+      name: 'search.product.version',
+    });
+    fireEvent.click(combo);
+    fireEvent.click(screen.getByRole('option', { name: /900/ }));
+
+    expect(detailsTable()).toEqual({
+      'search.product.appId': String(app.id),
+      'search.product.bundleId': app.bundleID,
+      'search.product.version': '3.4.5 (900)',
+      'search.product.size': formatBytes('5242880'),
+      'search.product.minOs': 'iOS 16.0',
+      'search.product.seller': app.sellerName,
+      'search.product.released': '2026-08-01',
+    });
+  });
+
+  it('still answers for a record that predates the recorded build id', async () => {
+    // A record written before the index kept the id has only its version number
+    // to speak with — the fallback `utils/downloaded` gives a package with no id.
+    useVersionListsStore.setState({ lists: { '123456:ios:US': ['901'] } });
+    useVersionMetadataStore.setState({
+      entries: {
+        '901': {
+          versionId: '901',
+          displayVersion: '3.4.5',
+          releaseDate: '2026-08-01T00:00:00Z',
+          source: 'package',
+        },
+      },
+    });
+    renderProductDetail(
+      undefined,
+      {
+        metadataSource: 'local',
+        version: '3.4.5',
+        fileSizeBytes: '5242880',
+        minimumOsVersion: '16.0',
+        releaseDate: '2026-08-01T00:00:00Z',
+      },
+      '901',
+    );
+
+    await waitFor(() =>
+      expect(detailsTable()['search.product.version']).toBe('3.4.5 (901)'),
+    );
+    expect(detailsTable()['search.product.size']).toBe(formatBytes('5242880'));
+    expect(detailsTable()['search.product.minOs']).toBe('iOS 16.0');
   });
 
   it('follows the picked version in the details table', async () => {
@@ -1171,9 +1298,9 @@ describe('ProductDetail download action', () => {
     const combo = await screen.findByRole('combobox', {
       name: 'search.product.version',
     });
-    // Opening the picker keeps the package's build picked, held or not.
+    // Opening the picker keeps the package's build picked, held or not. The
+    // 已下载 mark lives in the option row's clickable chip, not the trigger.
     expect(combo).toHaveTextContent('888');
-    expect(combo).toHaveTextContent('search.product.downloaded');
     expect(detailsTable()['search.product.version']).toBe('3.4.4 (888)');
 
     fireEvent.click(combo);
@@ -1193,6 +1320,51 @@ describe('ProductDetail download action', () => {
     expect(
       screen.getByRole('button', { name: 'search.product.download' }),
     ).toBeEnabled();
+  });
+
+  it('leads the 已下载 chip in the picker to the held package', async () => {
+    // The chip in a held build's option row is the way back to that package:
+    // it opens the downloads page highlighting it, while picking the row
+    // itself stays a no-op.
+    const held: DownloadTask = {
+      id: 'held-888',
+      software: { ...app, version: '3.4.4', externalVersionId: '888' },
+      accountHash: 'hash',
+      status: 'completed',
+      progress: 100,
+      speed: '',
+      hasFile: true,
+      createdAt: '2026-09-20T00:00:00.000Z',
+    };
+    useDownloadsStore.setState({ tasks: [held] });
+    useVersionListsStore.setState({
+      lists: { '123456:ios:US': ['888', '777'] },
+    });
+    renderProductDetail(undefined, { metadataSource: 'local' }, '888');
+
+    await waitFor(() =>
+      expect(screen.getByText('search.product.alreadyDownloaded')).toBeTruthy(),
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'search.product.selectVersion' }),
+    );
+    const combo = await screen.findByRole('combobox', {
+      name: 'search.product.version',
+    });
+    fireEvent.click(combo);
+    const heldOption = screen.getByRole('option', { name: /888/ });
+    // Picking the row itself stays a no-op — no hop, the selection holds.
+    fireEvent.click(heldOption);
+    expect(screen.queryByTestId('downloads-probe')).toBeNull();
+
+    fireEvent.click(
+      within(heldOption).getByRole('button', {
+        name: 'search.product.downloaded',
+      }),
+    );
+    expect(screen.getByTestId('downloads-probe').textContent).toBe(
+      JSON.stringify({ highlightTaskId: 'held-888' }),
+    );
   });
 
   it('drops a carried build when the page moves to another platform', async () => {

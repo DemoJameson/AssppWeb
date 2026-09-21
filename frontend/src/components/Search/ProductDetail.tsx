@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, useLocation, useSearchParams, Link } from "react-router-dom";
+import { useParams, useLocation, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
 import Alert from '../common/Alert';
@@ -50,6 +50,7 @@ import type { Platform, Software } from "../../types";
 export default function ProductDetail() {
   const { appId } = useParams<{ appId: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const { accounts } = useAccounts();
   const { t } = useTranslation();
   const addToast = useToastStore((state) => state.addToast);
@@ -186,11 +187,17 @@ export default function ProductDetail() {
         currentMeta?.displayVersion,
       )
     : undefined;
-  // Whether the record describes the build on screen. The record names its
-  // build by version number — the only identity it has (the backend's
-  // `softwareFromRecord`) — so it may answer only when the two agree.
+  // Whether the record describes the build on screen. The record carries its
+  // build's external id, so the ids decide it — a version number can name two
+  // different builds, which is exactly the confusion this avoids. Only a record
+  // from before the id was recorded has nothing else to speak with, and then the
+  // number does — the same rule `utils/downloaded` applies to held packages.
   const recordIsCurrent =
-    !!app && (!currentVersionId || currentMeta?.displayVersion === app.version);
+    !!app &&
+    (!currentVersionId ||
+      (!!app.externalVersionId
+        ? app.externalVersionId === currentVersionId
+        : !!app.version && currentMeta?.displayVersion === app.version));
   const displayVersion =
     currentMeta?.displayVersion ||
     heldBuild?.software.version ||
@@ -531,6 +538,28 @@ export default function ProductDetail() {
     handleAccountChange(email, noRegionAccount);
   }
 
+  /**
+   * The downloads page, pointing at one package: the page highlights it and
+   * scrolls it into view (see `DownloadList`). Both the already-downloaded
+   * notice and the picker's 已下载 chips lead here.
+   */
+  function goToDownloadTask(taskId: string) {
+    navigate("/downloads", { state: { highlightTaskId: taskId } });
+  }
+
+  /** The task that holds this version-list build, when one does. */
+  function heldTaskFor(versionId: string) {
+    return app
+      ? heldBuildFor(
+          tasks,
+          app.id,
+          appPlatform,
+          versionId,
+          versionMeta[versionId]?.displayVersion,
+        )
+      : undefined;
+  }
+
   async function handlePurchase() {
     if (!account || !app) return;
     setLoadingAction("purchase");
@@ -788,16 +817,24 @@ export default function ProductDetail() {
                       versionMeta[v],
                       pendingMeta[v],
                     );
-                    const held = isVersionDownloaded(v);
+                    // A build this server already holds refuses the pick —
+                    // there is nothing to gain from downloading it twice. Its
+                    // 已下载 mark is a clickable chip instead of a suffix: it
+                    // leads to the package on the downloads page.
+                    const heldTask = heldTaskFor(v);
                     return {
                       value: v,
-                      // A build this server already holds says so in the row
-                      // and refuses the pick — there is nothing to gain from
-                      // downloading it twice.
-                      label: held
-                        ? `${label} · ${t("search.product.downloaded")}`
-                        : label,
-                      disabled: held,
+                      label,
+                      disabled: !!heldTask,
+                      trailing: heldTask ? (
+                        <button
+                          type="button"
+                          onClick={() => goToDownloadTask(heldTask.id)}
+                          className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/70 dark:text-blue-300 dark:hover:bg-blue-800"
+                        >
+                          {t("search.product.downloaded")}
+                        </button>
+                      ) : undefined,
                       group: t("search.product.version"),
                     };
                   })}
@@ -901,11 +938,23 @@ export default function ProductDetail() {
               </div>
             )}
             {/* Why the download button is out: the build it would ask for is
-                already on the server. */}
+                already on the server. The button before the text leads to that
+                package — the downloads page highlights and scrolls to it. */}
             {!noRegionAccount && targetDownloaded && (
-              <p className="min-w-0 break-words rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
-                {t("search.product.alreadyDownloaded")}
-              </p>
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
+                {heldBuild && (
+                  <button
+                    type="button"
+                    onClick={() => goToDownloadTask(heldBuild.id)}
+                    className="shrink-0 rounded-full bg-blue-600 px-3 py-1 font-semibold text-white transition-colors hover:bg-blue-700 active:bg-blue-800 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500"
+                  >
+                    {t("search.product.goToDownloads")}
+                  </button>
+                )}
+                <span className="min-w-0 break-words">
+                  {t("search.product.alreadyDownloaded")}
+                </span>
+              </div>
             )}
           </section>
         )}
