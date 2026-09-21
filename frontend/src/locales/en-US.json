@@ -92,7 +92,8 @@
       "downloaded": "Downloaded",
       "allDownloaded": "Every version is already downloaded",
       "alreadyDownloaded": "This version is already in Downloads — no need to add it again.",
-      "goToDownloads": "View in Downloads"
+      "goToDownloads": "View in Downloads",
+      "noVersionForPlatform": "This app has no {{platform}} version to download."
     },
     "versions": {
       "loadFailed": "Failed to load versions",

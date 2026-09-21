@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiGet } from "../../src/api/client";
 import {
   recordedVersionIdFor,
+  recordedVersionIdsExceptPlatform,
   withRecordedFallback,
 } from "../../src/apple/versionPins";
 
@@ -74,5 +75,37 @@ describe("apple/versionPins", () => {
     vi.mocked(apiGet).mockResolvedValue({ pins: [] });
     const lookup = vi.fn().mockResolvedValue(undefined);
     expect(await withRecordedFallback(lookup, 42, "tvos")).toBeUndefined();
+  });
+
+  it("hands back the ids recorded for the other platforms", async () => {
+    // What a neighbour guess rules out: an id a download pinned under another
+    // platform is that platform's build, the platform being guessed for never.
+    vi.mocked(apiGet).mockResolvedValue({
+      pins: [
+        { platform: "ios", versionId: "111" },
+        { platform: "tvos", versionId: "222" },
+        { platform: "macos", versionId: "333" },
+      ],
+    });
+
+    expect(await recordedVersionIdsExceptPlatform(42, "macos")).toEqual([
+      "111",
+      "222",
+    ]);
+  });
+
+  it("keeps the other-platform ids best effort", async () => {
+    // Nothing recorded, a broken store, and a pin with no id at all: the guess
+    // simply has one less id it can rule out.
+    vi.mocked(apiGet).mockResolvedValue({ pins: [] });
+    expect(await recordedVersionIdsExceptPlatform(42, "macos")).toEqual([]);
+
+    vi.mocked(apiGet).mockResolvedValue({
+      pins: [{ platform: "tvos", versionId: "" }],
+    });
+    expect(await recordedVersionIdsExceptPlatform(42, "macos")).toEqual([]);
+
+    vi.mocked(apiGet).mockRejectedValue(new Error("offline"));
+    expect(await recordedVersionIdsExceptPlatform(42, "macos")).toEqual([]);
   });
 });

@@ -92,7 +92,8 @@
       "downloaded": "已下載",
       "allDownloaded": "所有版本皆已下載",
       "alreadyDownloaded": "此版本已在下載清單中，無需重複加入。",
-      "goToDownloads": "前往下載頁"
+      "goToDownloads": "前往下載頁",
+      "noVersionForPlatform": "此 App 沒有可供下載的 {{platform}} 版本。"
     },
     "versions": {
       "loadFailed": "載入版本失敗",

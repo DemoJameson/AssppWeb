@@ -22,6 +22,12 @@ vi.mock("../../src/api/client", () => ({
 
 const LOOKUP_HOST = "uclient-api.itunes.apple.com";
 const DISPATCH_HOST = "downloaddispatch.itunes.apple.com";
+// The storefront product page: another *lookup* transport (macOS/visionOS pins,
+// and the lookups the pin guess consults to rule other platforms' ids out), not
+// part of the download exchange.
+const STOREFRONT_HOST = "apps.apple.com";
+const isLookupCall = (options: RequestOptions) =>
+  options.host === LOOKUP_HOST || options.host === STOREFRONT_HOST;
 
 const account: Account = {
   email: "test@example.com",
@@ -85,7 +91,7 @@ let downloadReplies: Reply[] = [];
 let lookupReply = lookupDoc("891042628");
 
 const allCalls = () => vi.mocked(appleRequest).mock.calls.map((call) => call[0] as RequestOptions);
-const downloadCalls = () => allCalls().filter((options) => options.host !== LOOKUP_HOST);
+const downloadCalls = () => allCalls().filter((options) => !isLookupCall(options));
 
 describe("apple/versionFinder", () => {
   beforeEach(() => {
@@ -106,7 +112,7 @@ describe("apple/versionFinder", () => {
     });
 
     vi.mocked(appleRequest).mockImplementation(async (options: RequestOptions) => {
-      if (options.host === LOOKUP_HOST) {
+      if (isLookupCall(options)) {
         return reply(lookupReply);
       }
       const next = downloadReplies.shift();
@@ -271,7 +277,7 @@ describe("apple/versionFinder", () => {
   it("keeps a transport failure open-ended", async () => {
     // Nothing reached Apple about this id, so nothing is concluded about it.
     vi.mocked(appleRequest).mockImplementation(async (options: RequestOptions) => {
-      if (options.host === LOOKUP_HOST) return reply(lookupReply);
+      if (isLookupCall(options)) return reply(lookupReply);
       throw new TypeError("fetch failed");
     });
 
@@ -453,7 +459,9 @@ describe("apple/versionFinder", () => {
     );
     expect(appPresenceFromProbeError(error)).toBe("inconclusive");
     // Only the storefront lookup went out; the exchange itself never started.
-    expect(downloadCalls()).toHaveLength(1);
-    expect(downloadCalls()[0].host).toBe("apps.apple.com");
+    expect(downloadCalls()).toHaveLength(0);
+    expect(allCalls().map((options) => options.host)).toEqual([
+      STOREFRONT_HOST,
+    ]);
   });
 });

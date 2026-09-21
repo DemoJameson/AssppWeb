@@ -388,9 +388,23 @@ be pinned — a non-iOS ask is not judged without one, and a `bare`/`local`
 record with no pin to read may first have one guessed: the ids adjacent to the
 newest one in its iOS list are probed against the target platform's exchange,
 nearest first (±1, ±2, … up to six steps each way), six at a time, and the
-first one served becomes the pin; an id the iOS list itself carries is never a
-candidate, since it is known to be an iOS build) keeps the card closed
-and says why. The verification is region-
+first one whose served artifact matches the platform becomes the pin (`.pkg` is
+macOS, an IPA is everything else — `platform.artifactMatchesPlatform`; the id
+alone cannot be trusted, since the exchange serves whatever build an id names
+whatever device class asks), and the served reply's history — the same list
+选择版本 would show — must name none of the known other-platform ids or the iOS
+list (the history fingerprint is what catches a build no exclusion source could
+name); the guess can only ever rule ids *out*, since
+an id the iOS list carries, an id another platform's own source or recorded pin
+names, and an id the package index holds under another platform
+(`GET /api/package-builds/:appId`) are never candidates) keeps the card closed
+and says why. A pin that cannot be resolved *at all* — no catalogue offer, no
+recorded pin, and nothing left to guess
+(`apple/errors.ts` → `PlatformVersionUnavailableError`) — is an answer rather
+than an inconclusive failure: the app is untouched, but this platform has
+nothing to fetch, so the card stays closed saying which platform has no version
+(`search.product.noVersionForPlatform`) and the detail view disables the
+download and says the same. The verification is region-
 and platform-scoped: switching either re-runs it with the new dimension's
 account and entity — the list cache alone never re-settles across regions, and
 `ensureVersionList` takes a flow key so the new dimension starts a fresh
@@ -573,7 +587,11 @@ platforms (`Forward` was 1.3.18 on iOS and 1.3.19 on tvOS) — and each build
 carries Apple's external version id, its version, minimum OS, release date and
 on-disk package size (the download pipeline measures the size after injection
 and reads the id from the store metadata, which is the only source a delisted
-app has for either). `/api/lookup`
+app has for either). `routes/packageBuilds.ts` exposes the index read-only as
+`GET /api/package-builds/:appId` — every build per platform, with the id and
+version each package carried. It answers what the pin store cannot: a pin keeps
+one id per platform (the newest this instance downloaded), while a caller that
+must rule another platform's build out needs *all* of them. `/api/lookup`
 answers with the requested platform's build, omitting the version when that
 platform has no recorded package (legacy flat files migrate to the platform
 they recorded). It consults the index when the storefront answers nothing, so

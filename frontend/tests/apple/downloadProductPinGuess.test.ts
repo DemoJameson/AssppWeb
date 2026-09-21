@@ -21,6 +21,7 @@ vi.mock("../../src/apple/bag", () => ({
 vi.mock("../../src/apple/platformVersion", () => ({
   lookupLatestExternalVersionId: vi.fn().mockResolvedValue(undefined),
   lookupLatestMacOSVersionId: vi.fn().mockResolvedValue(undefined),
+  latestVersionIdForPlatform: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../src/api/client", () => ({
@@ -52,7 +53,12 @@ const bareTvosApp = {
   metadataSource: "bare",
 } as Software;
 
-function plistResponse(identifiers: string[]) {
+// Every reply carries the artifact URL it would serve: a guess candidate is
+// accepted only when that artifact can be the platform's build.
+function plistResponse(
+  identifiers: string[],
+  url = "https://iosapps.example.com/app.ipa",
+) {
   return {
     status: 200,
     statusText: "OK",
@@ -60,7 +66,7 @@ function plistResponse(identifiers: string[]) {
     rawHeaders: [],
     body: buildPlist({
       songList: [
-        { metadata: { softwareVersionExternalIdentifiers: identifiers } },
+        { URL: url, metadata: { softwareVersionExternalIdentifiers: identifiers } },
       ],
     }),
   };
@@ -81,10 +87,14 @@ describe("downloadProduct direct-download pin guess", () => {
     const calls: Array<{ pinned: boolean }> = [];
     vi.mocked(appleRequest).mockImplementation(async (opts) => {
       // The volumeStore payload carries externalVersionId only when a pin is
-      // set; an unpinned request is the iOS list fetch the guess starts from.
+      // set; an unpinned request is the iOS list fetch the guess starts from,
+      // and a pinned one serves the tvOS history — a distinct id sequence,
+      // which the fingerprint check requires of an accepted candidate.
       const pinned = opts.body?.includes("externalVersionId") ?? false;
       calls.push({ pinned });
-      return plistResponse(["10", "11", "12"]);
+      return pinned
+        ? plistResponse(["21", "22", "23"])
+        : plistResponse(["10", "11", "12"]);
     });
 
     const session = createDownloadSession(account, bareTvosApp);

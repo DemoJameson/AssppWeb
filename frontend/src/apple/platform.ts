@@ -121,6 +121,26 @@ export function needsPlatformPin(platform?: Platform): boolean {
 }
 
 /**
+ * Whether a download artifact's URL can be the requested platform's build.
+ * macOS packages are `.pkg` (xar containers, no IPAs); every other platform
+ * ships an IPA. The URL is the one thing a download reply says about its own
+ * platform, which is what makes it the check a *guessed* pin needs: an
+ * external version id names its own platform, so a guess that reached another
+ * platform's build still gets refused here.
+ *
+ * Both callers react differently on purpose: the pin guess drops such a
+ * candidate (it is simply not this platform's build), while the download flow
+ * refuses the whole request with a message (the user asked for this download).
+ */
+export function artifactMatchesPlatform(
+  url: string,
+  platform?: Platform,
+): boolean {
+  const path = url.split(/[?#]/)[0].toLowerCase();
+  return platform === "macos" ? path.endsWith(".pkg") : !path.endsWith(".pkg");
+}
+
+/**
  * Lenient reader for persisted settings and query strings: accepts ipatool's
  * aliases and returns undefined for anything unknown.
  */

@@ -5,7 +5,11 @@ import {
   FAILURE_SIGN_IN_REQUIRED,
   storeIdToCountry,
 } from "./config";
-import { DownloadError, MissingAppError } from "./errors";
+import {
+  DownloadError,
+  MissingAppError,
+  PlatformVersionUnavailableError,
+} from "./errors";
 import {
   createDownloadSession,
   customerMessageOf,
@@ -136,9 +140,11 @@ async function platformVersionPin(
     }
 
     // Nothing could name a build for this platform. That is not proof of a
-    // missing app — a known version id can still serve a delisted app — so
-    // this stays open-ended rather than classifying as missing.
-    throw new DownloadError(i18n.t("errors.download.missingVersion"));
+    // missing app — a known version id can still serve a delisted app — but it
+    // does settle the platform: there is nothing here to fetch.
+    throw new PlatformVersionUnavailableError(
+      i18n.t("errors.download.missingVersion"),
+    );
   }
 
   return versionId;

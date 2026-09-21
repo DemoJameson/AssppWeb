@@ -92,7 +92,8 @@
       "downloaded": "Скачано",
       "allDownloaded": "Все версии уже скачаны",
       "alreadyDownloaded": "Эта версия уже есть в загрузках, повторно добавлять не нужно.",
-      "goToDownloads": "Открыть в загрузках"
+      "goToDownloads": "Открыть в загрузках",
+      "noVersionForPlatform": "У этого приложения нет версии для {{platform}}."
     },
     "versions": {
       "loadFailed": "Не удалось загрузить версии",

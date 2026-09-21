@@ -65,6 +65,31 @@ export class UnexpectedAppleResponseError extends Error {
  */
 export class MissingAppError extends DownloadError {}
 
+/**
+ * No build of the *requested platform* could be named: the platform's own
+ * catalogue or storefront page has no offer, no past download recorded a
+ * version id for it, and the neighbour guess found nothing either.
+ *
+ * This is deliberately not {@link MissingAppError}: the app may well exist on
+ * other platforms (a package on this instance is proof of that), and a version
+ * id could still serve it. What it settles is narrower — this platform has
+ * nothing to fetch — which is why callers may read it as "不可下载 here"
+ * rather than as an open question. It carries no failure type, so
+ * {@link appPresenceFromProbeError} keeps the record (inconclusive) instead of
+ * dropping the app.
+ */
+export class PlatformVersionUnavailableError extends DownloadError {
+  constructor(message: string) {
+    super(message);
+    this.name = "PlatformVersionUnavailableError";
+  }
+}
+
+/** True when the exchange could name no build for the platform asked for. */
+export function isPlatformVersionUnavailable(error: unknown): boolean {
+  return error instanceof PlatformVersionUnavailableError;
+}
+
 /** True when Apple's version exchange said no app answers to that id. */
 export function isMissingAppError(error: unknown): boolean {
   return error instanceof MissingAppError;

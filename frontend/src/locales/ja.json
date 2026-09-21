@@ -92,7 +92,8 @@
       "downloaded": "ダウンロード済み",
       "allDownloaded": "すべてのバージョンはダウンロード済みです",
       "alreadyDownloaded": "このバージョンはすでにダウンロード一覧にあります。再度追加する必要はありません。",
-      "goToDownloads": "ダウンロード一覧へ"
+      "goToDownloads": "ダウンロード一覧へ",
+      "noVersionForPlatform": "この App にはダウンロードできる {{platform}} 版がありません。"
     },
     "versions": {
       "loadFailed": "バージョンの読み込みに失敗しました",

@@ -10,7 +10,10 @@ import {
   fetchPackageVersionMetadata,
   fetchVersionMetadata,
 } from '../../src/api/versionMetadata';
-import { MissingAppError } from '../../src/apple/errors';
+import {
+  MissingAppError,
+  PlatformVersionUnavailableError,
+} from '../../src/apple/errors';
 import { useSettingsStore } from '../../src/store/settings';
 import { useDownloadsStore } from '../../src/store/downloads';
 import { useToastStore } from '../../src/store/toast';
@@ -668,6 +671,75 @@ describe('ProductDetail download action', () => {
       '890657720',
       'US',
     );
+  });
+
+  it('says so when the platform Apple was asked about has no build', async () => {
+    // An iOS-only app opened as macOS: the exchange named no build for the
+    // platform — no offer, no recorded pin, no neighbour that belongs to it.
+    // The app is real, so the record stays; what is out is the download.
+    mocks.listVersions.mockRejectedValue(
+      new PlatformVersionUnavailableError('no build for platform'),
+    );
+    renderProductDetail(undefined, {
+      metadataSource: 'local',
+      version: '',
+      platform: 'macos',
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('search.product.noVersionForPlatform'),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.getByRole('button', { name: 'search.product.download' }),
+    ).toBeDisabled();
+    // The exchange did answer — it has nothing for this platform — so the page
+    // must not dress it up as an unverifiable, open question.
+    expect(screen.queryByText('search.localUnverified')).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'search.product.download' }),
+    );
+    await waitFor(() => expect(mocks.startDownload).not.toHaveBeenCalled());
+  });
+
+  it('puts the download back on offer when the picker names a build', async () => {
+    // The automatic probe found nothing for this platform, but the manual
+    // 选择版本 run is a fresh ask — a session can recover, and a version id
+    // entered by hand is a real pin. Versions arriving must undo the verdict.
+    mocks.listVersions
+      .mockRejectedValueOnce(
+        new PlatformVersionUnavailableError('no build for platform'),
+      )
+      .mockResolvedValueOnce({ versions: ['818970197'], updatedCookies: [] });
+    renderProductDetail(undefined, {
+      metadataSource: 'local',
+      version: '',
+      platform: 'macos',
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('search.product.noVersionForPlatform'),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.getByRole('button', { name: 'search.product.download' }),
+    ).toBeDisabled();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'search.product.selectVersion' }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText('search.product.noVersionForPlatform'),
+      ).toBeNull(),
+    );
+    expect(
+      screen.getByRole('button', { name: 'search.product.download' }),
+    ).toBeEnabled();
   });
 
   it('looks the version numbers up when the auto-fetch switch is on', async () => {

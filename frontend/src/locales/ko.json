@@ -92,7 +92,8 @@
       "downloaded": "다운로드됨",
       "allDownloaded": "모든 버전이 이미 다운로드되었습니다",
       "alreadyDownloaded": "이 버전은 이미 다운로드 목록에 있으므로 다시 추가할 필요가 없습니다.",
-      "goToDownloads": "다운로드 목록 보기"
+      "goToDownloads": "다운로드 목록 보기",
+      "noVersionForPlatform": "이 앱에는 다운로드할 수 있는 {{platform}} 버전이 없습니다."
     },
     "versions": {
       "loadFailed": "버전 불러오기 실패",

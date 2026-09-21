@@ -67,6 +67,31 @@ export async function lookupLatestExternalVersionId(
 }
 
 /**
+ * The newest version id the platform's *own* source names for an app — the MDM
+ * catalogue for iOS/iPad/tvOS, the storefront product page for macOS and
+ * visionOS — whichever `platform` asks for.
+ *
+ * This is the single dispatch behind the pin lookups, and it is what a caller
+ * that only wants to *rule an id out* should ask: an id a platform's own source
+ * names is that platform's build, so a neighbour guess for another platform must
+ * never offer it. Unlike the lookups below it is not the answer to "can we
+ * download this platform" — a source that has nothing to say throws, and
+ * callers that are only ruling ids out treat that as "nothing to exclude".
+ */
+export async function latestVersionIdForPlatform(
+  appId: string | number,
+  countryCode: string,
+  platform: Platform,
+  bundleId?: string,
+  cookies?: Cookie[],
+): Promise<string | undefined> {
+  if (platform === "macos") {
+    return lookupLatestMacOSVersionId(appId, countryCode, bundleId, cookies);
+  }
+  return lookupLatestExternalVersionId(appId, countryCode, platform, cookies);
+}
+
+/**
  * Returns the newest macOS external version id from the Mac storefront product
  * page. Mirrors ipatool's `lookupLatestMacOSExternalVersionID`: the legacy MDM
  * lookup can return an iOS offer even with platform=osx, so the storefront is

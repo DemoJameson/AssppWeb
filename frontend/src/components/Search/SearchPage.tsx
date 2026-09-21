@@ -25,18 +25,25 @@ import {
   needsFetchVerification,
   needsVersionExchange,
 } from "../../utils/software";
-import { appPresenceFromProbeError } from "../../apple/errors";
+import {
+  appPresenceFromProbeError,
+  isPlatformVersionUnavailable,
+} from "../../apple/errors";
 import { getErrorMessage } from "../../utils/error";
 import { countryCodeMap, storeIdToCountry } from "../../apple/config";
+import { PLATFORM_LABELS } from "../../apple/platform";
 
 /**
  * What the version exchange said about a bare App ID — the only thing that can
  * decide whether the number names an app at all. `resolved` means versions came
- * back, so the record behaves like any other result.
+ * back, so the record behaves like any other result; `unavailable` means the
+ * exchange answered that this platform has no build to fetch, which is an
+ * answer rather than a failure to get one.
  */
 type ProbeState =
   | { status: "checking" }
   | { status: "resolved" }
+  | { status: "unavailable" }
   | { status: "unresolved"; note: string };
 
 function sameProbeState(a: ProbeState | undefined, b: ProbeState): boolean {
@@ -297,6 +304,13 @@ export default function SearchPage() {
             return;
           }
         }
+        // The exchange answered that this platform has no build to name —
+        // nothing here to download, which the card says outright instead of
+        // leaving it as an open question.
+        if (isPlatformVersionUnavailable(error)) {
+          settleProbe(fetchable.id, { status: "unavailable" });
+          return;
+        }
         settleProbe(fetchable.id, {
           status: "unresolved",
           note: getErrorMessage(error, t("search.versions.loadFailed")),
@@ -498,6 +512,10 @@ export default function SearchPage() {
               const subtitle =
                 probe?.status === "checking"
                   ? t(bare ? "search.bareChecking" : "search.localChecking")
+                  : probe?.status === "unavailable"
+                    ? t("search.product.noVersionForPlatform", {
+                        platform: PLATFORM_LABELS[activePlatform],
+                      })
                   : probe?.status === "unresolved"
                     ? t(bare ? "search.bareUnverified" : "search.localUnverified", {
                         reason: probe.note,

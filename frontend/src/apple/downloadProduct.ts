@@ -11,7 +11,11 @@ import { appleRequest, type AppleRequestOptions, type AppleResponse } from "./re
 import { buildPlist, parsePlist } from "./plist";
 import { extractAndMergeCookies } from "./cookies";
 import { fetchBag } from "./bag";
-import { DownloadError, UnexpectedAppleResponseError } from "./errors";
+import {
+  DownloadError,
+  PlatformVersionUnavailableError,
+  UnexpectedAppleResponseError,
+} from "./errors";
 import {
   lookupLatestExternalVersionId,
   lookupLatestMacOSVersionId,
@@ -428,9 +432,11 @@ async function pinnedLatestVersionId(session: DownloadSession): Promise<string> 
 
     // A pinned version is required here and neither the catalogue, a recorded
     // pin, nor a neighbour guess has one. That is not proof of a missing app
-    // (see `appPresenceFromProbeError`), so this stays a plain, open-ended
-    // failure.
-    throw new DownloadError(i18n.t("errors.download.missingVersion"));
+    // (see `appPresenceFromProbeError`), but it does settle the platform:
+    // there is no build of it to download.
+    throw new PlatformVersionUnavailableError(
+      i18n.t("errors.download.missingVersion"),
+    );
   }
 
   console.info(

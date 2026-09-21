@@ -3,7 +3,11 @@ import { StrictMode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SearchPage from '../../src/components/Search/SearchPage';
-import { DownloadError, MissingAppError } from '../../src/apple/errors';
+import {
+  DownloadError,
+  MissingAppError,
+  PlatformVersionUnavailableError,
+} from '../../src/apple/errors';
 import { getVersionMetadata } from '../../src/apple/versionLookup';
 import { lookupAppById, searchApps } from '../../src/api/search';
 import { useSearch } from '../../src/hooks/useSearch';
@@ -384,6 +388,30 @@ describe('SearchPage App ID probe', () => {
     );
     expect(screen.queryByRole('link')).toBeNull();
     expect(screen.getByText('downloads.add.localRecordTag')).toBeTruthy();
+  });
+
+  it('names the missing platform outright when the exchange settles it', async () => {
+    // The exchange answered "no build for this platform" — an answer, not a
+    // failure to ask — so the card says which platform has nothing instead of
+    // reading as an open question, and still does not walk the user in.
+    mocks.listVersions.mockRejectedValue(
+      new PlatformVersionUnavailableError('no build for platform'),
+    );
+    useSearch.setState({
+      term: 'forward',
+      platform: 'macos',
+      results: [localRecord],
+    });
+
+    renderSearchPage();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('search.product.noVersionForPlatform'),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText('search.localUnverified')).toBeNull();
+    expect(screen.queryByRole('link')).toBeNull();
   });
 
   it('does not drop a package-index record Apple has nothing to serve for', async () => {

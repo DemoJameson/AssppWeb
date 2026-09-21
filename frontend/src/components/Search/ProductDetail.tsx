@@ -35,7 +35,10 @@ import {
   needsFetchVerification,
   needsVersionExchange,
 } from "../../utils/software";
-import { appPresenceFromProbeError } from "../../apple/errors";
+import {
+  appPresenceFromProbeError,
+  isPlatformVersionUnavailable,
+} from "../../apple/errors";
 import {
   downloadedBuilds,
   heldBuildFor,
@@ -287,10 +290,12 @@ export default function ProductDetail() {
     if (lookupKey === lastLookupKeyRef.current) return;
     lastLookupKeyRef.current = lookupKey;
 
-    // The loaded version list belongs to the previous storefront/platform.
+    // The loaded version list — and what the exchange concluded about this
+    // platform — belongs to the previous storefront/platform.
     setVersions([]);
     setSelectedVersion("");
     setVersionsOpen(false);
+    setPlatformUnavailable(false);
 
     setLoading(true);
     const seq = ++lookupSeqRef.current;
@@ -394,6 +399,14 @@ export default function ProductDetail() {
     };
   }, []);
   const [probeNote, setProbeNote] = useState("");
+  /**
+   * Set when the version exchange answered that this platform has no build to
+   * name: no catalogue or storefront offer, no recorded pin, and no neighbour
+   * id that belongs to it. The app may still exist elsewhere — a package on
+   * this instance is proof of that — but there is nothing to download *here*,
+   * so the download is out rather than a button that can only fail.
+   */
+  const [platformUnavailable, setPlatformUnavailable] = useState(false);
   useEffect(() => {
     if (!app || previewEnabled) return;
     if (!needsVersionExchange(app)) return;
@@ -426,12 +439,20 @@ export default function ProductDetail() {
         // neither its note nor its fill.
         if (!mountedRef.current) return;
         setProbeNote("");
+        setPlatformUnavailable(false);
         fillVersionsSilently(account, app, versions);
       })
       .catch((error: unknown) => {
         if (!mountedRef.current || !verify) return;
         if (bare && appPresenceFromProbeError(error) === "missing") {
           setApp(null);
+          return;
+        }
+        // The exchange named no build for this platform — nothing here to
+        // download — rather than failing to reach Apple.
+        if (isPlatformVersionUnavailable(error)) {
+          setProbeNote("");
+          setPlatformUnavailable(true);
           return;
         }
         setProbeNote(getErrorMessage(error, t("search.versions.loadFailed")));
@@ -583,8 +604,12 @@ export default function ProductDetail() {
 
   function applyVersionList(list: string[]) {
     setVersions(list);
-    // Versions arrived, so the id is answered — nothing is unverified now.
+    // Versions arrived, so the id is answered — nothing is unverified now, and
+    // a platform the automatic probe had found nothing for is back on offer:
+    // the manual 选择版本 run may well have named a build where that probe
+    // could not (a fresh session, a pin entered by hand).
     setProbeNote("");
+    setPlatformUnavailable(false);
     // The build the package hop came from keeps the pick: that is the build the
     // page was opened on, and its row says 已下载 — moving to the next unheld
     // build on open would read as the page forgetting which package it is
@@ -658,7 +683,7 @@ export default function ProductDetail() {
   }
 
   async function handleDownload() {
-    if (!account || !app || targetDownloaded) return;
+    if (!account || !app || targetDownloaded || platformUnavailable) return;
     setLoadingAction("download");
     try {
       if (previewEnabled) {
@@ -881,10 +906,18 @@ export default function ProductDetail() {
               <button
                 type="button"
                 onClick={handleDownload}
-                disabled={loadingAction !== null || !account || targetDownloaded}
+                disabled={
+                  loadingAction !== null ||
+                  !account ||
+                  targetDownloaded ||
+                  platformUnavailable
+                }
                 aria-busy={isDownloading}
                 className={`inline-flex min-h-10 w-full min-w-0 items-center justify-center gap-1.5 rounded-full bg-blue-600 px-2 py-2 text-center text-xs font-semibold leading-tight text-white transition-colors hover:bg-blue-700 active:bg-blue-800 disabled:cursor-not-allowed sm:gap-2 sm:px-5 sm:text-sm ${
-                  !account || targetDownloaded || (loadingAction !== null && !isDownloading)
+                  !account ||
+                  targetDownloaded ||
+                  platformUnavailable ||
+                  (loadingAction !== null && !isDownloading)
                     ? 'opacity-50'
                     : ''
                 }`}
@@ -955,6 +988,15 @@ export default function ProductDetail() {
                   {t("search.product.alreadyDownloaded")}
                 </span>
               </div>
+            )}
+            {/* Asked for a platform Apple has no build of: the download is out
+                and the page says why. */}
+            {!noRegionAccount && platformUnavailable && (
+              <p className="min-w-0 break-words rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                {t("search.product.noVersionForPlatform", {
+                  platform: PLATFORM_LABELS[platform],
+                })}
+              </p>
             )}
           </section>
         )}
