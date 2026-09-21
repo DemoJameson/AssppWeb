@@ -414,6 +414,64 @@ describe('SearchPage App ID probe', () => {
     expect(screen.queryByRole('link')).toBeNull();
   });
 
+  it('re-verifies when the platform switch lands while a search is in flight', async () => {
+    // tvOS search: the record carries its build, so it needs no verification.
+    // Switching to macOS fires a new search — and while it is in flight the
+    // old tvOS record is still on screen. Probing that stale record must not
+    // mark the macOS key as already-asked, or the fresh result (which has no
+    // macOS build and needs the verdict) never gets asked at all.
+    useSearch.setState({
+      term: 'forward',
+      country: 'US',
+      platform: 'tvos',
+      results: [{ ...localRecord, platform: 'tvos', version: '1.3.18' }],
+      loading: false,
+      searched: true,
+    });
+
+    const { rerender } = renderSearchPage();
+    // The tvOS record's own silent prefetch.
+    await waitFor(() => expect(mocks.listVersions).toHaveBeenCalledTimes(1));
+
+    // The switch: a new search starts (in flight, old results still shown)…
+    act(() => {
+      useSearch.setState({
+        platform: 'macos',
+        loading: true,
+        results: [{ ...localRecord, platform: 'tvos', version: '1.3.18' }],
+      });
+    });
+    mocks.listVersions.mockClear();
+    mocks.listVersions.mockRejectedValueOnce(
+      new PlatformVersionUnavailableError('no build for platform'),
+    );
+    // …and lands with the record that has no macOS build.
+    act(() => {
+      useSearch.setState({
+        loading: false,
+        results: [{ ...localRecord, platform: 'macos', version: '' }],
+      });
+    });
+    rerender(
+      <MemoryRouter initialEntries={['/search']}>
+        <SearchPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('search.product.noVersionForPlatform'),
+      ).toBeTruthy(),
+    );
+    expect(mocks.listVersions).toHaveBeenCalledTimes(1);
+    expect(mocks.listVersions).toHaveBeenCalledWith(
+      account,
+      expect.objectContaining({ platform: 'macos' }),
+      undefined,
+    );
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
   it('does not drop a package-index record Apple has nothing to serve for', async () => {
     // Dropping is for ids nothing vouches for. A compiled package does vouch
     // for this app, so Apple's answer settles this platform at most.

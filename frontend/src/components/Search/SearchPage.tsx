@@ -189,6 +189,14 @@ export default function SearchPage() {
       }
     }
 
+    // A search in flight means the results on screen still belong to the
+    // *previous* dimension: probing them here would run the new dimension's
+    // exchange against records that carry another platform's evidence — and
+    // mark the new key as already-asked while settling nothing, which then
+    // blocks the real probe when the fresh results land. The effect re-runs
+    // when the search resolves.
+    if (loading) return;
+
     // A record whose region-scoped cache already holds a list needs no
     // exchange: that list was fetched by this region's account, which is the
     // settlement.
@@ -319,6 +327,7 @@ export default function SearchPage() {
   }, [
     results,
     probes,
+    loading,
     activePlatform,
     activeCountry,
     accounts,
