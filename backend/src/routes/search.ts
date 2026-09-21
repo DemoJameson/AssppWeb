@@ -164,9 +164,9 @@ function localSoftwareFrom(query: Record<string, unknown>, platform?: Platform) 
 
 /**
  * One package-app record as the Software shape the frontend renders: the
- * requested platform's build supplies the version, minimum OS, size and release
- * date (a tvOS build must not pass for an iOS lookup), and `metadataSource`
- * tells the frontend where the record came from.
+ * requested platform's build supplies the version id, version, minimum OS, size
+ * and release date (a tvOS build must not pass for an iOS lookup), and
+ * `metadataSource` tells the frontend where the record came from.
  *
  * The storefront knows nothing more to add — it has forgotten the app — so what
  * is left out here (the price, the description, the screenshots, the seller)
@@ -192,6 +192,9 @@ function softwareFromRecord(record: PackageAppRecord, platform?: Platform) {
     artworkUrl: record.artworkUrl ?? "",
     screenshotUrls: [],
     minimumOsVersion: build?.minimumOsVersion ?? "",
+    // The build's own id: what a detail view ties the record to when the list
+    // offers a version — a version number can name two different builds.
+    externalVersionId: build?.externalVersionId,
     fileSizeBytes: build?.fileSizeBytes,
     releaseDate: build?.releaseDate ?? "",
     primaryGenreName: record.primaryGenreName ?? "",

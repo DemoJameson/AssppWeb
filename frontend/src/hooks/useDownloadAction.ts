@@ -167,9 +167,13 @@ export function useDownloadAction() {
         ...app,
         bundleID,
         version: output.bundleShortVersionString,
-        // The id of the build Apple served; the backend records it as the
-        // app+platform's last-known pin for future version queries.
-        externalVersionId: output.externalVersionId ?? app.externalVersionId,
+        // The id of the build Apple served — the reply names it, and the
+        // backend records it as the app+platform's last-known pin. Only a
+        // storefront record's own id may stand in when the reply omits it: a
+        // recalled record's id belongs to the build it was recalled from.
+        externalVersionId:
+          output.externalVersionId ??
+          (quotedForServedBuild ? app.externalVersionId : undefined),
         ...(quotedForServedBuild
           ? {}
           : { releaseDate: "", fileSizeBytes: undefined }),

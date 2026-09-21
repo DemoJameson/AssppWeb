@@ -437,7 +437,10 @@ answers for that build and never borrows another's numbers — a held package
 supplies its own version, size, minimum OS and date (what the downloads view
 shows), a storefront answers for the version it quoted, a package read is the
 only date source (`utils/versionLabels`), and a fact nobody vouched for stays as
-an em dash. The same id drives the 已下载 state, so a package opened from
+an em dash. Which build that is comes down to its **external version id**: the
+package-app index records the id its package carried, and a record only answers
+for the id it names (the version number is just the stand-in for a record written
+before the id was kept — two builds can share a number). The same id drives the 已下载 state, so a package opened from
 downloads reads as already here (button out, note in place) and moving the
 picker to another version moves every row with it — and keeps the carried build
 picked when it is one the server holds. `utils/downloaded.heldBuildFor` is what
@@ -567,9 +570,10 @@ version cache and pins, and stored in the `package_apps` / `package_app_builds`
 tables of the backend SQLite DB (`backed by db.ts`). Builds
 are tracked per platform — the same app ships different versions for different
 platforms (`Forward` was 1.3.18 on iOS and 1.3.19 on tvOS) — and each build
-carries its version, minimum OS, release date and on-disk package size (the
-download pipeline measures the size after injection, which is the only size a
-delisted app can report). `/api/lookup`
+carries Apple's external version id, its version, minimum OS, release date and
+on-disk package size (the download pipeline measures the size after injection
+and reads the id from the store metadata, which is the only source a delisted
+app has for either). `/api/lookup`
 answers with the requested platform's build, omitting the version when that
 platform has no recorded package (legacy flat files migrate to the platform
 they recorded). It consults the index when the storefront answers nothing, so

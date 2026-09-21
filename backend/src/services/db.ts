@@ -71,6 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_pa_bundle ON package_apps(bundle_id COLLATE NOCAS
 CREATE TABLE IF NOT EXISTS package_app_builds (
   app_id      INTEGER NOT NULL,
   platform    TEXT NOT NULL,
+  version_id  TEXT,
   version     TEXT,
   minimum_os  TEXT,
   file_size   TEXT,
@@ -85,7 +86,7 @@ CREATE TABLE IF NOT EXISTS package_app_builds (
  * The schema version this build expects. Bump it whenever ADDED_COLUMNS grows:
  * a database below it is upgraded in place on open, a fresh one is born at it.
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /** Records the version; a fresh database and an upgraded one both land here. */
 const SCHEMA_VERSION_SQL = `
@@ -104,10 +105,11 @@ const ADDED_COLUMNS: ReadonlyArray<{
   column: string;
   type: string;
 }> = [
-  // What a delisted app's detail page can only learn from its own package: how
-  // large the recorded build is on disk, and when that build was released.
-  // Per build, like `version` and `minimum_os` — an iOS and a tvOS package of
-  // the same app differ in both.
+  // What a delisted app's detail page can only learn from its own package: the
+  // id of the build Apple served, how large it is on disk, and when it was
+  // built. Per build, like `version` and `minimum_os` — an iOS and a tvOS
+  // package of the same app differ in all of them.
+  { table: "package_app_builds", column: "version_id", type: "TEXT" },
   { table: "package_app_builds", column: "file_size", type: "TEXT" },
   { table: "package_app_builds", column: "release_date", type: "TEXT" },
 ];

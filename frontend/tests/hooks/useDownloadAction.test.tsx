@@ -196,6 +196,9 @@ describe("useDownloadAction", () => {
     const recalled: Software = {
       ...app,
       metadataSource: "local",
+      // The record carries its own build's id; the request must not pass it on
+      // as the served build's (the backend pins whatever arrives here).
+      externalVersionId: "888154623",
       releaseDate: "2026-07-11T00:00:00Z",
       fileSizeBytes: "155759893",
     };
@@ -208,6 +211,7 @@ describe("useDownloadAction", () => {
     const body = vi.mocked(apiPost).mock.calls[0][1];
     expect(body.software.releaseDate).toBe("");
     expect(body.software.fileSizeBytes).toBeUndefined();
+    expect(body.software.externalVersionId).toBeUndefined();
     // The app's own facts still travel, and the served build names itself.
     expect(body.software.name).toBe(app.name);
     expect(body.software.artistName).toBe(app.artistName);
@@ -220,6 +224,8 @@ describe("useDownloadAction", () => {
     await act(async () => {
       await result.current.startDownload(account, {
         ...app,
+        // The reply names no build, so the record's own id may stand in for it.
+        externalVersionId: "890657720",
         fileSizeBytes: "5242880",
       });
     });
@@ -227,6 +233,7 @@ describe("useDownloadAction", () => {
     const body = vi.mocked(apiPost).mock.calls[0][1];
     expect(body.software.releaseDate).toBe(app.releaseDate);
     expect(body.software.fileSizeBytes).toBe("5242880");
+    expect(body.software.externalVersionId).toBe("890657720");
   });
 
   it("drops them when Apple serves another version than the record named", async () => {
@@ -242,6 +249,7 @@ describe("useDownloadAction", () => {
     await act(async () => {
       await result.current.startDownload(account, {
         ...app,
+        externalVersionId: "890657720",
         fileSizeBytes: "5242880",
       });
     });
@@ -250,6 +258,7 @@ describe("useDownloadAction", () => {
     expect(body.software.version).toBe("3.4.4");
     expect(body.software.releaseDate).toBe("");
     expect(body.software.fileSizeBytes).toBeUndefined();
+    expect(body.software.externalVersionId).toBeUndefined();
   });
 
   it("does not purchase for unrelated failures", async () => {

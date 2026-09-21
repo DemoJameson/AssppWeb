@@ -91,6 +91,7 @@ describe("schema upgrades", () => {
           expect.arrayContaining([
             "app_id",
             "platform",
+            "version_id",
             "version",
             "minimum_os",
             "updated_at",
@@ -98,12 +99,12 @@ describe("schema upgrades", () => {
             "release_date",
           ]),
         );
-        expect(columns(db, "package_app_builds")).toHaveLength(7);
+        expect(columns(db, "package_app_builds")).toHaveLength(8);
         // The recorded build survives the upgrade, with the new columns empty.
         expect(
           db
             .prepare(
-              "SELECT app_id, platform, version, file_size, release_date FROM package_app_builds",
+              "SELECT app_id, platform, version, version_id, file_size, release_date FROM package_app_builds",
             )
             .all(),
         ).toEqual([
@@ -111,12 +112,13 @@ describe("schema upgrades", () => {
             app_id: 42,
             platform: "ios",
             version: "3.0.0",
+            version_id: null,
             file_size: null,
             release_date: null,
           },
         ]);
         expect(db.prepare("PRAGMA user_version").get()).toEqual({
-          user_version: 2,
+          user_version: 3,
         });
       },
     );

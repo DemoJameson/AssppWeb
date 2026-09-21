@@ -119,10 +119,12 @@ describe("Lookup Route — package-app fallback", () => {
     expect(tvos.body.version).toBe("9.9.9");
   });
 
-  it("answers with the recorded build's size and release date", async () => {
-    // What the package knew: measured on disk, and the date it was built. The
-    // detail view has no other source for either once the app is delisted.
+  it("answers with the recorded build's id, size and release date", async () => {
+    // What the package knew: the id of the build Apple served, measured on
+    // disk, and the date it was built. The detail view has no other source for
+    // any of them once the app is delisted.
     seedApp({
+      externalVersionId: "888154623",
       fileSizeBytes: "155759893",
       releaseDate: "2026-08-02T02:11:44.000Z",
     });
@@ -131,13 +133,15 @@ describe("Lookup Route — package-app fallback", () => {
     const res = await request(app).get(
       "/api/lookup?bundleId=com.example.legacy&country=US&platform=ios",
     );
+    expect(res.body.externalVersionId).toBe("888154623");
     expect(res.body.fileSizeBytes).toBe("155759893");
     expect(res.body.releaseDate).toBe("2026-08-02T02:11:44.000Z");
 
-    // Nothing was recorded for macOS, so neither may be invented for it.
+    // Nothing was recorded for macOS, so none of it may be invented for it.
     const macos = await request(app).get(
       "/api/lookup?bundleId=com.example.legacy&platform=macos",
     );
+    expect(macos.body.externalVersionId).toBeUndefined();
     expect(macos.body.fileSizeBytes).toBeUndefined();
     expect(macos.body.releaseDate).toBe("");
   });

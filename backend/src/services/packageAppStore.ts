@@ -17,8 +17,9 @@ import type { Platform, Software } from "../types/index.js";
  * different platforms (`Forward` was 1.3.18 on iOS and 1.3.19 on tvOS), so a
  * lookup answers with the build of the platform it asked for — and says
  * nothing about the version when that platform has no recorded package. Each
- * build carries everything the package could tell about itself: its version,
- * minimum OS, release date, and the size it occupies on disk.
+ * build carries everything the package could tell about itself: Apple's
+ * external version id, its version, minimum OS, release date, and the size it
+ * occupies on disk.
  *
  * Server-written only (no client write-back): entries come from
  * `rememberPackageApp` call sites in downloadManager — the compile pipeline
@@ -34,6 +35,13 @@ const PLATFORM_SET: ReadonlySet<string> = new Set([
 ]);
 
 export interface PackageBuild {
+  /**
+   * Apple's external version identifier for this build — the id a version list
+   * is keyed by, read out of the package's store metadata. It is what lets a
+   * detail view tie the record to one build of the list instead of guessing
+   * from a version number two builds can share.
+   */
+  externalVersionId?: string;
   version?: string;
   minimumOsVersion?: string;
   /**
@@ -74,7 +82,7 @@ let stmtUpsertApp: import("better-sqlite3").Statement<
   [number, string, string | undefined, string | undefined, string | undefined, string | undefined, number]
 > | undefined;
 let stmtUpsertBuild: import("better-sqlite3").Statement<
-  [number, string, string | undefined, string | undefined, string | undefined, string | undefined, number]
+  [number, string, string | undefined, string | undefined, string | undefined, string | undefined, string | undefined, number]
 > | undefined;
 
 /** Ensures the tables exist; idempotent, safe to call from any entry point. */
@@ -94,7 +102,7 @@ export function initPackageAppStore(): void {
     "SELECT app_id, bundle_id, name, artist_name, artwork_url, primary_genre, updated_at FROM package_apps WHERE app_id = ?",
   );
   stmtSelectBuilds = db.prepare<[number]>(
-    "SELECT platform, version, minimum_os, file_size, release_date, updated_at FROM package_app_builds WHERE app_id = ?",
+    "SELECT platform, version_id, version, minimum_os, file_size, release_date, updated_at FROM package_app_builds WHERE app_id = ?",
   );
   stmtUpsertApp = db.prepare<
     [number, string, string | undefined, string | undefined, string | undefined, string | undefined, number]
@@ -111,12 +119,13 @@ export function initPackageAppStore(): void {
        updated_at = excluded.updated_at`,
   );
   stmtUpsertBuild = db.prepare<
-    [number, string, string | undefined, string | undefined, string | undefined, string | undefined, number]
+    [number, string, string | undefined, string | undefined, string | undefined, string | undefined, string | undefined, number]
   >(
     `INSERT INTO package_app_builds
-       (app_id, platform, version, minimum_os, file_size, release_date, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+       (app_id, platform, version_id, version, minimum_os, file_size, release_date, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(app_id, platform) DO UPDATE SET
+       version_id = excluded.version_id,
        version = excluded.version,
        minimum_os = excluded.minimum_os,
        file_size = excluded.file_size,
@@ -147,7 +156,9 @@ export function resetPackageAppStoreForTest(): void {
  * gaps, and the placeholder label `App <id>` never counts as a name.
  *
  * The size is the caller's on-disk measurement rather than anything the package
- * declares, so it only reaches the index when the completed task carries it.
+ * declares, so it only reaches the index when the completed task carries it —
+ * like the external version id, which a task learns from the download reply and
+ * the package's store metadata.
  */
 export function rememberPackageApp(software: Software): void {
   initPackageAppStore();
@@ -165,6 +176,8 @@ export function rememberPackageApp(software: Software): void {
 
   const previousBuild = existing?.builds[platform];
   const build: PackageBuild = {
+    externalVersionId:
+      clean(software.externalVersionId) ?? previousBuild?.externalVersionId,
     version: clean(software.version) ?? previousBuild?.version,
     minimumOsVersion:
       clean(software.minimumOsVersion) ?? previousBuild?.minimumOsVersion,
@@ -204,6 +217,7 @@ export function rememberPackageApp(software: Software): void {
       stmtUpsertBuild!.run(
         Number(appKey),
         plat,
+        b.externalVersionId,
         b.version,
         b.minimumOsVersion,
         b.fileSizeBytes,
@@ -291,6 +305,7 @@ function loadRecord(appKey: string): PackageAppRecord | undefined {
 
   const buildRows = stmtSelectBuilds!.all(Number(appKey)) as Array<{
     platform: string;
+    version_id: string | null;
     version: string | null;
     minimum_os: string | null;
     file_size: string | null;
@@ -301,6 +316,7 @@ function loadRecord(appKey: string): PackageAppRecord | undefined {
   const builds: Record<string, PackageBuild> = {};
   for (const b of buildRows) {
     builds[b.platform] = {
+      externalVersionId: b.version_id ?? undefined,
       version: b.version ?? undefined,
       minimumOsVersion: b.minimum_os ?? undefined,
       fileSizeBytes: b.file_size ?? undefined,
@@ -361,6 +377,7 @@ function sameBuilds(
     const right = b[platform];
     if (!left || !right) return false;
     if (
+      left.externalVersionId !== right.externalVersionId ||
       left.version !== right.version ||
       left.minimumOsVersion !== right.minimumOsVersion ||
       left.fileSizeBytes !== right.fileSizeBytes ||

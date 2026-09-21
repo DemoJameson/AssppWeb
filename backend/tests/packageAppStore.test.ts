@@ -141,6 +141,28 @@ describe("packageAppStore", () => {
     ).toBe("160000000");
   });
 
+  it("records the build's external version id, per platform", () => {
+    // The id is what ties the record to one build of a version list: a version
+    // number can name two different builds, an id cannot.
+    store.rememberPackageApp(
+      software({ platform: "tvos", version: "4.9.1", externalVersionId: "888154623" }),
+    );
+
+    const record = store.findPackageAppByAppId(6503940939);
+    expect(record?.builds.tvos?.externalVersionId).toBe("888154623");
+    // The iOS build was never recorded with one and must not borrow it.
+    expect(record?.builds.ios?.externalVersionId).toBeUndefined();
+
+    // A later read that carries none keeps the id — the package read can be
+    // silent about it while still naming the version.
+    store.rememberPackageApp(
+      software({ platform: "tvos", version: "4.9.1", externalVersionId: "" }),
+    );
+    expect(
+      store.findPackageAppByAppId(6503940939)?.builds.tvos?.externalVersionId,
+    ).toBe("888154623");
+  });
+
   it("skips the rewrite when a fresh read carries nothing new", () => {
     // SQLite writes are immediate; the no-op is observed via the DB row staying
     // the same. A second remember with no changed fields must not throw and the
