@@ -22,13 +22,160 @@
 //     (apps.apple.com/{cc}/app/id{id}?platform=mac) and selects the native
 //     Mac offer the same way.
 
-import { appleRequest } from "./request";
+import { appleRequest, type AppleResponse } from "./request";
+import { apiGet } from "../api/client";
 import { mdmCataloguesFor } from "./platform";
 import type { Platform, Cookie } from "../types";
 
 const LOOKUP_HOST = "uclient-api.itunes.apple.com";
 const LOOKUP_PATH = "/WebObjects/MZStorePlatform.woa/wa/lookup";
 const STOREFRONT_HOST = "apps.apple.com";
+
+/**
+ * How many storefront redirects a lookup follows before giving up. The chains
+ * are short — a canonical hop, sometimes a storefront one — so the cap only
+ * exists to fail a loop instead of hanging the lookup. It counts the hops that
+ * are followed: one request each, plus the request whose redirect trips it.
+ */
+const MAX_STOREFRONT_REDIRECTS = 5;
+
+/**
+ * The storefronts to consult after the account's own one, as the server
+ * configures them (`STOREFRONT_FALLBACK_COUNTRIES`; the CN storefront by
+ * default, none configured disables the fallback).
+ *
+ * Apple only serves the product page of a storefront it believes the request
+ * comes from: from a mainland-China network every non-CN storefront path
+ * (`/us/app/id…?platform=mac`, `/au/…`) is answered with a redirect to the CN
+ * Today page, so an account in another country sees no offer from it at all —
+ * for any app, not just the ones missing there. The external version id the
+ * page carries is a global build identifier, not a per-country one: an account
+ * in any country can download the build it names. So a storefront whose page
+ * the network *can* reach is a valid substitute for the account's own, and the
+ * lookup asks the account's country first and these afterwards.
+ *
+ * Read per lookup — never cached — so an operator change takes effect without a
+ * rebuild; an unreachable server simply leaves the fallback out. Each lookup
+ * reads for itself rather than sharing one read between them: a request that
+ * never answers would otherwise hold every later lookup behind it, which is a
+ * worse trade than asking twice for a list this small.
+ */
+async function configuredStorefrontFallbacks(): Promise<string[]> {
+  try {
+    const settings = await apiGet<{ storefrontFallbackCountries?: unknown }>(
+      "/api/settings",
+    );
+    const countries = settings?.storefrontFallbackCountries;
+    if (!Array.isArray(countries)) return [];
+    return countries
+      .filter((country): country is string => typeof country === "string")
+      .map((country) => country.toLowerCase())
+      .filter((country) => /^[a-z]{2}$/.test(country));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetches a storefront page, resolving the redirects Apple answers these
+ * paths with: the canonical 301 from the slug-less app path to its slug URL,
+ * and the 302 from a storefront the network cannot reach to the one it can.
+ * The page itself only appears at the end of the chain, and libcurl reports
+ * the Location raw, so a relative one is resolved against the storefront
+ * host.
+ *
+ * The messages the checks below throw are internal: every caller maps a failed
+ * storefront lookup to its own user-facing string (see `versionFinder`), so
+ * they are deliberately plain and unlocalized.
+ */
+async function fetchStorefrontPage(
+  path: string,
+  cookies?: Cookie[],
+): Promise<AppleResponse> {
+  for (let hop = 0; ; hop++) {
+    const response = await appleRequest({
+      method: "GET",
+      host: STOREFRONT_HOST,
+      path,
+      cookies,
+    });
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers["location"];
+      if (location) {
+        if (hop >= MAX_STOREFRONT_REDIRECTS) {
+          throw new Error("storefront lookup was redirected too many times");
+        }
+
+        const url = new URL(location, `https://${STOREFRONT_HOST}`);
+        // The next request carries the caller's cookies, so the chain stays on
+        // the storefront, over https and on its own port: Apple answers these
+        // pages from `apps.apple.com` alone, so anything else is not a hop of
+        // the chain the lookup set out on.
+        if (url.protocol !== "https:" || url.host !== STOREFRONT_HOST) {
+          throw new Error(
+            `storefront lookup was redirected off ${STOREFRONT_HOST} (${url.origin})`,
+          );
+        }
+
+        path = url.pathname + url.search;
+        continue;
+      }
+    }
+
+    return response;
+  }
+}
+
+/**
+ * Runs `fetchOne` over the account's own storefront and the server-configured
+ * fallbacks in order, returning the first id that resolves. A storefront that
+ * answers without naming a build is not an answer either, so the next one is
+ * asked — `fetchOne` may report that by throwing or by returning undefined.
+ *
+ * When none of them answers, the failure the account's own storefront reported
+ * is the one thrown: it is the answer about the app the caller asked about.
+ *
+ * The fallback list is read while the account's own storefront is being asked,
+ * never before it: it is only needed once that attempt has come up short, and
+ * waiting for it first would put a backend round trip in front of every lookup.
+ */
+async function lookupAcrossStorefronts(
+  countryCode: string,
+  fetchOne: (country: string) => Promise<string | undefined>,
+  platform: string,
+): Promise<string | undefined> {
+  const own = countryCode.toLowerCase();
+  // Deliberately not awaited here: the settings request rides *beside* the
+  // own-storefront attempt below, and is only awaited once that attempt has
+  // come up short. Awaiting it now would put a backend round trip in front of
+  // every lookup; the name says promise so the deferred `await` reads as the
+  // choice it is, not as an omission.
+  const fallbacksPromise = configuredStorefrontFallbacks();
+
+  let firstError: Error | undefined;
+
+  const attempt = async (country: string): Promise<string | undefined> => {
+    try {
+      return await fetchOne(country);
+    } catch (error) {
+      firstError ??= error instanceof Error ? error : new Error(String(error));
+      return undefined;
+    }
+  };
+
+  const ownVersionId = await attempt(own);
+  if (ownVersionId) return ownVersionId;
+
+  for (const country of await fallbacksPromise) {
+    if (country === own) continue;
+
+    const versionId = await attempt(country);
+    if (versionId) return versionId;
+  }
+
+  throw firstError ?? new Error(`${platform} version lookup failed`);
+}
 
 /**
  * Returns the newest external version id for an app, or undefined when Apple
@@ -96,6 +243,21 @@ export async function latestVersionIdForPlatform(
  * page. Mirrors ipatool's `lookupLatestMacOSExternalVersionID`: the legacy MDM
  * lookup can return an iOS offer even with platform=osx, so the storefront is
  * the only reliable source.
+ *
+ * The account's own storefront is asked first; when that page cannot name a Mac
+ * build — unreachable, redirected to another country's page, or carrying no Mac
+ * offer — the server-configured fallback storefronts are asked in turn, because
+ * the id is a global build identifier any account can download. When none of
+ * them answers, the failure the account's own storefront reported is the one
+ * thrown: it is the answer about the app the caller asked about.
+ *
+ * Asking the account's own storefront first also means the fallback is consulted
+ * for an app that storefront simply offers no Mac build of — not only when its
+ * page could not be reached. So "this platform has a build" can come from a
+ * storefront that is not the account's own; the id is a global build
+ * identifier, so the build it names is still the account's to download, and what
+ * comes back is checked against the platform asked for (see
+ * `assertMacOSPackage`).
  */
 export async function lookupLatestMacOSVersionId(
   appId: string | number,
@@ -104,15 +266,23 @@ export async function lookupLatestMacOSVersionId(
   cookies?: Cookie[],
 ): Promise<string | undefined> {
   const id = String(appId);
+  return lookupAcrossStorefronts(
+    countryCode,
+    (country) => fetchMacOSVersionId(id, country, bundleId, cookies),
+    "macOS",
+  );
+}
+
+async function fetchMacOSVersionId(
+  id: string,
+  countryCode: string,
+  bundleId?: string,
+  cookies?: Cookie[],
+): Promise<string | undefined> {
   const query = new URLSearchParams({ platform: "mac" });
   const path = `/${countryCode.toLowerCase()}/app/id${id}?${query.toString()}`;
 
-  const response = await appleRequest({
-    method: "GET",
-    host: STOREFRONT_HOST,
-    path,
-    cookies,
-  });
+  const response = await fetchStorefrontPage(path, cookies);
 
   if (response.status !== 200) {
     throw new Error(`macOS version lookup returned ${response.status}`);
@@ -121,21 +291,34 @@ export async function lookupLatestMacOSVersionId(
   return findMacOSVersionId(response.body, id, bundleId);
 }
 
+/**
+ * Returns the newest visionOS external version id from the Vision storefront
+ * product page. The same storefront rules as macOS apply (see
+ * {@link lookupLatestMacOSVersionId}); the page is parsed for a vision
+ * purchase configuration instead.
+ */
 async function lookupLatestVisionOSVersionId(
   appId: string | number,
   countryCode: string,
   cookies?: Cookie[],
 ): Promise<string | undefined> {
   const id = String(appId);
+  return lookupAcrossStorefronts(
+    countryCode,
+    (country) => fetchVisionVersionId(id, country, cookies),
+    "visionOS",
+  );
+}
+
+async function fetchVisionVersionId(
+  id: string,
+  countryCode: string,
+  cookies?: Cookie[],
+): Promise<string | undefined> {
   const query = new URLSearchParams({ platform: "vision" });
   const path = `/${countryCode.toLowerCase()}/app/id${id}?${query.toString()}`;
 
-  const response = await appleRequest({
-    method: "GET",
-    host: STOREFRONT_HOST,
-    path,
-    cookies,
-  });
+  const response = await fetchStorefrontPage(path, cookies);
 
   if (response.status !== 200) {
     throw new Error(`visionOS version lookup returned ${response.status}`);

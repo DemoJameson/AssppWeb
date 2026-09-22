@@ -21,7 +21,7 @@ const PLATFORM_SUFFIX: Record<Platform, string> = {
 // File names that browsers will save verbatim: strip characters that are
 // illegal on common filesystems; the header itself is encoded by
 // `res.download` (RFC 5987), so Unicode names survive intact.
-function packageDownloadName(
+export function packageDownloadName(
   name: string,
   version: string,
   platform?: Platform,
@@ -30,7 +30,17 @@ function packageDownloadName(
   const base = `${name}_${version}_${suffix}`
     .replace(/[\\/:*?"<>|\x00-\x1f\x7f]/g, "-")
     .slice(0, 170);
-  return `${base}.ipa`;
+  return `${base}${packageDownloadExtension(platform)}`;
+}
+
+/**
+ * The extension that says what the file is: every package this pipeline
+ * compiles is an IPA, except Apple's macOS ones, which arrive — and install —
+ * as `.pkg` containers. A macOS download saved as `.ipa` is a file the Mac
+ * will refuse to open, whatever its bytes are.
+ */
+export function packageDownloadExtension(platform?: Platform): string {
+  return platform === "macos" ? ".pkg" : ".ipa";
 }
 
 // List packages filtered by account hashes

@@ -306,6 +306,64 @@ describe("useDownloadAction", () => {
     expect(getDownloadInfo).toHaveBeenCalledTimes(1);
   });
 
+  it("hands the server what a macOS package is decrypted with", async () => {
+    // Apple's macOS packages arrive encrypted, and the two pieces that open
+    // them — the key material from the reply and the hardware id the download
+    // was requested with — exist only on this side of the boundary.
+    const macApp = { ...app, platform: "macos" as const };
+    vi.mocked(getDownloadInfo).mockResolvedValue({
+      output: { ...output, dpInfo: "QUJDRA==" },
+      updatedCookies: [],
+    });
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, macApp);
+    });
+
+    expect(apiPost).toHaveBeenCalledWith(
+      "/api/downloads",
+      expect.objectContaining({
+        dpInfo: "QUJDRA==",
+        hardwareId: account.deviceIdentifier,
+      }),
+    );
+  });
+
+  it("leaves the decryption out of a download that needs none", async () => {
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, app);
+    });
+
+    const body = vi.mocked(apiPost).mock.calls[0][1];
+    expect(body.dpInfo).toBeUndefined();
+    expect(body.hardwareId).toBeUndefined();
+  });
+
+  it("refuses a macOS download this account could not decrypt", async () => {
+    // A device id that is not hex — an imported serial number, say — cannot be
+    // the hardware id StoreAgent derives its key from, so the package is never
+    // fetched: nothing could open it.
+    const macApp = { ...app, platform: "macos" as const };
+    vi.mocked(getDownloadInfo).mockResolvedValue({
+      output: { ...output, dpInfo: "QUJDRA==" },
+      updatedCookies: [],
+    });
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await expect(
+        result.current.startDownload(
+          { ...account, deviceIdentifier: "C02XK1AB" },
+          macApp,
+        ),
+      ).rejects.toThrow("errors.download.missingHardwareId");
+    });
+
+    expect(apiPost).not.toHaveBeenCalled();
+  });
+
   /** A package the server holds — downloading it again is a duplicate. */
   function heldTask(overrides: {
     version?: string;

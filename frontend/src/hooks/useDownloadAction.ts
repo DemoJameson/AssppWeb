@@ -11,7 +11,11 @@ import { needsPlatformPin } from "../apple/platform";
 import { listVersions } from "../apple/versionFinder";
 import { getCachedVersionList, versionListKey } from "../store/versionLists";
 import { apiPost, apiGet } from "../api/client";
-import { accountHash, accountStoreCountry } from "../utils/account";
+import {
+  accountHash,
+  accountHardwareId,
+  accountStoreCountry,
+} from "../utils/account";
 import { getErrorMessage } from "../utils/error";
 import { findDuplicateDownload } from "../utils/downloaded";
 import { needsVersionExchange } from "../utils/software";
@@ -162,6 +166,23 @@ export function useDownloadAction() {
 
     const hash = await accountHash(currentAccount);
 
+    // A macOS package has to be decrypted once it lands, and only this side
+    // holds what that takes: the key material from Apple's reply and the
+    // hardware id the download was requested with. Both are refused up front
+    // when they are missing, so a package that nothing can open is never
+    // fetched.
+    let decryption: { dpInfo?: string; hardwareId?: string } = {};
+    if (app.platform === "macos") {
+      const hardwareId = accountHardwareId(currentAccount);
+      if (!output.dpInfo) {
+        throw new DownloadError(t("errors.download.missingDPInfo"));
+      }
+      if (!hardwareId) {
+        throw new DownloadError(t("errors.download.missingHardwareId"));
+      }
+      decryption = { dpInfo: output.dpInfo, hardwareId };
+    }
+
     await apiPost("/api/downloads", {
       software: {
         ...app,
@@ -182,6 +203,7 @@ export function useDownloadAction() {
       downloadURL: output.downloadURL,
       sinfs: output.sinfs,
       iTunesMetadata: output.iTunesMetadata,
+      ...decryption,
     });
 
     fetchTasks();

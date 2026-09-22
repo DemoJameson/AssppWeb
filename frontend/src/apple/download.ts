@@ -117,27 +117,42 @@ async function interpretReply(
   }
 
   const sinfs: Sinf[] = [];
+  // A macOS download is decrypted rather than injected, so Apple sends the key
+  // material for it here instead of a sinf to replicate — and, for a Mac
+  // package, sometimes with no `sinf` in the entry at all. Two different values
+  // would mean the reply describes two builds, and neither can be trusted to
+  // decrypt the package that arrives; ipatool refuses that too.
+  let dpInfo: string | undefined;
   const sinfData = item.sinfs as Record<string, any>[] | undefined;
   if (sinfData) {
     for (const sinfItem of sinfData) {
       const id = sinfItem.id as number;
       const sinf = sinfItem.sinf;
       if (id !== undefined && sinf) {
-        let sinfBase64: string;
-        if (sinf instanceof Uint8Array || sinf instanceof ArrayBuffer) {
-          const bytes = sinf instanceof ArrayBuffer ? new Uint8Array(sinf) : sinf;
-          sinfBase64 = base64FromBytes(bytes);
-        } else if (typeof sinf === "string") {
-          sinfBase64 = sinf;
-        } else {
+        const sinfBase64 = base64FromField(sinf);
+        if (sinfBase64 === undefined) {
           throw new DownloadError(i18n.t("errors.download.invalidSinf"));
         }
         sinfs.push({ id, sinf: sinfBase64 });
       }
+
+      const itemDPInfo = base64FromField(sinfItem.dpInfo);
+      if (itemDPInfo !== undefined) {
+        if (dpInfo !== undefined && dpInfo !== itemDPInfo) {
+          throw new DownloadError(i18n.t("errors.download.conflictingDPInfo"));
+        }
+        dpInfo = itemDPInfo;
+      }
     }
   }
 
-  if (sinfs.length === 0) {
+  if (session.app.platform === "macos") {
+    // Without dpInfo the delivered package can never be opened, and nothing
+    // downstream could do anything but fail — so say so before a task exists.
+    if (!dpInfo) {
+      throw new DownloadError(i18n.t("errors.download.missingDPInfo"));
+    }
+  } else if (sinfs.length === 0) {
     throw new DownloadError(i18n.t("errors.download.noSinf"));
   }
 
@@ -168,6 +183,7 @@ async function interpretReply(
         externalVersionId === undefined || externalVersionId === null
           ? undefined
           : String(externalVersionId),
+      dpInfo,
       iTunesMetadata,
     },
     updatedCookies: session.cookies,
@@ -203,6 +219,21 @@ function unexpectedReply(reply: DownloadReply): string {
 function base64FromString(value: string): string {
   const bytes = new TextEncoder().encode(value);
   return base64FromBytes(bytes);
+}
+
+/**
+ * Reads what our plist parser made of a `<data>` field: bytes, which is what a
+ * binary plist yields, or the string Apple already encoded. Anything else is
+ * not a value this pipeline can carry, and the caller decides what to say
+ * about it.
+ */
+function base64FromField(value: unknown): string | undefined {
+  if (value instanceof Uint8Array) return base64FromBytes(value);
+  if (value instanceof ArrayBuffer) {
+    return base64FromBytes(new Uint8Array(value));
+  }
+  if (typeof value === "string") return value;
+  return undefined;
 }
 
 function base64FromBytes(bytes: Uint8Array): string {

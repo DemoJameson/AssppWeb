@@ -37,6 +37,13 @@ export const config = {
   autoCleanupMaxMB: parseInt(process.env.AUTO_CLEANUP_MAX_MB || "0", 10) || 0,
   // Max download file size in MB (0 disables)
   maxDownloadMB: parseInt(process.env.MAX_DOWNLOAD_MB || "0", 10) || 0,
+  // Storefronts a macOS/visionOS version lookup consults after the account's
+  // own one. Defaults to "cn" — the storefront reachable from a mainland-
+  // China network, where every non-CN storefront is answered with a redirect;
+  // empty disables the fallback.
+  storefrontFallbackCountries: parseStorefrontFallbackCountries(
+    process.env.STOREFRONT_FALLBACK_COUNTRIES,
+  ),
   // Build info (injected via Docker build args; plain `npm run dev` falls back
   // to the checked-out git revision so local builds identify themselves).
   buildCommit:
@@ -45,6 +52,25 @@ export const config = {
   // Access password protection (empty = disabled)
   accessPassword: process.env.ACCESS_PASSWORD || "",
 };
+
+/**
+ * Parses STOREFRONT_FALLBACK_COUNTRIES: comma-separated ISO 3166-1 country
+ * codes (lowercased; entries that are not two letters are dropped). Unset
+ * keeps the "cn" default, empty disables the fallback.
+ */
+export function parseStorefrontFallbackCountries(
+  value: string | undefined,
+): string[] {
+  const raw = value ?? "cn";
+  return [
+    ...new Set(
+      raw
+        .split(",")
+        .map((country) => country.trim().toLowerCase())
+        .filter((country) => /^[a-z]{2}$/.test(country)),
+    ),
+  ];
+}
 
 export const accessPasswordHash = config.accessPassword
   ? createHash("sha256").update(config.accessPassword).digest("hex")

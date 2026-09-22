@@ -152,6 +152,14 @@ frontend/src/apple/sap/vendor/unicorn-dbg.*
 backend/public/
 backend/data/
 
+# macOS package decrypter (tools/macdecrypt) local build — the source and the
+# build script are committed, the binary a developer builds is not
+tools/macdecrypt/macdecrypt
+tools/macdecrypt/macdecrypt.exe
+
+# Local scratch (may hold account exports); never commit credentials
+.test/
+
 # Playwright MCP artifacts
 .playwright-mcp/
 

@@ -185,7 +185,8 @@
       "paused": "已暫停",
       "completed": "已完成",
       "failed": "已失敗",
-      "injecting": "注入中"
+      "injecting": "注入中",
+      "decrypting": "解密中"
     },
     "preview": {
       "badge": "預覽",
@@ -231,6 +232,7 @@
       "fileUnavailable": "安裝包檔案無法使用。",
       "pause": "暫停",
       "resume": "繼續",
+      "retry": "重試",
       "delete": "刪除",
       "checkUpdate": "檢查更新",
       "checkingUpdate": "檢查中...",
@@ -464,6 +466,9 @@
       "missingMetadata": "缺少中繼資料",
       "missingVersion": "缺少所需的版本資訊",
       "macOSPackage": "Apple 傳回的是 macOS 安裝包（.pkg），與你選擇的平台不符。",
+      "missingDPInfo": "Apple 的回應中沒有解密此 macOS 安裝包所需的資訊（dpInfo）。",
+      "conflictingDPInfo": "Apple 的回應中有兩條互相矛盾的解密資訊（dpInfo），無法解密此 macOS 安裝包。",
+      "missingHardwareId": "此帳號的裝置識別碼不是解密 macOS 安裝包所需的十六進位 ID。",
       "invalidSinf": "無效的 sinf 項目",
       "noSinf": "回應中找不到 sinf",
       "tooManyRedirects": "重新導向次數過多",

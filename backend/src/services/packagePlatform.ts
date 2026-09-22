@@ -9,10 +9,12 @@
 // selector still reads iOS, and the package that comes back is a tvOS build.
 // Validating against the request's platform would reject a perfectly good IPA.
 //
-// macOS packages (.pkg) are xar containers, not IPAs, and are skipped: the Mac
-// flow selects the native offer before the download, so a mismatched package
-// never reaches this point.
+// macOS packages (.pkg) are xar containers, not IPAs, and are skipped — there
+// is no IPA to validate against. The Mac flow can still be served the wrong
+// build outright, so macOS gets its own archive check instead (see
+// `assertMacOSPackage`).
 
+import fs from "fs";
 import { open as openZip } from "yauzl-promise";
 import type { Readable } from "stream";
 import bplistParser from "bplist-parser";
@@ -81,6 +83,69 @@ export async function validatePackagePlatform(
   throw new PackagePlatformError(
     "downloaded package does not declare any known platform support",
   );
+}
+
+/**
+ * What Apple hands a macOS task when the version pin it sent named another
+ * platform's build. Named once because both ends of the macOS pipeline report
+ * it: the archive check and the decrypter's pre-flight.
+ */
+export const IPA_SERVED_TO_MACOS =
+  "a macOS download was served an IPA instead of a Mac package (.pkg)";
+
+/**
+ * Refuses a macOS download whose package is not a `.pkg`.
+ *
+ * Asking for macOS does not guarantee a Mac build comes back. The pin the
+ * version flow sends can name an iOS build: Apple's MDM catalogue answers an
+ * iOS offer even when it is asked with `platform=osx`, and a pin guessed from
+ * a neighbouring platform's version list names that platform's build. Apple
+ * then serves an IPA to a task the user asked for as macOS, and nothing after
+ * this point would notice — an IPA carries no sinfs either, so it looks like a
+ * finished Mac package right up until it is installed.
+ *
+ * macOS packages are xar containers and IPAs are zip archives, so the archive
+ * magic is the one signal the package itself gives about what it is. A zip gets
+ * the wrong-platform message above; anything else is a file Apple should not
+ * have served a macOS task at all — the one sample this was written from
+ * carried real package guts (a `pbzx` payload) behind four bytes that were
+ * neither magic — so the message reports those bytes rather than claiming an
+ * IPA it is not. Ciphertext lands here too when decryption was skipped; its
+ * bytes are equally meaningless to this check, and its own step reports why.
+ */
+export async function assertMacOSPackage(pkgPath: string): Promise<void> {
+  const magic = await readArchiveMagic(pkgPath);
+
+  if (magic === null) {
+    throw new PackagePlatformError("macOS package could not be read");
+  }
+
+  if (magic === "xar!") return;
+
+  if (magic.startsWith("PK")) {
+    throw new PackagePlatformError(IPA_SERVED_TO_MACOS);
+  }
+
+  const firstBytes = Buffer.from(magic, "latin1").toString("hex");
+  throw new PackagePlatformError(
+    `the macOS download is not a Mac package (.pkg): it starts with 0x${firstBytes}`,
+  );
+}
+
+/** The first four bytes of a file, or null when it cannot be read. */
+export async function readArchiveMagic(filePath: string): Promise<string | null> {
+  let handle: fs.promises.FileHandle | undefined;
+
+  try {
+    handle = await fs.promises.open(filePath, "r");
+    const buffer = Buffer.alloc(4);
+    const { bytesRead } = await handle.read(buffer, 0, 4, 0);
+    return bytesRead < 4 ? null : buffer.toString("latin1");
+  } catch {
+    return null;
+  } finally {
+    await handle?.close();
+  }
 }
 
 function isTopLevelAppInfoPlist(filePath: string): boolean {

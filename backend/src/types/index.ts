@@ -59,6 +59,18 @@ export interface DownloadTask {
   downloadURL: string;
   sinfs: Sinf[];
   iTunesMetadata?: string;
+  /**
+   * Base64 `dpInfo` Apple answered a macOS download with — the key material
+   * its package is decrypted by. Held only for as long as the task needs it
+   * (stripped on completion, never persisted, never sent to a client).
+   */
+  dpInfo?: string;
+  /**
+   * The hardware id that download was requested with (`guid`), hex encoded.
+   * It is the second half of what decryption needs: StoreAgent derives the key
+   * from the pair, so the wrong id yields bytes that are still ciphertext.
+   */
+  hardwareId?: string;
   status:
     | "pending"
     | "downloading"

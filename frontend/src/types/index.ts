@@ -92,6 +92,12 @@ export interface DownloadOutput {
    * delisted apps — and platforms whose lookup has no answer left — queryable.
    */
   externalVersionId?: string;
+  /**
+   * Base64 `dpInfo`, which Apple only sends on a macOS download: the packages
+   * it serves there are encrypted, and this is the key material the server's
+   * decrypter turns them into installable ones with.
+   */
+  dpInfo?: string;
   iTunesMetadata?: string;
 }
 

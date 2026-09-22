@@ -448,7 +448,12 @@ describe("apple/versionFinder", () => {
         return reply(lookupReply);
       },
     );
-    vi.mocked(apiGet).mockResolvedValue({ pins: [] });
+    vi.mocked(apiGet).mockImplementation(
+      async (path: string) =>
+        (path === "/api/settings"
+          ? { storefrontFallbackCountries: ["cn"] }
+          : { pins: [] }) as never,
+    );
 
     const error = await listVersions(account, visionApp).catch(
       (e: unknown) => e,
@@ -458,9 +463,11 @@ describe("apple/versionFinder", () => {
       i18n.t("errors.download.missingVersion"),
     );
     expect(appPresenceFromProbeError(error)).toBe("inconclusive");
-    // Only the storefront lookup went out; the exchange itself never started.
+    // Only the storefront lookups went out — the account's own and the CN
+    // fallback — and the exchange itself never started.
     expect(downloadCalls()).toHaveLength(0);
     expect(allCalls().map((options) => options.host)).toEqual([
+      STOREFRONT_HOST,
       STOREFRONT_HOST,
     ]);
   });

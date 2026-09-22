@@ -21,6 +21,11 @@ interface DownloadItemProps {
   onPause: (id: string) => void;
   onResume: (id: string) => void;
   onDelete: (id: string) => void;
+  /**
+   * Left out when the task's account is gone: a download cannot be retried
+   * without one, and a button that does nothing is worse than no button.
+   */
+  onRetry?: (id: string) => void;
 }
 
 export default function DownloadItem({
@@ -31,12 +36,25 @@ export default function DownloadItem({
   onPause,
   onResume,
   onDelete,
+  onRetry,
 }: DownloadItemProps) {
   const { t } = useTranslation();
   const { accounts } = useAccounts();
 
   const isActive = task.status === 'downloading' || task.status === 'injecting';
   const isPaused = task.status === 'paused';
+  const isFailed = task.status === 'failed';
+  // Pausing is the transfer's action: once the package is on disk the server is
+  // mid-package, and an abort there would keep nothing — so the button stays
+  // where it is but is off, for minutes on a Mac package, rather than calling
+  // something that fails.
+  const canPause = task.status === 'downloading';
+  // The phase after the transfer is not the same work for every package: a
+  // macOS download is decrypted there, while an IPA is compiled into.
+  const processingLabel =
+    task.status === 'injecting' && task.software.platform === 'macos'
+      ? t('downloads.status.decrypting')
+      : undefined;
   const detailsHref = `/downloads/${task.id}${
     preview ? '?preview=downloads' : ''
   }`;
@@ -108,7 +126,7 @@ export default function DownloadItem({
               </p>
             </div>
             <div className="shrink-0 whitespace-nowrap">
-              <Badge status={task.status} />
+              <Badge status={task.status} label={processingLabel} />
             </div>
           </div>
           <p
@@ -185,7 +203,12 @@ export default function DownloadItem({
           <button
             type="button"
             onClick={() => onPause(task.id)}
-            className="min-h-10 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            disabled={!canPause}
+            className={`min-h-10 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors dark:border-gray-700 dark:text-gray-300 ${
+              canPause
+                ? 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                : 'cursor-not-allowed opacity-50'
+            }`}
           >
             {t('downloads.package.pause')}
           </button>
@@ -196,6 +219,16 @@ export default function DownloadItem({
             className="min-h-10 min-w-0 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-950"
           >
             {t('downloads.package.resume')}
+          </button>
+        ) : isFailed && onRetry ? (
+          // A failed download has no package to open, so this slot offers the
+          // retry instead — the same app, build and account, asked for again.
+          <button
+            type="button"
+            onClick={() => onRetry(task.id)}
+            className="min-h-10 min-w-0 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-950"
+          >
+            {t('downloads.package.retry')}
           </button>
         ) : (
           <Link

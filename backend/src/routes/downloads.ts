@@ -82,8 +82,15 @@ async function fetchDownloadSizeBytes(
 
 // Start a new download
 router.post("/downloads", async (req: Request, res: Response) => {
-  const { software, accountHash, downloadURL, sinfs, iTunesMetadata } =
-    req.body;
+  const {
+    software,
+    accountHash,
+    downloadURL,
+    sinfs,
+    iTunesMetadata,
+    dpInfo,
+    hardwareId,
+  } = req.body;
 
   if (!software || !accountHash || !downloadURL || !sinfs) {
     res.status(400).json({
@@ -145,6 +152,9 @@ router.post("/downloads", async (req: Request, res: Response) => {
       downloadURL,
       sinfs,
       iTunesMetadata,
+      // A macOS package has to be decrypted once it lands; the two pieces that
+      // takes travel with the request (see `MacOSDecryption`).
+      { dpInfo, hardwareId },
     );
     res.status(201).json(sanitizeTaskForResponse(task));
   } catch (err) {

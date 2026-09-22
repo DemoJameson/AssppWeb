@@ -6,6 +6,11 @@ import settingsRoutes from "../src/routes/settings.js";
 import installRoutes from "../src/routes/install.js";
 import { getBaseUrl } from "../src/routes/install.js";
 import downloadRoutes from "../src/routes/downloads.js";
+import {
+  packageDownloadExtension,
+  packageDownloadName,
+} from "../src/routes/packages.js";
+import type { Platform } from "../src/types/index.js";
 
 function createApp() {
   const app = express();
@@ -25,6 +30,42 @@ describe("Settings Route", () => {
     expect(res.body).toHaveProperty("dataDir");
     expect(res.body).toHaveProperty("uptime");
     expect(res.body).toHaveProperty("downloadThreads");
+    expect(res.body.storefrontFallbackCountries).toEqual(["cn"]);
+  });
+});
+
+describe("package download name", () => {
+  it("names a macOS download a .pkg", () => {
+    // A Mac package is a xar container; saving it as `.ipa` hands the user a
+    // file macOS refuses to open, whatever its bytes are.
+    expect(packageDownloadName("SenPlayer", "6.2.1", "macos")).toBe(
+      "SenPlayer_6.2.1_macOS.pkg",
+    );
+    expect(packageDownloadExtension("macos")).toBe(".pkg");
+  });
+
+  it("keeps the .ipa for the packages that are IPAs", () => {
+    const names: Record<string, string> = {
+      ios: "Example_1.0_iOS.ipa",
+      ipad: "Example_1.0_iPadOS.ipa",
+      tvos: "Example_1.0_tvOS.ipa",
+      visionos: "Example_1.0_visionOS.ipa",
+    };
+    for (const [platform, expected] of Object.entries(names)) {
+      expect(packageDownloadName("Example", "1.0", platform as Platform)).toBe(
+        expected,
+      );
+      expect(packageDownloadExtension(platform as Platform)).toBe(".ipa");
+    }
+    // A platform the request did not carry is an iOS download (the historical
+    // default), which is an IPA too.
+    expect(packageDownloadExtension(undefined)).toBe(".ipa");
+  });
+
+  it("keeps the name safe for the filesystem", () => {
+    expect(packageDownloadName('a/b:c*d?"e<', "1.0", "macos")).toBe(
+      "a-b-c-d--e-_1.0_macOS.pkg",
+    );
   });
 });
 
@@ -60,6 +101,37 @@ describe("Downloads Route", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("app id");
+  });
+
+  it("POST /api/downloads should reject a macOS download it could not decrypt", async () => {
+    // Apple serves a macOS package encrypted, so a request has to say what to
+    // decrypt it with. Without that a package nothing can open would be
+    // fetched in full and then thrown away, so it is refused up front.
+    const macRequest = (extra: Record<string, unknown>) => ({
+      software: {
+        id: 6443975850,
+        bundleID: "com.example.player",
+        name: "Example Player",
+        version: "6.2.1",
+        platform: "macos",
+      },
+      accountHash: "abcdef1234567890",
+      downloadURL: "https://example.apple.com/app.pkg",
+      sinfs: [],
+      ...extra,
+    });
+
+    const withoutDPInfo = await request(app)
+      .post("/api/downloads")
+      .send(macRequest({}));
+    expect(withoutDPInfo.status).toBe(400);
+    expect(withoutDPInfo.body.error).toContain("dpInfo");
+
+    const withoutHardwareId = await request(app)
+      .post("/api/downloads")
+      .send(macRequest({ dpInfo: "AA==", hardwareId: "not-hex" }));
+    expect(withoutHardwareId.status).toBe(400);
+    expect(withoutHardwareId.body.error).toContain("hardware id");
   });
 
   it("GET /api/downloads/:id should return 400 without accountHash", async () => {

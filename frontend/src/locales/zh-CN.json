@@ -185,7 +185,8 @@
       "paused": "已暂停",
       "completed": "已完成",
       "failed": "已失败",
-      "injecting": "注入中"
+      "injecting": "注入中",
+      "decrypting": "解密中"
     },
     "preview": {
       "badge": "预览",
@@ -231,6 +232,7 @@
       "fileUnavailable": "安装包文件不可用。",
       "pause": "暂停",
       "resume": "恢复",
+      "retry": "重试",
       "delete": "删除",
       "checkUpdate": "检查更新",
       "checkingUpdate": "检查中...",
@@ -464,6 +466,9 @@
       "missingMetadata": "缺少元数据",
       "missingVersion": "缺少所需的版本信息",
       "macOSPackage": "Apple 返回的是 macOS 安装包（.pkg），与你选择的平台不符。",
+      "missingDPInfo": "Apple 的回复里没有解密该 macOS 安装包所需的信息（dpInfo）。",
+      "conflictingDPInfo": "Apple 的回复里有两条互相矛盾的解密信息（dpInfo），无法解密该 macOS 安装包。",
+      "missingHardwareId": "该账号的设备标识不是解密 macOS 安装包所需的十六进制 ID。",
       "invalidSinf": "无效的 sinf 项目",
       "noSinf": "响应中未找到 sinf",
       "tooManyRedirects": "重定向次数过多",

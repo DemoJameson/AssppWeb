@@ -8,6 +8,12 @@ interface BadgeProps {
     | 'injecting'
     | 'completed'
     | 'failed';
+  /**
+   * Overrides the text the status carries by default. `injecting` reads
+   * differently depending on what the package is: an IPA is compiled into,
+   * while a macOS package is decrypted.
+   */
+  label?: string;
 }
 
 const styles: Record<BadgeProps['status'], string> = {
@@ -34,7 +40,7 @@ const dotStyles: Record<BadgeProps['status'], string> = {
   failed: 'bg-red-500 dark:bg-red-400',
 };
 
-export default function Badge({ status }: BadgeProps) {
+export default function Badge({ status, label }: BadgeProps) {
   const { t } = useTranslation();
 
   return (
@@ -45,7 +51,7 @@ export default function Badge({ status }: BadgeProps) {
         aria-hidden="true"
         className={`h-1.5 w-1.5 rounded-full ${dotStyles[status]}`}
       />
-      {t(`downloads.status.${status}`)}
+      {label ?? t(`downloads.status.${status}`)}
     </span>
   );
 }

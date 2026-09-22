@@ -185,7 +185,8 @@
       "paused": "Paused",
       "completed": "Completed",
       "failed": "Failed",
-      "injecting": "Injecting"
+      "injecting": "Injecting",
+      "decrypting": "Decrypting"
     },
     "preview": {
       "badge": "Preview",
@@ -231,6 +232,7 @@
       "fileUnavailable": "The package file is unavailable.",
       "pause": "Pause",
       "resume": "Resume",
+      "retry": "Retry",
       "delete": "Delete",
       "checkUpdate": "Check Update",
       "checkingUpdate": "Checking...",
@@ -464,6 +466,9 @@
       "missingMetadata": "Missing metadata",
       "missingVersion": "Missing required version information",
       "macOSPackage": "Apple returned a macOS package (.pkg), which does not match the selected platform.",
+      "missingDPInfo": "Apple's reply carried no decryption information (dpInfo) for this macOS package.",
+      "conflictingDPInfo": "Apple's reply carried two conflicting decryption values (dpInfo) for this macOS package.",
+      "missingHardwareId": "This account's device identifier is not the hex id a macOS package is decrypted with.",
       "invalidSinf": "Invalid sinf item",
       "noSinf": "No sinf found in response",
       "tooManyRedirects": "Too many redirects",

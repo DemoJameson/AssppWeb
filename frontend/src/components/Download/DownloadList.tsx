@@ -63,7 +63,7 @@ export default function DownloadList() {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const addToast = useToastStore((s) => s.addToast);
   const { accounts } = useAccounts();
-  const { startDownload } = useDownloadAction();
+  const { startDownload, toastDownloadError } = useDownloadAction();
   const previewEnabled = isDownloadPreviewEnabled(location.search);
   const displayTasks = previewEnabled ? previewDownloadTasks : tasks;
 
@@ -207,6 +207,48 @@ export default function DownloadList() {
       return;
     }
     resumeDownload(id);
+  }
+
+  /**
+   * Retries a failed download: the same app, the same build, the same account.
+   * Apple is asked for the download info again — which is also what acquires the
+   * license the failed attempt never got to use — rather than replaying the URL
+   * that attempt was handed.
+   *
+   * Once the retry is under way, the row it replaces is gone: a failed task is
+   * terminal and cannot reuse the attempt that now runs for the same build, so
+   * keeping it would leave the user to delete it by hand. A failed deletion
+   * costs nothing — the stale row stays until it is deleted manually — and is
+   * not worth reporting beside the success.
+   */
+  async function handleRetry(id: string) {
+    if (previewEnabled) {
+      showPreviewNotice();
+      return;
+    }
+
+    const task = tasks.find((item) => item.id === id);
+    const account = task
+      ? accounts.find((a) => a.email === hashToEmail[task.accountHash])
+      : undefined;
+    if (!task || !account) return;
+
+    try {
+      await startDownload(
+        account,
+        task.software,
+        task.software.externalVersionId || undefined,
+      );
+    } catch (err) {
+      toastDownloadError(account, task.software, err);
+      return;
+    }
+
+    try {
+      await deleteDownload(id);
+    } catch {
+      // The retry itself succeeded; a stale row is harmless.
+    }
   }
 
   function handleCancelCheck() {
@@ -418,18 +460,23 @@ export default function DownloadList() {
         </div>
       ) : (
         <div className="space-y-3">
-          {sortedTasks.map((task) => (
-            <DownloadItem
-              key={task.id}
-              task={task}
-              preview={previewEnabled}
-              accountEmail={hashToEmail[task.accountHash]}
-              highlight={task.id === highlightId}
-              onPause={handlePause}
-              onResume={handleResume}
-              onDelete={handleDelete}
-            />
-          ))}
+          {sortedTasks.map((task) => {
+            const accountEmail = hashToEmail[task.accountHash];
+            const owner = accounts.find((a) => a.email === accountEmail);
+            return (
+              <DownloadItem
+                key={task.id}
+                task={task}
+                preview={previewEnabled}
+                accountEmail={accountEmail}
+                highlight={task.id === highlightId}
+                onPause={handlePause}
+                onResume={handleResume}
+                onRetry={owner ? handleRetry : undefined}
+                onDelete={handleDelete}
+              />
+            );
+          })}
         </div>
       )}
 

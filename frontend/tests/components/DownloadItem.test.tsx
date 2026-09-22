@@ -40,7 +40,10 @@ function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
   };
 }
 
-function renderItem(task: DownloadTask) {
+function renderItem(
+  task: DownloadTask,
+  props: Partial<{ onRetry: (id: string) => void }> = {},
+) {
   return render(
     <MemoryRouter>
       <DownloadItem
@@ -48,6 +51,7 @@ function renderItem(task: DownloadTask) {
         onPause={() => {}}
         onResume={() => {}}
         onDelete={() => {}}
+        {...props}
       />
     </MemoryRouter>,
   );
@@ -215,5 +219,101 @@ describe('DownloadItem app-detail link', () => {
     expect(screen.getByTestId('probe').textContent).toBe(
       JSON.stringify({ versionId: '888154623' }),
     );
+  });
+});
+describe('DownloadItem retry', () => {
+  afterEach(cleanup);
+
+  it('offers the retry in place of the package link when the download failed', () => {
+    // The package link would open a page about a file that never finished
+    // arriving, so that slot is where the retry belongs.
+    const onRetry = vi.fn();
+    renderItem(createTask({ status: 'failed', error: 'Download timed out' }), {
+      onRetry,
+    });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'downloads.package.retry' }),
+    );
+
+    expect(onRetry).toHaveBeenCalledWith('task-id');
+    expect(
+      screen.queryByRole('link', { name: 'downloads.package.title' }),
+    ).toBeNull();
+  });
+
+  it('leaves the package link when the failed download has no account left', () => {
+    // Without its account there is nothing to retry with, so the row keeps what
+    // it can still offer instead of a button that would do nothing.
+    renderItem(createTask({ status: 'failed', error: 'Download timed out' }));
+
+    expect(
+      screen.queryByRole('button', { name: 'downloads.package.retry' }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('link', { name: 'downloads.package.title' }),
+    ).toBeTruthy();
+  });
+
+  it('offers no retry while the download is still running', () => {
+    const onRetry = vi.fn();
+    renderItem(createTask({ status: 'downloading', progress: 42 }), {
+      onRetry,
+    });
+
+    expect(
+      screen.queryByRole('button', { name: 'downloads.package.retry' }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'downloads.package.pause' }),
+    ).toBeTruthy();
+  });
+});
+
+describe('DownloadItem processing badge', () => {
+  afterEach(cleanup);
+
+  it('says a macOS package is being decrypted, not injected', () => {
+    // The phase after the transfer is decryption for a Mac package, and the
+    // row is at the download's 100% while it runs: the badge is what says the
+    // task is still working rather than stuck.
+    renderItem(
+      createTask({
+        status: 'injecting',
+        progress: 40,
+        software: { ...createTask().software, platform: 'macos' },
+      }),
+    );
+
+    expect(screen.getByText('downloads.status.decrypting')).toBeTruthy();
+    expect(screen.queryByText('downloads.status.injecting')).toBeNull();
+  });
+
+  it('keeps the injected wording for a package that is compiled', () => {
+    renderItem(
+      createTask({
+        status: 'injecting',
+        software: { ...createTask().software, platform: 'ios' },
+      }),
+    );
+
+    expect(screen.getByText('downloads.status.injecting')).toBeTruthy();
+    expect(screen.queryByText('downloads.status.decrypting')).toBeNull();
+  });
+
+  it('does not offer to pause a package the server is working on', () => {
+    // The transfer is over, so there is nothing to pause: the button is off
+    // rather than a call the server would refuse.
+    renderItem(
+      createTask({
+        status: 'injecting',
+        progress: 62,
+        software: { ...createTask().software, platform: 'macos' },
+      }),
+    );
+
+    expect(
+      screen.getByRole('button', { name: 'downloads.package.pause' }),
+    ).toHaveProperty('disabled', true);
   });
 });

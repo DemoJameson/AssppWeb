@@ -94,7 +94,7 @@ const downloadDoc = (metadata: Record<string, unknown> = {}) =>
   });
 
 /** A macOS build: Apple hands those out as .pkg containers, not as IPAs. */
-const macPackageDoc = () =>
+const macPackageDoc = (item: Record<string, unknown> = {}) =>
   buildPlist({
     pings: [],
     songList: [
@@ -102,8 +102,20 @@ const macPackageDoc = () =>
         URL: "https://iosapps.example.com/app.pkg",
         sinfs: [{ id: 0, sinf: "AAAA" }],
         metadata: { bundleShortVersionString: "1.2.3", bundleVersion: "123" },
+        ...item,
       },
     ],
+  });
+
+/**
+ * A macOS reply as Apple really answers one: the package, plus the `dpInfo` it
+ * is decrypted with. The bytes are "ABCD" — they read as themselves in base64,
+ * so an assertion on the decoded value is about the bytes, not the encoding.
+ */
+const macReply = (item: Record<string, unknown> = {}) =>
+  macPackageDoc({
+    sinfs: [{ id: 0, dpInfo: new Uint8Array([0x41, 0x42, 0x43, 0x44]) }],
+    ...item,
   });
 
 /** What updateProduct answers: one item that must identify itself. */
@@ -196,13 +208,56 @@ describe("apple/download", () => {
 
   it("lets a macOS task keep its own package", async () => {
     const macApp = { ...app, platform: "macos" } as Software;
-    downloadReplies = [reply(macPackageDoc())];
+    downloadReplies = [reply(macReply())];
 
     // Pinned explicitly: the macOS catalogue lookup is not what this test is
     // about, and a caller-provided version skips that resolution.
     const { output } = await getDownloadInfo(account, macApp, "891042628");
 
     expect(output.downloadURL).toBe("https://iosapps.example.com/app.pkg");
+  });
+
+  it("keeps the dpInfo a macOS package is decrypted with", async () => {
+    const macApp = { ...app, platform: "macos" } as Software;
+    downloadReplies = [reply(macReply())];
+
+    const { output } = await getDownloadInfo(account, macApp, "891042628");
+
+    expect(output.dpInfo).toBe("QUJDRA==");
+    // A Mac download carries no sinf to compile in — it is decrypted instead —
+    // so an entry with only dpInfo is a complete answer, not a missing one.
+    expect(output.sinfs).toEqual([]);
+  });
+
+  it("refuses a macOS reply that carries no dpInfo", async () => {
+    // Without it the delivered package could never be opened, and no later step
+    // could do anything but fail — so it is refused before a task exists.
+    const macApp = { ...app, platform: "macos" } as Software;
+    downloadReplies = [reply(macPackageDoc())];
+
+    await expect(getDownloadInfo(account, macApp, "891042628")).rejects.toThrow(
+      i18n.t("errors.download.missingDPInfo"),
+    );
+  });
+
+  it("refuses a macOS reply whose dpInfo values disagree", async () => {
+    // Two values mean the reply describes two builds, and neither can be
+    // trusted to decrypt the package that arrives.
+    const macApp = { ...app, platform: "macos" } as Software;
+    downloadReplies = [
+      reply(
+        macPackageDoc({
+          sinfs: [
+            { id: 0, dpInfo: new Uint8Array([1, 2]) },
+            { id: 1, dpInfo: new Uint8Array([3, 4]) },
+          ],
+        }),
+      ),
+    ];
+
+    await expect(getDownloadInfo(account, macApp, "891042628")).rejects.toThrow(
+      i18n.t("errors.download.conflictingDPInfo"),
+    );
   });
 
   it("sends the payload ipatool sends, with salableAdamId as an integer", async () => {

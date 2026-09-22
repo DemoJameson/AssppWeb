@@ -6,6 +6,10 @@ import type { DownloadTask } from "../../src/types";
 
 const mocks = vi.hoisted(() => ({
   tasks: [] as DownloadTask[],
+  startDownload: vi.fn(),
+  deleteDownload: vi.fn(),
+  toastDownloadError: vi.fn(),
+  addToast: vi.fn(),
 }));
 
 // The stub interpolates, so the counted labels stay distinguishable.
@@ -23,34 +27,53 @@ vi.mock("../../src/hooks/useDownloads", () => ({
     loading: false,
     pauseDownload: vi.fn(),
     resumeDownload: vi.fn(),
-    deleteDownload: vi.fn(),
-    hashToEmail: () => undefined,
+    deleteDownload: mocks.deleteDownload,
+    hashToEmail: { hash: "user@example.com" },
   }),
 }));
 
 vi.mock("../../src/hooks/useAccounts", () => ({
-  useAccounts: () => ({ accounts: [] }),
+  useAccounts: () => ({
+    accounts: [{ email: "user@example.com" }],
+  }),
 }));
 
 vi.mock("../../src/hooks/useDownloadAction", () => ({
-  useDownloadAction: () => ({ startDownload: vi.fn() }),
+  useDownloadAction: () => ({
+    startDownload: mocks.startDownload,
+    toastDownloadError: mocks.toastDownloadError,
+  }),
 }));
 
 vi.mock("../../src/store/toast", () => ({
-  useToastStore: (selector: (state: { addToast: () => void }) => unknown) =>
-    selector({ addToast: vi.fn() }),
+  useToastStore: (selector: (state: unknown) => unknown) =>
+    selector({ addToast: mocks.addToast }),
 }));
 
 // The list's own item is heavy; the filter only needs to show what it renders.
-// The highlight flag travels on it, so the mock echoes it.
+// The highlight flag travels on it, so the mock echoes it — and the retry
+// affordance renders under the same condition the real item applies (a failed
+// row with an owner to retry under), which keeps the text-only assertions of
+// the other tests honest.
 vi.mock("../../src/components/Download/DownloadItem", () => ({
   default: ({
     task,
     highlight,
+    onRetry,
   }: {
     task: DownloadTask;
     highlight?: boolean;
-  }) => <div data-highlight={highlight ? "true" : "false"}>{task.software.name}</div>,
+    onRetry?: (id: string) => void;
+  }) => (
+    <div data-highlight={highlight ? "true" : "false"}>
+      {task.software.name}
+      {task.status === "failed" && onRetry ? (
+        <button type="button" onClick={() => onRetry(task.id)}>
+          retry-{task.id}
+        </button>
+      ) : null}
+    </div>
+  ),
 }));
 
 function task(
@@ -224,5 +247,55 @@ describe("DownloadList highlight hop", () => {
     for (const row of screen.getAllByText(/Alpha|Bravo/)) {
       expect(row).toHaveAttribute("data-highlight", "false");
     }
+  });
+});
+describe("DownloadList retry", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.tasks = [task("1", "Alpha", "failed")];
+  });
+
+  it("deletes the failed row once the retry is under way", async () => {
+    mocks.startDownload.mockResolvedValue(undefined);
+    mocks.deleteDownload.mockResolvedValue(undefined);
+    renderList();
+
+    fireEvent.click(screen.getByRole("button", { name: "retry-1" }));
+
+    await vi.waitFor(() => {
+      expect(mocks.startDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ email: "user@example.com" }),
+        expect.objectContaining({ name: "Alpha" }),
+        undefined,
+      );
+      expect(mocks.deleteDownload).toHaveBeenCalledWith("1");
+    });
+  });
+
+  it("keeps the failed row when the retry itself fails", async () => {
+    mocks.startDownload.mockRejectedValue(new Error("still failing"));
+    renderList();
+
+    fireEvent.click(screen.getByRole("button", { name: "retry-1" }));
+
+    await vi.waitFor(() => {
+      expect(mocks.toastDownloadError).toHaveBeenCalled();
+    });
+    expect(mocks.deleteDownload).not.toHaveBeenCalled();
+  });
+
+  it("does not surface a failed cleanup beside a successful retry", async () => {
+    // The retry succeeded — the new attempt already runs for this build — so
+    // a stale row the deletion could not remove is not worth an error toast.
+    mocks.startDownload.mockResolvedValue(undefined);
+    mocks.deleteDownload.mockRejectedValue(new Error("row raced away"));
+    renderList();
+
+    fireEvent.click(screen.getByRole("button", { name: "retry-1" }));
+
+    await vi.waitFor(() => {
+      expect(mocks.deleteDownload).toHaveBeenCalledWith("1");
+    });
+    expect(mocks.addToast).not.toHaveBeenCalled();
   });
 });

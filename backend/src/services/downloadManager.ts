@@ -8,7 +8,14 @@ import {
   type PackageMetadata,
   type PackageIcon,
 } from "./sinfInjector.js";
-import { validatePackagePlatform } from "./packagePlatform.js";
+import {
+  assertMacOSPackage,
+  validatePackagePlatform,
+  PackagePlatformError,
+  readArchiveMagic,
+  IPA_SERVED_TO_MACOS,
+} from "./packagePlatform.js";
+import { decryptMacOSPackage } from "./macDecrypt.js";
 import {
   initVersionMetadataCache,
   seedVersionMetadata,
@@ -230,8 +237,8 @@ export function validateDownloadURL(url: string): void {
  * so a tvOS or visionOS task really can be handed a Mac package. The URL says
  * so, so the task is refused before anything is downloaded.
  *
- * Only this direction is checked: a `.ipa` for a macOS task fails loudly enough
- * in the compile step, and a URL without an extension is no signal at all.
+ * Only this direction is checked: the other one — an IPA handed to a macOS task
+ * — is caught by `assertMacOSPackage` once the package is on disk.
  */
 export function assertPackageMatchesPlatform(
   url: string,
@@ -245,11 +252,104 @@ export function assertPackageMatchesPlatform(
   );
 }
 
+/**
+ * Turns a macOS task's downloaded bytes into a package the Mac can install.
+ *
+ * Apple hands a macOS download out encrypted, so the transfer is only half the
+ * work: StoreAgent has to decrypt it first, and that takes minutes on a large
+ * package. It runs under the `injecting` status because the download is over
+ * but the task is not usable yet — leaving the transfer's 100% on screen would
+ * read as a stall for as long as the decryption lasts.
+ */
+async function decryptTaskPackage(
+  task: DownloadTask,
+  filePath: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const magic = await readArchiveMagic(filePath);
+
+  if (magic === null) {
+    throw new PackagePlatformError("macOS package could not be read");
+  }
+
+  // An IPA has nothing in it to decrypt, and it is refused with the same words
+  // the archive check below would use.
+  if (magic.startsWith("PK")) {
+    throw new PackagePlatformError(IPA_SERVED_TO_MACOS);
+  }
+
+  // A pause or a delete that landed as the transfer ended removed this
+  // attempt's registration, and the abort it recorded owns the task's status:
+  // pausing set `paused`, and this attempt must not run on — overwriting the
+  // status with `injecting` here would leave a row that no button could move
+  // again (pause refuses anything but `downloading`, and resume only takes
+  // `paused`). It unwinds as the stale attempt the catch already knows to
+  // drop. No other abort can reach this point: the timeout was cleared with
+  // the transfer.
+  if (signal.aborted) {
+    const aborted = new Error("Aborted");
+    aborted.name = "AbortError";
+    throw aborted;
+  }
+
+  // Already a package: Apple served this one unencrypted, which leaves nothing
+  // to do (and decrypting it would corrupt it).
+  if (magic === "xar!") return;
+
+  if (!task.dpInfo || !task.hardwareId) {
+    throw new PackagePlatformError(
+      "the macOS download cannot be decrypted: it carries no dpInfo",
+    );
+  }
+
+  task.status = "injecting";
+  task.progress = 0;
+  notifyProgress(task);
+
+  await decryptMacOSPackage({
+    filePath,
+    dpInfo: task.dpInfo,
+    hardwareId: task.hardwareId,
+    signal,
+    onProgress: (ratio) => {
+      task.progress = Math.round(ratio * 100);
+      notifyProgress(task);
+    },
+  });
+}
+
+/**
+ * Lets go of the material a macOS decryption rode on once the task is terminal.
+ * It is never persisted and never sent to a client, but a failed task sits in
+ * memory until the user deletes it, and there is no retry that could reuse it —
+ * a retry asks Apple again and arrives with fresh material.
+ */
+function stripDecryptionMaterial(task: DownloadTask): void {
+  task.dpInfo = undefined;
+  task.hardwareId = undefined;
+}
+
 // --- Security: sanitize task for API responses ---
 export function sanitizeTaskForResponse(
   task: DownloadTask,
-): Omit<DownloadTask, "downloadURL" | "sinfs" | "iTunesMetadata" | "filePath"> {
-  const { downloadURL, sinfs, iTunesMetadata, filePath, ...safe } = task;
+): Omit<
+  DownloadTask,
+  | "downloadURL"
+  | "sinfs"
+  | "iTunesMetadata"
+  | "filePath"
+  | "dpInfo"
+  | "hardwareId"
+> {
+  const {
+    downloadURL,
+    sinfs,
+    iTunesMetadata,
+    filePath,
+    dpInfo,
+    hardwareId,
+    ...safe
+  } = task;
   return {
     ...safe,
     hasFile: task.hasFile ?? false,
@@ -751,12 +851,50 @@ export function resumeTask(id: string): boolean {
   return true;
 }
 
+/**
+ * What a macOS task needs to be decrypted once Apple's package has arrived.
+ * Both pieces come from the client, which is the only side that ever talked to
+ * Apple: the `dpInfo` Apple answered the download with, and the hardware id the
+ * download was requested with.
+ */
+export interface MacOSDecryption {
+  /** Base64 `dpInfo` from the download response's sinfs. */
+  dpInfo: string;
+  /** The request's hardware id (`guid`), hex encoded — the account's device id. */
+  hardwareId: string;
+}
+
+/** A device id: an even number of hex digits, as Apple's `guid` is sent. */
+const HARDWARE_ID_RE = /^([0-9a-fA-F]{2})+$/;
+
+/**
+ * Refuses a macOS task that could not be decrypted afterwards. Failing at
+ * creation is the point: the alternative is fetching a package — tens or
+ * hundreds of megabytes — only to find out that nothing can open it.
+ */
+function assertMacOSDecryption(decryption?: MacOSDecryption): void {
+  if (!decryption) {
+    throw new Error("A macOS download needs the dpInfo Apple answered with");
+  }
+
+  const { dpInfo, hardwareId } = decryption;
+  if (typeof dpInfo !== "string" || dpInfo === "") {
+    throw new Error("A macOS download needs the dpInfo Apple answered with");
+  }
+  if (typeof hardwareId !== "string" || !HARDWARE_ID_RE.test(hardwareId)) {
+    throw new Error(
+      "A macOS download needs the hex hardware id it was requested with",
+    );
+  }
+}
+
 export function createTask(
   software: Software,
   accountHash: string,
   downloadURL: string,
   sinfs: Sinf[],
   iTunesMetadata?: string,
+  decryption?: MacOSDecryption,
 ): DownloadTask {
   // Validate download URL
   validateDownloadURL(downloadURL);
@@ -773,6 +911,10 @@ export function createTask(
   appPathSegment(software);
   safePathSegment(software.version, "version");
 
+  if (software.platform === "macos") {
+    assertMacOSDecryption(decryption);
+  }
+
   const task: DownloadTask = {
     id: uuidv4(),
     software,
@@ -780,6 +922,8 @@ export function createTask(
     downloadURL,
     sinfs,
     iTunesMetadata,
+    dpInfo: decryption?.dpInfo,
+    hardwareId: decryption?.hardwareId,
     status: "pending",
     progress: 0,
     speed: "0 B/s",
@@ -796,59 +940,64 @@ async function startDownload(task: DownloadTask) {
   // count from the .part files a pause left behind.
   const resuming = task.status === "paused";
 
-  // Pre-download cleanup: expire old files + enforce space limit
+  // Pre-download cleanup: expire old files + enforce space limit. Both run
+  // before the attempt registers itself — a throw here is reported by
+  // `startDownloadSafely`, and there is nothing registered to release yet.
   runTimeCleanup();
   runSpaceCleanup();
 
   const controller = new AbortController();
+  // The attempt owns this registration for its whole lifecycle — the transfer,
+  // the package checks, the injection, the write — and releases it in the
+  // `finally` below. The guard in the `catch` reads it to tell a superseded
+  // attempt from the current one, so releasing it any earlier made every
+  // failure after the download look stale: the task stayed `downloading` at
+  // 100% with its reason thrown away (a macOS task handed a non-package did
+  // exactly that).
   abortControllers.set(task.id, controller);
 
   // Set a global timeout for the entire download
   const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
 
-  task.status = "downloading";
-  if (!resuming) {
-    task.progress = 0;
-  }
-  task.speed = "0 B/s";
-  task.error = undefined;
-  notifyProgress(task);
-
-  // Sanitize path segments
-  const safeAccountHash = safePathSegment(task.accountHash, "accountHash");
-  const safeAppSegment = appPathSegment(task.software);
-  const safeVersion = safePathSegment(task.software.version, "version");
-
-  const dir = path.join(
-    PACKAGES_DIR,
-    safeAccountHash,
-    safeAppSegment,
-    safeVersion,
-  );
-
-  // Verify the resolved path is within PACKAGES_DIR
-  const resolvedDir = path.resolve(dir);
-  const packagesBase = path.resolve(PACKAGES_DIR);
-  if (!resolvedDir.startsWith(packagesBase + path.sep)) {
-    task.status = "failed";
-    task.error = "Invalid path";
-    clearTimeout(timeout);
-    notifyProgress(task);
-    return;
-  }
-
-  fs.mkdirSync(dir, { recursive: true });
-
-  // macOS App Store packages arrive as .pkg (a xar container), not as an IPA:
-  // they carry no sinfs to inject and cannot be unpacked the way an IPA is.
-  const isMacOSPackage = task.software.platform === "macos";
-  const filePath = path.join(
-    dir,
-    `${task.id}${isMacOSPackage ? ".pkg" : ".ipa"}`,
-  );
-  task.filePath = filePath;
-
   try {
+    task.status = "downloading";
+    if (!resuming) {
+      task.progress = 0;
+    }
+    task.speed = "0 B/s";
+    task.error = undefined;
+    notifyProgress(task);
+
+    // Sanitize path segments
+    const safeAccountHash = safePathSegment(task.accountHash, "accountHash");
+    const safeAppSegment = appPathSegment(task.software);
+    const safeVersion = safePathSegment(task.software.version, "version");
+
+    const dir = path.join(
+      PACKAGES_DIR,
+      safeAccountHash,
+      safeAppSegment,
+      safeVersion,
+    );
+
+    // Verify the resolved path is within PACKAGES_DIR
+    const resolvedDir = path.resolve(dir);
+    const packagesBase = path.resolve(PACKAGES_DIR);
+    if (!resolvedDir.startsWith(packagesBase + path.sep)) {
+      throw new Error("Invalid path");
+    }
+
+    fs.mkdirSync(dir, { recursive: true });
+
+    // macOS App Store packages arrive as .pkg (a xar container), not as an IPA:
+    // they carry no sinfs to inject and cannot be unpacked the way an IPA is.
+    const isMacOSPackage = task.software.platform === "macos";
+    const filePath = path.join(
+      dir,
+      `${task.id}${isMacOSPackage ? ".pkg" : ".ipa"}`,
+    );
+    task.filePath = filePath;
+
     // Re-validate download URL before fetching
     validateDownloadURL(task.downloadURL);
 
@@ -865,8 +1014,8 @@ async function startDownload(task: DownloadTask) {
 
     await downloader.download(controller.signal);
 
-    chunkDownloaders.delete(task.id);
-    abortControllers.delete(task.id);
+    // The transfer is over; the registration stays for the steps below (see the
+    // note where it was taken), so their failures still reach the task.
     clearTimeout(timeout);
 
     // Validate the package declares support for a known platform before
@@ -880,6 +1029,16 @@ async function startDownload(task: DownloadTask) {
       if (actualPlatform && actualPlatform !== task.software.platform) {
         task.software.platform = actualPlatform;
       }
+    } else {
+      // Apple serves a macOS download FairPlay-encrypted, so it is not a .pkg
+      // yet: decrypting it is what turns it into one, and the archive check
+      // below then confirms what came out. A macOS task can still be served an
+      // IPA instead — the MDM catalogue answers an iOS offer even when asked
+      // with platform=osx, and a pin guessed from another platform names that
+      // platform's build — and decryption refuses that loudly rather than
+      // quietly producing something an installer cannot use.
+      await decryptTaskPackage(task, filePath, controller.signal);
+      await assertMacOSPackage(filePath);
     }
 
     // Inject sinfs — macOS packages cannot carry them, so the download is the
@@ -937,29 +1096,28 @@ async function startDownload(task: DownloadTask) {
     task.downloadURL = "";
     task.sinfs = [];
     task.iTunesMetadata = undefined;
+    stripDecryptionMaterial(task);
 
     // Persist completed task metadata (no secrets)
     persistTasks();
     notifyProgress(task);
   } catch (err) {
-    // A rapid pause → resume replaces this attempt's registrations (and a
-    // new download is already running): the newer attempt owns the task's
-    // lifecycle now, so this stale catch must not delete the new
-    // registrations or overwrite the task's status.
+    // A rapid pause → resume replaces this attempt's registration (and a new
+    // download is already running): the newer attempt owns the task's lifecycle
+    // now, so this stale catch must not overwrite the task's status.
     if (abortControllers.get(task.id) !== controller) {
       clearTimeout(timeout);
       return;
     }
-    chunkDownloaders.delete(task.id);
-    abortControllers.delete(task.id);
-    clearTimeout(timeout);
 
+    clearTimeout(timeout);
     if (err instanceof Error && err.name === "AbortError") {
       // The abort came from this attempt's own timeout: pauseTask() has
       // already removed the controller from the map (caught above), so
       // reaching here means the download genuinely timed out.
       task.status = "failed";
       task.error = "Download timed out";
+      stripDecryptionMaterial(task);
       notifyProgress(task);
       return;
     }
@@ -969,27 +1127,33 @@ async function startDownload(task: DownloadTask) {
       `Download ${task.id} failed:`,
       err instanceof Error ? err.message : err,
     );
-    // The specific reason (platform mismatch, chunk HTTP error, injection
-    // failure) is what the user can act on; the generic text hid it.
+    // The specific reason (platform mismatch, chunk HTTP error, decryption,
+    // injection failure) is what the user can act on; the generic text hid it.
     task.error = err instanceof Error ? err.message : "Download failed";
+    stripDecryptionMaterial(task);
     notifyProgress(task);
+  } finally {
+    // Only this attempt's own registration is released — a newer attempt has put
+    // its own in place by now, and pause/delete have already taken theirs.
+    if (abortControllers.get(task.id) === controller) {
+      abortControllers.delete(task.id);
+      chunkDownloaders.delete(task.id);
+    }
   }
 }
 
 /**
  * Fires a download without awaiting it, and absorbs an out-of-band rejection
- * so it can never take down the process as an unhandled rejection. The steps
- * ahead of the internal try/catch (path resolution, mkdir) reject the promise
- * this way, so the task is landed `failed` here instead of vanishing.
+ * so it can never take down the process as an unhandled rejection. Only the
+ * pre-download cleanup runs ahead of the attempt's own `try`, so a rejection
+ * reaching here has no registration to release — the attempt releases its own.
  */
 function startDownloadSafely(task: DownloadTask): void {
   void startDownload(task).catch((error: unknown) => {
-    // This attempt registered a controller (and timeout) before it could throw,
-    // so it owns the task here; drop its registration.
-    abortControllers.delete(task.id);
     const message = error instanceof Error ? error.message : "Download failed";
     task.status = "failed";
     task.error = message;
+    stripDecryptionMaterial(task);
     notifyProgress(task);
   });
 }

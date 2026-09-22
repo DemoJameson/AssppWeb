@@ -185,7 +185,8 @@
       "paused": "一時停止",
       "completed": "完了",
       "failed": "失敗",
-      "injecting": "注入中"
+      "injecting": "注入中",
+      "decrypting": "復号中"
     },
     "preview": {
       "badge": "プレビュー",
@@ -231,6 +232,7 @@
       "fileUnavailable": "パッケージファイルを利用できません。",
       "pause": "一時停止",
       "resume": "再開",
+      "retry": "再試行",
       "delete": "削除",
       "checkUpdate": "アップデートを確認",
       "checkingUpdate": "確認中...",
@@ -464,6 +466,9 @@
       "missingMetadata": "メタデータがありません",
       "missingVersion": "必要なバージョン情報がありません",
       "macOSPackage": "Apple が返したのは macOS 用パッケージ（.pkg）で、選択中のプラットフォームと一致しません。",
+      "missingDPInfo": "Apple の応答に、この macOS パッケージを復号するための情報（dpInfo）がありません。",
+      "conflictingDPInfo": "Apple の応答に、この macOS パッケージを復号するための情報（dpInfo）が 2 つあり、互いに矛盾しています。",
+      "missingHardwareId": "このアカウントのデバイス識別子は、macOS パッケージの復号に必要な 16 進数の ID ではありません。",
       "invalidSinf": "無効な sinf 項目です",
       "noSinf": "レスポンスに sinf が見つかりません",
       "tooManyRedirects": "リダイレクトが多すぎます",

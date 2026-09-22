@@ -4,7 +4,7 @@
 
 - **Indentation**: 2 spaces
 - **Semicolons**: Required
-- **Quotes**: Single quotes for strings
+- **Quotes**: Double quotes in `backend/` and in `frontend/`'s `.ts` modules; the `.tsx` components mostly use single quotes — match the file you are editing (nothing enforces this)
 - **Naming**: PascalCase for types/interfaces, camelCase for variables/functions
 
 ## Project Structure
@@ -241,6 +241,94 @@ transports, one per platform family:
 `downloadProduct.ts` pins tvOS/visionOS/macOS before the volumeStore request;
 `versionFinder.ts` pins the same three before the version list exchange. iOS/iPad
 pass an empty pin and let the exchange resolve one on fallback.
+
+Both storefront transports follow the redirects Apple answers those pages
+with: the slug-less `/app/id{id}` path is 301'd to its canonical URL, and a
+storefront the network cannot reach is 302'd to the one it can, so the page is
+only read at the end of the chain (relative `Location`s resolve against the
+storefront host; the chain is capped and must stay on it — https, same host,
+same port).
+
+The storefronts asked after the account's own are server-configured via
+`STOREFRONT_FALLBACK_COUNTRIES` (default `cn` — the storefront a mainland-China
+network can reach; empty disables), served through `GET /api/settings` and read
+per lookup so an operator change applies without a rebuild. The read runs beside
+the account's own storefront request and is only awaited once that attempt has
+come up short, so it costs the answering path no extra round trip.
+
+A fallback answers in two cases: the account's own page could not be read
+(redirected away, non-200, no serialized data), and it was read but names no
+build of the platform asked for. So `this platform has a build` can be the
+verdict of a storefront that is not the account's own; the id is a global build
+identifier, so the build it names is still downloadable, and `assertMacOSPackage`
+is what refuses a package Apple serves to the wrong platform. When no storefront
+answers, the failure reported is the account's own one — it is the answer about
+the app the caller asked about.
+
+### macOS Packages Arrive Encrypted
+
+An App Store macOS download is not a `.pkg` yet: the bytes Apple serves are a
+FairPlay-encrypted blob whose container header is gone, and nothing about it
+installs until Apple's own **StoreAgent** has decrypted it. The material it needs
+is in the download response's sinfs (`dpInfo`) plus the hardware id the download
+was requested with — the same value the request sent as `guid`, as raw bytes.
+
+Both travel from the client, which is the only side that ever talked to Apple:
+`apple/download.ts` keeps `dpInfo` (and refuses a macOS reply without it, or
+with two conflicting values), and `useDownloadAction` adds it to
+`POST /api/downloads` as `dpInfo` plus `hardwareId` — the account's
+`deviceIdentifier`, which is the hex form of those same bytes
+(`utils/account.ts#accountHardwareId`). `createTask` refuses a macOS task
+without them: without that, tens or hundreds of megabytes would be fetched for
+a package nothing could open. Neither is ever persisted or returned to a client
+(`sanitizeTaskForResponse`, and they are cleared together with the other
+per-attempt material on completion).
+
+`tools/macdecrypt/` is that decrypter: it loads the SAP assets plus the
+`storeagent` image Apple ships inside the same update package, opens a StoreAgent
+session and decrypts the file in place, 32 KiB at a time. It is its own Go
+module, and its module path deliberately sits under `github.com/majd/ipatool/v2/`
+so it may import the ipatool (MIT) internal packages where the emulation lives —
+Go's internal check compares the importing package's path. The dependency comes
+from the module proxy at the version pinned in `tools/macdecrypt/go.mod`
+(v2.6.0); the Dockerfile has
+the stage. That stage builds *natively* per target platform (no
+`--platform=$BUILDPLATFORM`): purego forces a dynamically linked ELF even with
+CGO off, so the interpreter recorded in the binary is the builder's own — an
+Alpine builder records the musl loader the Alpine runtime has, while a cross
+build records a glibc one no Alpine container ships, and `exec` of the helper
+then fails with ENOENT despite the file existing (the arm64 variant published
+by the QEMU cross build did exactly that on Apple-Silicon hosts). The stage
+runs the built helper before exporting it, so that failure cannot return.
+On an amd64 dev machine the arm64 variant still cannot decrypt end to end:
+its StoreAgent emulation runs nested under QEMU, and ipatool's hardcoded
+per-call 60 s emulation cap (`sapGuestTimeout`) then times out — that failure
+is the test environment, not the architecture, and it clears on real Apple
+Silicon hardware, where OrbStack runs the helper natively.
+For a development instance, `bash tools/macdecrypt/build.sh` — or
+`tools/macdecrypt/build.ps1` on Windows without bash (PowerShell, no bash
+needed) — builds into `tools/macdecrypt/macdecrypt(.exe)`, where the backend
+finds it by convention; there is no `MACDECRYPT_PATH` — the helper is looked
+for at `/opt/asspp/macdecrypt` (the image) then that repo path, and a macOS
+task fails naming both when neither exists. Measured throughput is ~2 MB/s, so a
+70 MB package takes about 35 s — which is why this runs on the server rather
+than in the browser's TCI-interpreted engine (the browser would need minutes per
+download). Its first run downloads Apple's assets and the Unicorn runtime it
+emulates with, cached under `<DATA_DIR>/cache` so a replacement container does
+not pay again (`services/macDecrypt.ts` sets `XDG_CACHE_HOME` for the child).
+
+`services/macDecrypt.ts` runs it and replaces the ciphertext with the package it
+produces; `downloadManager` calls it in the macOS branch of the pipeline. The
+phase runs under the `injecting` status — the download is over but the task is
+not usable yet, and leaving the transfer's 100% on screen for minutes is what
+"stuck at 100%" looked like — with the helper's own byte reports driving the
+progress bar (the badge says 解密中/Decrypting there, since a Mac package is
+decrypted rather than injected). A file that already reads as a package is left
+alone, and an IPA is refused before the decrypter runs at all.
+
+`assertMacOSPackage` therefore reads the magic *after* decryption: ciphertext is
+neither `xar!` nor a zip, and refusing it with "served an IPA" was a wrong
+account of a real case.
 
 ### Package Platform Validation
 
@@ -566,7 +654,7 @@ The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using No
 ### Backend Shared Utilities
 
 - `backend/src/utils/route.ts` — shared Express route helpers (`getIdParam`, `requireAccountHash`, `verifyTaskOwnership`)
-- `backend/src/config.ts` — centralized constants (`MAX_DOWNLOAD_SIZE`, `DOWNLOAD_TIMEOUT_MS`, `BAG_TIMEOUT_MS`, `BAG_MAX_BYTES`, `MIN_ACCOUNT_HASH_LENGTH`, `VERSION_METADATA_MAX_ENTRIES`) and env-var config (`disableHttpsRedirect` via `UNSAFE_DANGEROUSLY_DISABLE_HTTPS_REDIRECT`)
+- `backend/src/config.ts` — centralized constants (`MAX_DOWNLOAD_SIZE`, `DOWNLOAD_TIMEOUT_MS`, `BAG_TIMEOUT_MS`, `BAG_MAX_BYTES`, `MIN_ACCOUNT_HASH_LENGTH`, `VERSION_METADATA_MAX_ENTRIES`) and env-var config (`disableHttpsRedirect` via `UNSAFE_DANGEROUSLY_DISABLE_HTTPS_REDIRECT`; `storefrontFallbackCountries` via `STOREFRONT_FALLBACK_COUNTRIES`)
 
 ### Version Metadata Cache
 

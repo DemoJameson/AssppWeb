@@ -37,6 +37,22 @@ export async function accountHash(account: Account): Promise<string> {
   return sha256Hex(source);
 }
 
+/** A device id as Apple's `guid` carries it: an even number of hex digits. */
+const HARDWARE_ID_RE = /^([0-9a-fA-F]{2})+$/;
+
+/**
+ * The hardware id a download is requested with (`guid`), in the hex form the
+ * macOS decrypter reads it in — the two are the same bytes, one hex-encoded
+ * the other raw, and StoreAgent derives its key from them. `undefined` when the
+ * account carries something that is not a hex id (an imported serial number,
+ * say): a macOS package could not be decrypted with it, and the caller says so
+ * rather than fetching a package nothing can open.
+ */
+export function accountHardwareId(account: Account): string | undefined {
+  const id = account.deviceIdentifier;
+  return typeof id === "string" && HARDWARE_ID_RE.test(id) ? id : undefined;
+}
+
 async function sha256Hex(value: string): Promise<string> {
   if (globalThis.crypto?.subtle) {
     const data = new TextEncoder().encode(value);
