@@ -613,10 +613,11 @@ iOS, …) gets a next-step hint instead of a hop into a broken install. A
 device that can take the package first sees the overwrite notice: a direct
 install cannot replace an already-installed app. On Apple-silicon Macs the
 notice says the new build replaces the installed one in place
-(`install.overwrite.bodyMac`); on iPhone/iPad/Vision Pro it points at the
-AirDrop route (`install.overwrite.body`) — sending the package from another
-device installs over the existing app when it is received. The copy lives under
-the `install.*` keys in the six locales.
+(`install.overwrite.bodyMac`); on iPhone/iPad/Vision Pro it points at two
+overwrite routes (`install.overwrite.body`) — sending the package from another
+device installs over the existing app when it is received, and a computer tool
+(iMazing, Aisi Assistant / 爱思助手) installs over it the same way. The copy
+lives under the `install.*` keys in the six locales.
 
 The store metadata also carries the icon URL Apple handed out with the download
 (`softwareIcon57x57URL`), which the injector already writes into the package as

@@ -259,7 +259,7 @@
     "deviceBrowser": "browser",
     "overwrite": {
       "title": "Before you install",
-      "body": "A direct install can't replace an app that is already installed. To install over it, download the package on another device and AirDrop it to this device — it will install over the existing app when received.",
+      "body": "A direct install can't replace an app that is already installed. To install over it, download the package on another device and AirDrop it to this device — it will install over the existing app when received. You can also connect this device to a computer and install over it with iMazing or Aisi Assistant.",
       "bodyMac": "A direct install will replace an app that is already installed."
     },
     "continue": "Continue installing",
