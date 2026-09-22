@@ -492,7 +492,13 @@ recorded pin, and nothing left to guess
 than an inconclusive failure: the app is untouched, but this platform has
 nothing to fetch, so the card stays closed saying which platform has no version
 (`search.product.noVersionForPlatform`) and the detail view disables the
-download and says the same. The verification is region-
+download and says the same. A region with **no account of its own** is not
+probed at all (a `ProbeState` of `noAccount`): nothing was asked of Apple, so
+the card claims no verdict about the app — it names the region that has no
+account (`search.product.noRegionAccount`), or that none exists yet
+(`accounts.empty`), and links to 「添加账号」
+(`search.product.addAccountLink` → `/accounts/add`) while staying closed like
+any other unsettled record. The verification is region-
 and platform-scoped: switching either re-runs it with the new dimension's
 account and entity — the list cache alone never re-settles across regions, and
 `ensureVersionList` takes a flow key so the new dimension starts a fresh
@@ -525,7 +531,20 @@ the picker offers 「查版本号」 next to 「下载」 — the same on-demand
 field) pins the picker fetch and becomes the download target when nothing
 else is picked. When the entry region has no account, the actions hide behind
 a notice asking for another region's account — the account selector stays
-usable and already drives the region (picking one refetches). Switching to a
+usable and already drives the region (picking one refetches). The background
+version work keeps the same guard the search page has: both the list exchange
+and the silent version fill (which drives the same authenticated exchange, and
+writes the cookies it rotates back to that account) run under an account **of
+the page's region**, because `apple/versionFinder` sends the
+*account's* storefront — a foreign one earns "Account Not In This Store" and
+would cache its answer under this page's region key, where the search page
+reads a settled verdict. With no such account nothing is asked, no 「无法确认」
+note is shown, and one a previous storefront left behind comes off; the
+add-account banner (no accounts at all) or the region notice
+says what is missing. An entry that carries no region in its navigation state (a
+reload, a shared link) takes the first account's storefront as its region, and
+waits for the account store before the first lookup, so region and account are
+one pair from the first request. Switching to a
 region or platform the app does not exist in snaps back to the previous
 selection with a toast — the page never dead-ends on not-found; only the
 newest lookup may apply. The 详细信息 table describes exactly **one build — the

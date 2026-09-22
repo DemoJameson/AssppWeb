@@ -38,12 +38,15 @@ import { PLATFORM_LABELS } from "../../apple/platform";
  * decide whether the number names an app at all. `resolved` means versions came
  * back, so the record behaves like any other result; `unavailable` means the
  * exchange answered that this platform has no build to fetch, which is an
- * answer rather than a failure to get one.
+ * answer rather than a failure to get one. `noAccount` means no exchange ran at
+ * all: the searched region has no account to ask with, which is a step the user
+ * can take, not a verdict about the app.
  */
 type ProbeState =
   | { status: "checking" }
   | { status: "resolved" }
   | { status: "unavailable" }
+  | { status: "noAccount" }
   | { status: "unresolved"; note: string };
 
 function sameProbeState(a: ProbeState | undefined, b: ProbeState): boolean {
@@ -246,15 +249,9 @@ export default function SearchPage() {
       (candidate) => accountStoreCountry(candidate) === activeCountry,
     );
     if (verify && !regionAccount) {
-      settleProbe(fetchable.id, {
-        status: "unresolved",
-        note:
-          accounts.length > 0
-            ? t("search.product.noRegionAccount", {
-                country: t(`countries.${activeCountry}`, activeCountry),
-              })
-            : t("search.bareNoAccount"),
-      });
+      // Nothing was asked of Apple, so nothing was concluded about the app: the
+      // card says what is missing and where to add it.
+      settleProbe(fetchable.id, { status: "noAccount" });
       return;
     }
     if (!account) return;
@@ -578,6 +575,26 @@ export default function SearchPage() {
                       <p className="truncate text-sm text-gray-500 dark:text-gray-400">
                         {subtitle}
                       </p>
+                    )}
+                    {probe?.status === "noAccount" && (
+                      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+                        <span className="min-w-0 break-words">
+                          {accounts.length > 0
+                            ? t("search.product.noRegionAccount", {
+                                country: t(
+                                  `countries.${activeCountry}`,
+                                  activeCountry,
+                                ),
+                              })
+                            : t("accounts.empty")}
+                        </span>
+                        <Link
+                          to="/accounts/add"
+                          className="shrink-0 rounded-full bg-blue-50 px-2.5 py-0.5 font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900/60"
+                        >
+                          {t("search.product.addAccountLink")}
+                        </Link>
+                      </div>
                     )}
                     {meta.length > 0 && (
                       <div className="mt-1 flex items-center gap-2 overflow-hidden text-xs text-gray-400 dark:text-gray-500">

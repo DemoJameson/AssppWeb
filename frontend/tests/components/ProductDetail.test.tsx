@@ -24,6 +24,7 @@ import type { Account, DownloadTask, Software } from '../../src/types';
 
 const mocks = vi.hoisted(() => ({
   accounts: [] as Account[],
+  accountsLoading: false,
   startDownload: vi.fn(),
   acquireLicense: vi.fn(),
   toastDownloadError: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock('../../src/apple/bag', () => ({
 vi.mock('../../src/hooks/useAccounts', () => ({
   useAccounts: () => ({
     accounts: mocks.accounts,
+    loading: mocks.accountsLoading,
   }),
 }));
 
@@ -132,6 +134,17 @@ const account: Account = {
   directoryServicesIdentifier: '123456789',
   cookies: [],
   deviceIdentifier: '001122aabbcc',
+};
+
+/** A numeric App ID nothing knows: the version exchange is what decides it. */
+const bareRecord: Software = {
+  ...app,
+  id: 6503940939,
+  name: 'App 6503940939',
+  bundleID: '',
+  artistName: '',
+  version: '',
+  metadataSource: 'bare',
 };
 
 function deferredPromise() {
@@ -245,6 +258,7 @@ function renderProductPreview() {
 describe('ProductDetail download action', () => {
   beforeEach(() => {
     mocks.accounts = [account];
+    mocks.accountsLoading = false;
     mocks.startDownload.mockReset();
     mocks.acquireLicense.mockReset();
     mocks.toastDownloadError.mockReset();
@@ -2035,6 +2049,164 @@ describe('ProductDetail download action', () => {
 
     await waitFor(() =>
       expect(screen.getByText('search.product.notFound')).toBeTruthy(),
+    );
+  });
+
+  it('does not probe a region that has no account of its own', async () => {
+    // The exchange sends the *account's* storefront, so a foreign account would
+    // both earn "Account Not In This Store" and cache its answer under this
+    // region's key — where the search page reads a settled verdict.
+    mocks.accounts = [
+      { ...account, email: 'jp@example.test', store: '143462', firstName: 'Jp' },
+    ];
+    renderProductDetail(undefined, bareRecord, undefined, 'US');
+
+    await waitFor(() =>
+      expect(screen.getByText('search.product.noRegionAccount')).toBeTruthy(),
+    );
+    expect(mocks.listVersions).not.toHaveBeenCalled();
+    expect(useVersionListsStore.getState().lists).toEqual({});
+    expect(screen.queryByText('search.bareUnverified')).toBeNull();
+  });
+
+  it('asks for an account instead of probing when the page has none', async () => {
+    mocks.accounts = [];
+    renderProductDetail(undefined, bareRecord, undefined, 'US');
+
+    await waitFor(() =>
+      expect(screen.getByText('search.product.addAccountLink')).toBeTruthy(),
+    );
+    expect(mocks.listVersions).not.toHaveBeenCalled();
+    // The banner is the answer; a "could not check" line would claim a verdict
+    // that was never asked for.
+    expect(screen.queryByText('search.bareUnverified')).toBeNull();
+  });
+
+  it('takes a note from an exchange that is no longer asked off the screen', async () => {
+    // The failure ran while this region had an account of its own. The account
+    // is gone, so nothing is being asked any more — and a line naming a verdict
+    // that a later storefront cannot repeat comes off with it.
+    const tree = () => (
+      <MemoryRouter
+        initialEntries={[
+          {
+            pathname: `/search/${bareRecord.id}`,
+            state: { app: bareRecord, country: 'US' },
+          },
+        ]}
+      >
+        <Routes>
+          <Route path="/search/:appId" element={<ProductDetail />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    mocks.listVersions.mockRejectedValue(new Error('exchange failed'));
+    const { rerender } = render(tree());
+    await waitFor(() =>
+      expect(screen.getByText('search.bareUnverified')).toBeTruthy(),
+    );
+
+    mocks.accounts = [];
+    rerender(tree());
+
+    await waitFor(() =>
+      expect(screen.getByText('search.product.addAccountLink')).toBeTruthy(),
+    );
+    expect(screen.queryByText('search.bareUnverified')).toBeNull();
+  });
+
+  it('fills the version labels from an account of the page region', async () => {
+    // The silent fill drives the same authenticated exchange as the probe, so
+    // it goes out under a region account too. The selection opened on the first
+    // account here — one that serves another storefront.
+    const foreignAccount = {
+      ...account,
+      email: 'jp@example.test',
+      store: '143462',
+      firstName: 'Jp',
+    };
+    const regionAccount = {
+      ...account,
+      email: 'us@example.test',
+      firstName: 'Us',
+    };
+    mocks.accounts = [foreignAccount, regionAccount];
+    useVersionListsStore.setState({
+      lists: { '6503940939:ios:US': ['890964826'] },
+    });
+    vi.mocked(getDownloadInfo).mockResolvedValue({
+      output: {
+        downloadURL: 'https://iosapps.example.com/app.ipa',
+        sinfs: [],
+        bundleShortVersionString: '9.9.9',
+        bundleVersion: '999',
+        bundleID: 'com.example.utility',
+      },
+      updatedCookies: [],
+    } as never);
+    vi.mocked(fetchPackageVersionMetadata).mockResolvedValue({
+      displayVersion: '9.9.9',
+      releaseDate: '2026-01-01T00:00:00Z',
+      source: 'package',
+    });
+
+    renderProductDetail(undefined, bareRecord, undefined, 'US');
+
+    await waitFor(() =>
+      expect(vi.mocked(getDownloadInfo)).toHaveBeenCalledWith(
+        regionAccount,
+        expect.objectContaining({ id: 6503940939 }),
+        '890964826',
+      ),
+    );
+    expect(vi.mocked(getDownloadInfo)).not.toHaveBeenCalledWith(
+      foreignAccount,
+      expect.anything(),
+      expect.anything(),
+    );
+    // The cached list is the proof something is fetchable here: no second
+    // exchange runs, and the note from one that never happened stays off.
+    expect(mocks.listVersions).not.toHaveBeenCalled();
+    expect(screen.queryByText('search.bareUnverified')).toBeNull();
+  });
+
+  it('opens a direct visit on the account storefront, not a fixed region', async () => {
+    mocks.accounts = [
+      { ...account, email: 'cn@example.test', store: '143465', firstName: 'Cn' },
+    ];
+    renderProductDetailDirect('6503940939');
+
+    // A reload carries no region in its state: the page takes the storefront it
+    // can actually act in, so the region and the account answering for it are
+    // the same pair from the first request.
+    await waitFor(() =>
+      expect(mocks.lookupApp).toHaveBeenCalledWith('6503940939', 'CN', 'ios'),
+    );
+  });
+
+  it('waits for the account store before naming a region of its own', async () => {
+    mocks.accounts = [];
+    mocks.accountsLoading = true;
+    const direct = () => (
+      <MemoryRouter initialEntries={['/search/6503940939']}>
+        <Routes>
+          <Route path="/search/:appId" element={<ProductDetail />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    const { rerender } = render(direct());
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mocks.lookupApp).not.toHaveBeenCalled();
+
+    mocks.accounts = [account];
+    mocks.accountsLoading = false;
+    rerender(direct());
+
+    await waitFor(() =>
+      expect(mocks.lookupApp).toHaveBeenCalledWith('6503940939', 'US', 'ios'),
     );
   });
 

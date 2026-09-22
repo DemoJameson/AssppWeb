@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useLocation, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
@@ -46,7 +46,11 @@ import {
 } from "../../utils/downloaded";
 import { versionOptionLabel } from "../../utils/versionLabels";
 import { parsePlatform, PLATFORM_LABELS } from "../../apple/platform";
-import { accountSelectLabel, accountStoreCountry } from "../../utils/account";
+import {
+  accountSelectLabel,
+  accountStoreCountry,
+  firstAccountCountry,
+} from "../../utils/account";
 import { formatBytes } from "../../utils/format";
 import type { Platform, Software } from "../../types";
 
@@ -54,7 +58,7 @@ export default function ProductDetail() {
   const { appId } = useParams<{ appId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const { accounts } = useAccounts();
+  const { accounts, loading: accountsLoading } = useAccounts();
   const { t } = useTranslation();
   const addToast = useToastStore((state) => state.addToast);
   const {
@@ -99,7 +103,15 @@ export default function ProductDetail() {
     /^\d+$/.test(routeState.versionId)
       ? routeState.versionId
       : '';
-  const [country, setCountry] = useState(stateCountry ?? "US");
+  // The region this page answers for. It arrives with the navigation state; an
+  // entry that carries none (a reload, a shared link) takes the first account's
+  // storefront — which is why the first lookup waits for the account store:
+  // committing "US" while a CN-only set is still loading would ask the US
+  // storefront and leave the page with no account of its own.
+  const [enteredCountry, setCountry] = useState(stateCountry ?? "");
+  const fallbackCountry = firstAccountCountry(productAccounts) ?? "US";
+  const country = enteredCountry || fallbackCountry;
+  const regionPending = !enteredCountry && accountsLoading;
   const [app, setApp] = useState<Software | null>(stateApp ?? null);
   const [loading, setLoading] = useState(!stateApp);
   const [reloadToken, setReloadToken] = useState(0);
@@ -239,8 +251,11 @@ export default function ProductDetail() {
   // A foreign account cannot answer this region's storefront calls, so it is
   // never shown as the current pick — the control says there is no account
   // instead, and offers the others as a deliberate move in their own group.
-  const regionAccounts = productAccounts.filter(
-    (a) => accountStoreCountry(a) === country,
+  // Memoised because the version effect takes it as a dependency: a filter is
+  // new every render, and that would re-run the fill on every render.
+  const regionAccounts = useMemo(
+    () => productAccounts.filter((a) => accountStoreCountry(a) === country),
+    [productAccounts, country],
   );
   const otherRegionAccounts = productAccounts.filter(
     (a) => accountStoreCountry(a) !== country,
@@ -286,6 +301,10 @@ export default function ProductDetail() {
 
   useEffect(() => {
     if (!appId) return;
+    // An entry with no region of its own has to wait for the account store:
+    // its region is the first account's storefront, and looking up before that
+    // is known would ask the fallback storefront.
+    if (regionPending) return;
     const lookupKey = `${appId}|${country}|${platform}|${reloadToken}`;
     if (lookupKey === lastLookupKeyRef.current) return;
     lastLookupKeyRef.current = lookupKey;
@@ -362,6 +381,7 @@ export default function ProductDetail() {
     appId,
     stateApp,
     country,
+    regionPending,
     platform,
     reloadToken,
     previewEnabled,
@@ -412,27 +432,38 @@ export default function ProductDetail() {
     if (!needsVersionExchange(app)) return;
     const verify = needsFetchVerification(app);
     const bare = app.metadataSource === "bare";
+    // The exchange answers for this page's region only through an account of
+    // that region: `apple/versionFinder` sends the *account's* storefront, so a
+    // foreign one both earns "Account Not In This Store" and would cache its
+    // answer under this region's key — where the search page reads a settled
+    // verdict. With no such account nothing is asked — not even the background
+    // version fill, which drives the same authenticated exchange — and the
+    // add-account banner or the region notice is what says why. A "could not
+    // check" line would claim a verdict that was never asked for, so a stale one
+    // from the storefront this page has moved away from comes off as well.
+    const probeAccount =
+      regionAccounts.find((a) => a.email === selectedAccount) ??
+      regionAccounts[0];
+    if (!probeAccount) {
+      setProbeNote("");
+      setPlatformUnavailable(false);
+      return;
+    }
     const key = versionListKey(app.id, app.platform, country);
     const cached = getCachedVersionList(key);
     if (cached) {
       // The exchange already answered for this id and produced versions: they
-      // are the proof something is fetchable here, so nothing is unverified.
+      // are the proof something is fetchable here, so nothing is unverified —
+      // and no verdict from another storefront survives it.
       setProbeNote("");
-      if (account) fillVersionsSilently(account, app, cached);
-      return;
-    }
-    if (!account) {
-      // Only a page that really has no account says so — the selector settles
-      // one render later, and that must not read as "unverifiable".
-      if (verify && productAccounts.length === 0) {
-        setProbeNote(t("search.bareNoAccount"));
-      }
+      setPlatformUnavailable(false);
+      fillVersionsSilently(probeAccount, app, cached);
       return;
     }
     if (prefetchedListKeysRef.current.has(key)) return;
     prefetchedListKeysRef.current.add(key);
     void ensureVersionList(key, () =>
-      listVersionsWithLicense(account, app, routeVersionId || undefined),
+      listVersionsWithLicense(probeAccount, app, routeVersionId || undefined),
     )
       .then((versions) => {
         // The exchange cannot be called off, but a page that is gone gets
@@ -440,7 +471,7 @@ export default function ProductDetail() {
         if (!mountedRef.current) return;
         setProbeNote("");
         setPlatformUnavailable(false);
-        fillVersionsSilently(account, app, versions);
+        fillVersionsSilently(probeAccount, app, versions);
       })
       .catch((error: unknown) => {
         if (!mountedRef.current || !verify) return;
@@ -459,8 +490,9 @@ export default function ProductDetail() {
       });
   }, [
     app,
-    account,
-    productAccounts,
+    country,
+    regionAccounts,
+    selectedAccount,
     previewEnabled,
     routeVersionId,
     listVersionsWithLicense,

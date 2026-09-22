@@ -508,7 +508,7 @@ describe('SearchPage App ID probe', () => {
     expect(screen.queryByText('search.localUnverified')).toBeNull();
   });
 
-  it('cannot probe without an account, says so, and stays closed', async () => {
+  it('asks for an account instead of verifying when there is none', async () => {
     mocks.accounts = [];
 
     renderSearchPage();
@@ -519,8 +519,13 @@ describe('SearchPage App ID probe', () => {
 
     expect(mocks.listVersions).not.toHaveBeenCalled();
     expect(screen.getByText('search.bareRecordTag')).toBeTruthy();
-    expect(screen.getByText('search.bareUnverified')).toBeTruthy();
-    expect(screen.queryByRole('link')).toBeNull();
+    // Nothing was asked of Apple, so the card claims no verdict about the app —
+    // it names the missing step and links to where an account is added.
+    expect(screen.queryByText('search.bareUnverified')).toBeNull();
+    const prompt = screen.getByText('accounts.empty').parentElement as Element;
+    const links = prompt.querySelectorAll('a');
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute('href', '/accounts/add');
   });
 
   it('probes with the account of the searched region', async () => {
@@ -533,9 +538,10 @@ describe('SearchPage App ID probe', () => {
     expect(mocks.listVersions).toHaveBeenCalledWith(account, bare, undefined);
   });
 
-  it('does not probe another region and says which one is missing', async () => {
+  it('does not probe another region and asks for its account', async () => {
     // Asking from the wrong storefront only earns "Account Not In This Store",
-    // which says nothing about the app.
+    // which says nothing about the app — so nothing is asked, and the card says
+    // which region has no account and where to add one.
     mocks.accounts = [account];
     useSearch.setState({ country: 'JP' });
 
@@ -547,8 +553,12 @@ describe('SearchPage App ID probe', () => {
 
     expect(mocks.listVersions).not.toHaveBeenCalled();
     expect(screen.getByText('search.bareRecordTag')).toBeTruthy();
-    expect(screen.getByText('search.bareUnverified')).toBeTruthy();
-    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.queryByText('search.bareUnverified')).toBeNull();
+    const prompt = screen.getByText('search.product.noRegionAccount')
+      .parentElement as Element;
+    const links = prompt.querySelectorAll('a');
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute('href', '/accounts/add');
   });
 
   it('reuses the exchange still running when the page is returned to', async () => {
