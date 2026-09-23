@@ -26,7 +26,10 @@ describe("gravatarUrl", () => {
     expect(gravatarUrl("myemailaddress@example.com", 192)).toContain("?s=192");
   });
 
-  it("returns null for a blank email", () => {
-    expect(gravatarUrl("   ")).toBeNull();
-  });
+  it.each(["   ", "13800138000", "+91 98765 43210"])(
+    "returns null for %j — nothing hashes but an email",
+    (identifier) => {
+      expect(gravatarUrl(identifier)).toBeNull();
+    },
+  );
 });

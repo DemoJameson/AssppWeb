@@ -719,6 +719,9 @@ where a seller would go.
 - `appleRequest()` in `frontend/src/apple/request.ts` wraps `libcurl.fetch` for all Apple API calls and forces HTTP/1.1 (`_libcurl_http_version: 1.1`)
 - Bag endpoint (`frontend/src/apple/bag.ts`) uses backend proxy (`/api/bag`) and falls back to `https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate` when `authenticateAccount` is missing or bag fetch fails
 - Authentication (`frontend/src/apple/authenticate.ts`) resolves bag endpoint, then sets `guid` via URL query manipulation to avoid duplicate/malformed query parameters
+- Phone-number Apple IDs (China mainland, India — no `@` in the identifier) name no storefront, and Apple sends their verification code only to a request that asks as their region's store, so the auth request carries `X-Apple-Store-Front` from `authStoreFront()` (`apple/config.ts`, mirroring ipatool). Emails get no header
+- `authenticate()` takes the sign-in identifier (`appleId`), which is what the persisted `Account.email` field holds — that name is load-bearing (it is the IndexedDB object store's `keyPath`, keys `/accounts/:email` and the import dedupe, and travels in the export format), so a phone-number account keeps its number there rather than in another field. The add-account form trims it before signing in, because a pasted phone number carries its own separators and this value is the account's key
+- An empty `failureType` with `customerMessage === 'MZFinance.BadLogin.Configurator_message'` means two different things: Apple wants a code (`errors.auth.requiresVerification`, `codeRequired` set), or Apple refused the one it was sent (`errors.auth.verificationIncomplete`). Only the caller's own input tells them apart, so the raw Apple token never reaches the toast
 - Plist build/parse (`frontend/src/apple/plist.ts`) uses native XML builder and browser-native `DOMParser`
 - Cookie helper (`frontend/src/apple/cookies.ts`) — `extractAndMergeCookies(rawHeaders, existingCookies)` replaces the repeated extract-and-merge pattern across all Apple protocol files
 
@@ -729,7 +732,7 @@ where a seller would go.
 - **Spinner** — inline SVG loading spinner for buttons
 - **CountrySelect** — optgroup-based country dropdown with "Available Regions" + "All Regions"
 - **AppIcon** — 3 sizes (40/56/80px), rounded corners; a real name falls back to its letter, the `App <id>` placeholder name to the Apple mark
-- **AccountAvatar** — account avatar: probes the email's gravatar (MD5-keyed, `?d=404`) and swaps the image in only once it loads; accounts without one keep the initial-letter gradient. No CSP is set, so the image loads unobstructed
+- **AccountAvatar** — account avatar: probes the email's gravatar (MD5-keyed, `?d=404`) and swaps the image in only once it loads; accounts without one keep the initial-letter gradient. A sign-in identifier that is not an email (a phone-number Apple ID) is never hashed for gravatar at all. No CSP is set, so the image loads unobstructed
 - **Badge** — color-coded status pill
 - **ProgressBar** — gray track, blue fill, percentage label
 - **ToastContainer** / `utils/toast.ts` — toast notifications (incl. account-context helpers)
@@ -741,7 +744,7 @@ where a seller would go.
 - `utils/error.ts` — `getErrorMessage(e, fallback)` for standardized catch-block error extraction
 - `utils/crypto.ts` — AES-GCM encrypt/decrypt for account export/import
 - `utils/account.ts` — `accountHash()`, `accountStoreCountry()`, `firstAccountCountry()`, `accountSelectLabel()` (region · name (email), joined with a middle dot)
-- `utils/avatar.ts` — `gravatarUrl()` + a local RFC 1321 `md5()`: the account-avatar probe (lowercase email digest; `d=404` makes a missing avatar fail fast)
+- `utils/avatar.ts` — `gravatarUrl()` + a local RFC 1321 `md5()`: the account-avatar probe (lowercase email digest; `d=404` makes a missing avatar fail fast; null for an identifier with no `@`, so a phone-number account is never hashed there)
 - `utils/toast.ts` — toast helpers (pairs with `ToastContainer`)
 - `utils/version.ts` — numeric dot-separated version string comparison
 - `utils/versionLabels.ts` — `versionOptionLabel` / `versionRowLabel`: render a cached display version in the version pickers (uncached entries keep the raw id)
@@ -769,7 +772,7 @@ where a seller would go.
 
 ### Account Hash Is Public
 
-`accountHash` is a SHA-256 of the account email. It is treated as **public, non-secret data** — it identifies which account owns a download but does not grant any privileged access. No authentication is bound to it. This is by design: the server is a blind proxy and does not manage user sessions.
+`accountHash` is a SHA-256 of the account's `directoryServicesIdentifier`, falling back to its `appleId` and only then to its sign-in identifier (`Account.email`) — what an account carries decides which of the three is hashed. It is treated as **public, non-secret data** — it identifies which account owns a download but does not grant any privileged access. No authentication is bound to it. This is by design: the server is a blind proxy and does not manage user sessions.
 
 ### Trusted Sources
 

@@ -3,6 +3,7 @@ import { appleRequest } from "./request";
 import { buildPlist, parsePlist } from "./plist";
 import { extractAndMergeCookies } from "./cookies";
 import { fetchBag, defaultAuthURL } from "./bag";
+import { authStoreFront } from "./config";
 import { prepareSigner } from "./sap/client";
 import i18n from "../i18n";
 
@@ -17,7 +18,7 @@ export class AuthenticationError extends Error {
 }
 
 export async function authenticate(
-  email: string,
+  appleId: string,
   password: string,
   code?: string,
   existingCookies?: Cookie[],
@@ -56,7 +57,7 @@ export async function authenticate(
 
     try {
       const body: Record<string, string> = {
-        appleId: email,
+        appleId,
         attempt: code ? "2" : "4",
         guid: deviceId,
         password: code ? `${password}${code}` : password,
@@ -69,6 +70,13 @@ export async function authenticate(
       const headers: Record<string, string> = {
         "Content-Type": "application/x-apple-plist",
       };
+
+      // A phone-number Apple ID identifies no storefront, and Apple sends the
+      // verification code only to a request that asks as the region's store.
+      const storeFrontHeader = authStoreFront(appleId);
+      if (storeFrontHeader) {
+        headers["X-Apple-Store-Front"] = storeFrontHeader;
+      }
 
       if (sapSigner) {
         // The signature must cover the exact bytes on the wire; libcurl sends
@@ -126,15 +134,20 @@ export async function authenticate(
 
       const dict = parsePlist(response.body) as Record<string, any>;
 
-      // Check for 2FA requirement
+      // Check for 2FA requirement. Apple answers with the same message both
+      // when it wants a code and when it refused the one it was sent — only
+      // whether the caller supplied one tells the two apart.
       if (
         dict.failureType === "" &&
-        !code &&
         dict.customerMessage === "MZFinance.BadLogin.Configurator_message"
       ) {
         throw new AuthenticationError(
-          i18n.t("errors.auth.requiresVerification"),
-          true,
+          i18n.t(
+            code
+              ? "errors.auth.verificationIncomplete"
+              : "errors.auth.requiresVerification",
+          ),
+          !code,
         );
       }
 
@@ -155,7 +168,7 @@ export async function authenticate(
       }
 
       const account: Account = {
-        email,
+        email: appleId,
         password,
         appleId: (accountInfo.appleId as string) ?? "",
         store: storeFront,

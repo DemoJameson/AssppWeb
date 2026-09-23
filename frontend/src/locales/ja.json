@@ -112,8 +112,8 @@
     "addFirst": "最初のアカウントを追加",
     "addForm": {
       "title": "アカウントを追加",
-      "email": "Apple ID (メール)",
-      "emailPlaceholder": "user@example.com",
+      "appleId": "Apple ID",
+      "appleIdPlaceholder": "メールまたは電話番号",
       "password": "パスワード",
       "deviceId": "デバイスID",
       "randomize": "ランダム生成",
@@ -137,7 +137,6 @@
       "notFound": "アカウントが見つかりません。",
       "back": "アカウント一覧に戻る",
       "name": "名前",
-      "email": "メール",
       "appleId": "Apple ID",
       "storeRegion": "ストア地域",
       "dsid": "DSID",
@@ -494,6 +493,7 @@
     },
     "auth": {
       "requiresVerification": "2ファクタ認証コードが必要です。ポップアップが出ない場合は、https://account.apple.com でサインインしてアラートをトリガーし、コード欄に入力してください。",
+      "verificationIncomplete": "Apple による確認が完了しませんでした。新しい確認コードを取得して、もう一度入力してください。",
       "redirectLocation": "リダイレクト先を取得できませんでした",
       "emptyBody": "認証失敗: サーバーが空のボディでHTTP {{status}}を返しました",
       "missingAccountInfo": "レスポンスに accountInfo がありません",

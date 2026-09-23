@@ -7,6 +7,7 @@ import {
   purchaseAPIHost,
   countryToStoreId,
   storeIdToCountry,
+  authStoreFront,
   RETRYABLE_FAILURE_TYPE,
   volumeStoreEndpoint,
   redownloadEndpoint,
@@ -130,6 +131,27 @@ describe("apple/config", () => {
     });
   });
 
+  describe("authStoreFront", () => {
+    const entries: [string, string][] = [
+      ["13800138000", "143465"],
+      ["+8613800138000", "143465"],
+      ["138-0013-8000", "143465"],
+      ["008613800138000", "143465"],
+      ["8613800138000", "143465"],
+      ["9876543210", "143467"],
+      ["09876543210", "143467"],
+      ["919876543210", "143467"],
+      ["test@example.com", ""],
+      ["13800138000@example.com", ""],
+      ["", ""],
+      ["1380013800", ""],
+    ];
+
+    it.each(entries)("resolves %s to %s", (identifier, expected) => {
+      expect(authStoreFront(identifier)).toBe(expected);
+    });
+  });
+
   describe("store download endpoints", () => {
     it("volumeStore targets MZFinance with the externalVersionId key", () => {
       const ep = volumeStoreEndpoint("42", "aabbccddeeff");
@@ -203,7 +225,9 @@ describe("apple/config", () => {
         "http://downloaddispatch.itunes.apple.com/r/redownload",
         "not a url",
       ]) {
-        expect(downloadDispatchEndpoint(url, "/r/redownload", "aabbccddeeff")).toBeNull();
+        expect(
+          downloadDispatchEndpoint(url, "/r/redownload", "aabbccddeeff"),
+        ).toBeNull();
       }
     });
   });

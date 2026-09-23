@@ -112,8 +112,8 @@
     "addFirst": "新增您的第一個帳號",
     "addForm": {
       "title": "新增帳號",
-      "email": "Apple ID (電子郵件)",
-      "emailPlaceholder": "user@example.com",
+      "appleId": "Apple ID",
+      "appleIdPlaceholder": "電子郵件或手機號碼",
       "password": "密碼",
       "deviceId": "裝置識別碼",
       "randomize": "隨機產生",
@@ -137,7 +137,6 @@
       "notFound": "找不到帳號。",
       "back": "返回帳號列表",
       "name": "姓名",
-      "email": "電子郵件",
       "appleId": "Apple ID",
       "storeRegion": "商店地區",
       "dsid": "DSID",
@@ -494,6 +493,7 @@
     },
     "auth": {
       "requiresVerification": "驗證需要雙重認證代碼。如果沒有彈出驗證碼，請嘗試在 https://account.apple.com 登入以觸發提示，然後在雙重認證代碼欄位中填寫該代碼。",
+      "verificationIncomplete": "Apple 未完成驗證。請重新取得驗證碼並填寫最新的那一個。",
       "redirectLocation": "無法取得重新導向位址",
       "emptyBody": "認證失敗：伺服器傳回 HTTP {{status}} 且回應主體為空",
       "missingAccountInfo": "回應中缺少 accountInfo",

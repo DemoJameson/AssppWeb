@@ -111,10 +111,6 @@ export default function AccountDetail() {
               value={`${account.firstName} ${account.lastName}`}
             />
             <DetailRow
-              label={t("accounts.detail.email")}
-              value={account.email}
-            />
-            <DetailRow
               label={t("accounts.detail.appleId")}
               value={account.appleId || account.email}
             />

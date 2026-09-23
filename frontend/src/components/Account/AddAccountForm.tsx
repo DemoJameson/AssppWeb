@@ -19,7 +19,7 @@ export default function AddAccountForm() {
   const sapStage = useSapStore((state) => state.stage);
   const sapPercent = useSapStore((state) => state.percent);
 
-  const [email, setEmail] = useState("");
+  const [appleId, setAppleId] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [deviceId, setDeviceId] = useState(() => generateDeviceId());
@@ -63,8 +63,12 @@ export default function AddAccountForm() {
       const cleanedDeviceId = deviceId.replace(/[: ]/g, "");
       setDeviceId(cleanedDeviceId);
 
+      // A pasted phone number carries its own separators, and this value becomes
+      // the account's key — leaving them in stores one account twice over.
+      const cleanedAppleId = appleId.trim();
+
       const account = await authenticate(
-        email,
+        cleanedAppleId,
         password,
         needsCode && code ? code : undefined,
         undefined,
@@ -95,19 +99,19 @@ export default function AddAccountForm() {
           <section className="space-y-5 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-6">
             <div>
               <label
-                htmlFor="email"
+                htmlFor="appleId"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3"
               >
-                {t("accounts.addForm.email")}
+                {t("accounts.addForm.appleId")}
               </label>
               <input
-                id="email"
+                id="appleId"
                 type="text"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                value={appleId}
+                onChange={(e) => setAppleId(e.target.value)}
                 disabled={loading}
-                placeholder={t("accounts.addForm.emailPlaceholder")}
+                placeholder={t("accounts.addForm.appleIdPlaceholder")}
                 className={inputClassName}
               />
             </div>
@@ -156,7 +160,7 @@ export default function AddAccountForm() {
                   {t("accounts.addForm.randomize")}
                 </button>
               </div>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              <p className="mt-1 pl-3 text-xs text-gray-500 dark:text-gray-400">
                 {t("accounts.addForm.deviceIdHelp")}
               </p>
             </div>
@@ -182,7 +186,7 @@ export default function AddAccountForm() {
                   className={inputClassName}
                   autoFocus
                 />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                <p className="mt-1 pl-3 text-xs text-gray-500 dark:text-gray-400">
                   {t("accounts.addForm.codeHelp")}
                 </p>
               </div>

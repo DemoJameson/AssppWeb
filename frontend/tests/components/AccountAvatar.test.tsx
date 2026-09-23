@@ -72,4 +72,22 @@ describe("AccountAvatar", () => {
     expect(container.querySelector("img")).toBeNull();
     expect(screen.getByText("A")).toBeTruthy();
   });
+
+  it("never hashes a phone-number Apple ID for gravatar", () => {
+    const { container } = render(
+      <AccountAvatar
+        account={{
+          ...account,
+          email: "13800138000",
+          appleId: "13800138000",
+          firstName: "",
+          lastName: "",
+        }}
+      />,
+    );
+
+    expect(FakeImage.instances).toHaveLength(0);
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByText("1")).toBeTruthy();
+  });
 });

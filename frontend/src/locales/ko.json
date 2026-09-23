@@ -112,8 +112,8 @@
     "addFirst": "첫 번째 계정 추가",
     "addForm": {
       "title": "계정 추가",
-      "email": "Apple ID (이메일)",
-      "emailPlaceholder": "user@example.com",
+      "appleId": "Apple ID",
+      "appleIdPlaceholder": "이메일 또는 전화번호",
       "password": "비밀번호",
       "deviceId": "기기 식별자",
       "randomize": "무작위 생성",
@@ -137,7 +137,6 @@
       "notFound": "계정을 찾을 수 없습니다.",
       "back": "계정 목록으로 돌아가기",
       "name": "이름",
-      "email": "이메일",
       "appleId": "Apple ID",
       "storeRegion": "스토어 지역",
       "dsid": "DSID",
@@ -494,6 +493,7 @@
     },
     "auth": {
       "requiresVerification": "2단계 인증 코드가 필요합니다. 인증 코드 팝업이 뜨지 않으면 https://account.apple.com 에 로그인하여 알림을 트리거한 후 2FA 코드 필드에 입력하세요.",
+      "verificationIncomplete": "Apple이 인증을 완료하지 못했습니다. 코드를 새로 받아 다시 입력하세요.",
       "redirectLocation": "리디렉션 주소를 가져올 수 없습니다",
       "emptyBody": "인증 실패: 서버가 빈 본문과 함께 HTTP {{status}}를 반환했습니다",
       "missingAccountInfo": "응답에 accountInfo가 없습니다",

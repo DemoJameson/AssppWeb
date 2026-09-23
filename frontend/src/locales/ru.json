@@ -112,8 +112,8 @@
     "addFirst": "Добавьте ваш первый аккаунт",
     "addForm": {
       "title": "Добавить аккаунт",
-      "email": "Apple ID (Email)",
-      "emailPlaceholder": "user@example.com",
+      "appleId": "Apple ID",
+      "appleIdPlaceholder": "Email или номер телефона",
       "password": "Пароль",
       "deviceId": "Идентификатор устройства",
       "randomize": "Сгенерировать",
@@ -137,7 +137,6 @@
       "notFound": "Аккаунт не найден.",
       "back": "Назад к аккаунтам",
       "name": "Имя",
-      "email": "Email",
       "appleId": "Apple ID",
       "storeRegion": "Регион магазина",
       "dsid": "DSID",
@@ -494,6 +493,7 @@
     },
     "auth": {
       "requiresVerification": "Для аутентификации требуется код проверки. Если окно не появилось, войдите на https://account.apple.com, чтобы получить код, и введите его в поле.",
+      "verificationIncomplete": "Apple не завершила проверку. Получите новый код и введите его снова.",
       "redirectLocation": "Не удалось получить адрес перенаправления",
       "emptyBody": "Ошибка аутентификации: сервер вернул HTTP {{status}} с пустым телом",
       "missingAccountInfo": "В ответе отсутствует accountInfo",

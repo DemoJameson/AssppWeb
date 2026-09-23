@@ -112,8 +112,8 @@
     "addFirst": "Add your first account",
     "addForm": {
       "title": "Add Account",
-      "email": "Apple ID (Email)",
-      "emailPlaceholder": "user@example.com",
+      "appleId": "Apple ID",
+      "appleIdPlaceholder": "Email or phone number",
       "password": "Password",
       "deviceId": "Device Identifier",
       "randomize": "Randomize",
@@ -137,7 +137,6 @@
       "notFound": "Account not found.",
       "back": "Back to accounts",
       "name": "Name",
-      "email": "Email",
       "appleId": "Apple ID",
       "storeRegion": "Store Region",
       "dsid": "DSID",
@@ -494,6 +493,7 @@
     },
     "auth": {
       "requiresVerification": "Authentication requires verification code. If no verification code was prompted, try logging in at https://account.apple.com to trigger the alert and fill the code in the 2FA Code field.",
+      "verificationIncomplete": "Apple did not complete the verification. Request a fresh code and enter it again.",
       "redirectLocation": "Failed to retrieve redirect location",
       "emptyBody": "Authentication failed: server returned HTTP {{status}} with empty body",
       "missingAccountInfo": "Missing accountInfo in response",

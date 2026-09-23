@@ -112,8 +112,8 @@
     "addFirst": "添加您的第一个账号",
     "addForm": {
       "title": "添加账号",
-      "email": "Apple ID (邮箱)",
-      "emailPlaceholder": "user@example.com",
+      "appleId": "Apple ID",
+      "appleIdPlaceholder": "邮箱或手机号",
       "password": "密码",
       "deviceId": "设备标识符",
       "randomize": "随机生成",
@@ -137,7 +137,6 @@
       "notFound": "账号未找到。",
       "back": "返回账号列表",
       "name": "姓名",
-      "email": "邮箱",
       "appleId": "Apple ID",
       "storeRegion": "商店地区",
       "dsid": "DSID",
@@ -494,6 +493,7 @@
     },
     "auth": {
       "requiresVerification": "验证需要双重认证代码。如果没有弹出验证码，请尝试在 https://account.apple.com 登录以触发提示，然后在双重认证代码字段中填写该代码。",
+      "verificationIncomplete": "Apple 未完成验证。请重新获取验证码并填写最新的那一个。",
       "redirectLocation": "无法获取重定向地址",
       "emptyBody": "认证失败：服务器返回 HTTP {{status}} 且响应体为空",
       "missingAccountInfo": "响应中缺少 accountInfo",

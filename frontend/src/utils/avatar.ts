@@ -87,12 +87,15 @@ function wordToLittleEndianHex(word: number): string {
 }
 
 /**
- * The gravatar image URL for an email — null for a blank one. Callers probe
- * the URL first (gravatar answers 404 when the address has no avatar) and
- * fall back to the initial-letter placeholder.
+ * The gravatar image URL for an email — null for anything that is not one.
+ * Gravatars are keyed by address, so a phone-number Apple ID has no avatar to
+ * find, and hashing the number to ask for one would hand a third party a
+ * value derived from it. Callers probe the URL first (gravatar answers 404
+ * when the address has no avatar) and fall back to the initial-letter
+ * placeholder.
  */
 export function gravatarUrl(email: string, size = 96): string | null {
   const normalized = email.trim().toLowerCase();
-  if (!normalized) return null;
+  if (!normalized.includes("@")) return null;
   return `https://www.gravatar.com/avatar/${md5(normalized)}?s=${size}&d=404`;
 }

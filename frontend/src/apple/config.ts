@@ -138,6 +138,53 @@ export const countryCodeMap: Record<string, string> = {
   ZA: "143472",
 };
 
+/**
+ * Apple accounts in China mainland and India may sign in with a phone number
+ * instead of an email address (https://support.apple.com/en-hk/105034). Such
+ * an identifier names no storefront, and Apple only sends the verification
+ * code once the request asks as that region's store — so the auth request
+ * carries X-Apple-Store-Front for it. Mirrors ipatool's authStoreFront.
+ */
+const phoneAppleIDRegions: {
+  country: string;
+  dialing: string;
+  national: (digits: string) => boolean;
+}[] = [
+  {
+    country: "CN",
+    dialing: "86",
+    national: (d) => d.length === 11 && d[0] === "1",
+  },
+  {
+    country: "IN",
+    dialing: "91",
+    national: (d) => d.length === 10 && d[0] >= "6" && d[0] <= "9",
+  },
+];
+
+export function authStoreFront(identifier: string): string {
+  if (identifier.includes("@")) return "";
+
+  const digits = identifier.replace(/\D/g, "");
+
+  for (const region of phoneAppleIDRegions) {
+    const international = "00" + region.dialing;
+    let national: string;
+
+    if (digits.startsWith(international)) {
+      national = digits.slice(international.length);
+    } else if (digits.startsWith(region.dialing)) {
+      national = digits.slice(region.dialing.length);
+    } else {
+      national = digits.startsWith("0") ? digits.slice(1) : digits;
+    }
+
+    if (region.national(national)) return countryCodeMap[region.country];
+  }
+
+  return "";
+}
+
 export function generateDeviceId(): string {
   const bytes = new Uint8Array(6);
   crypto.getRandomValues(bytes);
