@@ -7,6 +7,7 @@ import type { DownloadTask } from "../../src/types";
 const mocks = vi.hoisted(() => ({
   tasks: [] as DownloadTask[],
   startDownload: vi.fn(),
+  listVersionsWithLicense: vi.fn(),
   deleteDownload: vi.fn(),
   toastDownloadError: vi.fn(),
   addToast: vi.fn(),
@@ -41,7 +42,19 @@ vi.mock("../../src/hooks/useAccounts", () => ({
 vi.mock("../../src/hooks/useDownloadAction", () => ({
   useDownloadAction: () => ({
     startDownload: mocks.startDownload,
+    listVersionsWithLicense: mocks.listVersionsWithLicense,
     toastDownloadError: mocks.toastDownloadError,
+  }),
+}));
+
+// The version labels of the update picker come from a cache fed by Apple's
+// answers; the list only needs the shape of it here. (Importing the real hook
+// would drag libcurl into jsdom, which aborts on import.)
+vi.mock("../../src/hooks/useVersionMetadata", () => ({
+  useVersionMetadataMap: () => ({
+    versionMeta: {},
+    pendingMeta: {},
+    fillVersionsSilently: vi.fn(),
   }),
 }));
 

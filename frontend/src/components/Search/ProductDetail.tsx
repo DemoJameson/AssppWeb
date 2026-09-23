@@ -1049,10 +1049,11 @@ export default function ProductDetail() {
             {t("search.product.details")}
           </h2>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
-            {/* The version row prefers the newest build anybody named (see
-                `displayVersion` above). Every row below answers for that one
-                build, never borrowing another's numbers: the version names it,
-                and a fact nobody vouched for stays as an em dash. */}
+            {/* App ID and Bundle ID name the app; the four rows after them
+                (minimum OS, size, version, release date) all answer for one
+                build — the newest anybody named (see `displayVersion` above).
+                No row borrows another's numbers: a fact nobody vouched for
+                stays as an em dash. */}
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.appId")}
             </dt>
@@ -1066,12 +1067,12 @@ export default function ProductDetail() {
               {app.bundleID || "—"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
-              {t("search.product.version")}
+              {t("search.product.minOs")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200">
-              {displayVersion
-                ? `${displayVersion}${displayVersionId ? ` (${displayVersionId})` : ""}`
-                : displayVersionId || "—"}
+              {currentMinimumOs
+                ? `${PLATFORM_LABELS[appPlatform]} ${currentMinimumOs}`
+                : "—"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.size")}
@@ -1080,12 +1081,12 @@ export default function ProductDetail() {
               {currentFileSizeBytes ? formatBytes(currentFileSizeBytes) : "—"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
-              {t("search.product.minOs")}
+              {t("search.product.version")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200">
-              {currentMinimumOs
-                ? `${PLATFORM_LABELS[appPlatform]} ${currentMinimumOs}`
-                : "—"}
+              {displayVersion
+                ? `${displayVersion}${displayVersionId ? ` (${displayVersionId})` : ""}`
+                : displayVersionId || "—"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.seller")}

@@ -32,7 +32,8 @@ import i18n from "../i18n";
 export interface VersionListOutput {
   /**
    * External version identifiers, newest first. Apple returns them oldest
-   * first; the version pickers (ProductDetail, PackageDetail)
+   * first; the version pickers (ProductDetail's, and the downloads page's
+   * update picker)
    * render the array in order, so the reversal happens here rather than in
    * each caller.
    */

@@ -18,7 +18,6 @@ const AccountDetail = lazy(() => import('./components/Account/AccountDetail'));
 const SearchPage = lazy(() => import('./components/Search/SearchPage'));
 const ProductDetail = lazy(() => import('./components/Search/ProductDetail'));
 const DownloadList = lazy(() => import('./components/Download/DownloadList'));
-const PackageDetail = lazy(() => import('./components/Download/PackageDetail'));
 const SettingsPage = lazy(() => import('./components/Settings/SettingsPage'));
 
 function Loading() {
@@ -91,7 +90,13 @@ export default function App() {
                 path="/downloads/by-id"
                 element={<Navigate to="/search" replace />}
               />
-              <Route path="/downloads/:id" element={<PackageDetail />} />
+              {/* The package detail page is gone — a package is described by
+                  the row it sits in — so a link or bookmark to one lands on
+                  the list it belongs to. */}
+              <Route
+                path="/downloads/:id"
+                element={<Navigate to="/downloads" replace />}
+              />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </Suspense>

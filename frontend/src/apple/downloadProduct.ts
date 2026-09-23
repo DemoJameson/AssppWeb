@@ -326,7 +326,8 @@ export function itemsOf(reply: DownloadReply): Record<string, any>[] {
 
 /**
  * Apple's version identifiers from a download-product reply, newest first. It
- * returns them oldest first; the version pickers (ProductDetail, PackageDetail)
+ * returns them oldest first; the version pickers (ProductDetail's, and the
+ * downloads page's update picker)
  * render the array in order, so the reversal happens here rather than in each
  * caller.
  */

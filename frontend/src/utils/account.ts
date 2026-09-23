@@ -24,11 +24,34 @@ export function firstAccountCountry(accounts: Account[]): string | undefined {
   return undefined;
 }
 
+/**
+ * The one name an account goes by, wherever it is offered or reported: the
+ * storefront, then the person, then the address — `JP · Demo User
+ * (demo@example.test)`. Parts an account does not have are left out rather than
+ * left blank: an account with no name on it is its address alone, and one with
+ * no storefront known is named without the separator that would introduce it.
+ */
 export function accountSelectLabel(account: Account, t: TFunction): string {
   const cc = accountStoreCountry(account);
   const countryLabel = cc ? t(`countries.${cc}`, cc) : "";
-  const name = `${account.firstName} ${account.lastName} (${account.email})`;
-  return countryLabel ? `${countryLabel} · ${name}` : name;
+  const name = `${account.firstName} ${account.lastName}`.trim();
+  const person = name ? `${name} (${account.email})` : account.email;
+  return [countryLabel, person].filter(Boolean).join(" · ");
+}
+
+/**
+ * How a package names the account it was downloaded with: the same label the
+ * account pickers offer (`storefront · name (email)`), so a download list row
+ * and the package detail page call one account by one name. `fallback` is what
+ * is left to say when that account is gone — the record's own key (its hash),
+ * or a preview row's own name.
+ */
+export function packageAccountLabel(
+  account: Account | undefined,
+  fallback: string,
+  t: TFunction,
+): string {
+  return account ? accountSelectLabel(account, t) : fallback;
 }
 
 export async function accountHash(account: Account): Promise<string> {

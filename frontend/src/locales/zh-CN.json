@@ -193,9 +193,6 @@
       "actionHint": "预览操作不会影响真实下载。",
       "account": "预览账号"
     },
-    "item": {
-      "viewPackage": "查看安装包"
-    },
     "add": {
       "versionId": "版本 ID（可选）",
       "versionIdPlaceholder": "留空即最新版",
@@ -204,13 +201,9 @@
       "localRecordNote": "该 App 已从 App Store 下架，信息来自本服务器已下载的安装包记录。"
     },
     "package": {
-      "title": "安装包详情",
-      "notFound": "未找到下载。",
-      "deleteConfirm": "删除此下载？",
       "bundleId": "Bundle ID",
       "version": "版本",
       "appId": "App ID",
-      "versionId": "版本 ID",
       "account": "账号",
       "downloadedAt": "下载时间",
       "install": "在设备上安装",
@@ -223,11 +216,9 @@
       "quickActions": "快捷操作",
       "shareFailed": "无法分享安装链接。",
       "downloadFailed": "无法取回安装包文件。",
-      "information": "安装包信息",
       "size": "大小",
       "minOs": "最低系统版本",
       "released": "发布日期",
-      "developer": "开发者",
       "fileUnavailable": "安装包文件不可用。",
       "pause": "暂停",
       "resume": "恢复",

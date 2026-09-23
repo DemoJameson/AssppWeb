@@ -16,13 +16,15 @@ import { useDownloads } from "../../hooks/useDownloads";
 import { isActiveDownload } from "../../store/downloads";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
+import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
 import { useToastStore } from "../../store/toast";
 import { lookupApp } from "../../api/search";
 import { getErrorMessage } from "../../utils/error";
 import { getAccountContext } from "../../utils/toast";
 import { isNewerVersion } from "../../utils/version";
+import { versionRowLabel } from "../../utils/versionLabels";
 import { storeIdToCountry } from "../../apple/config";
-import type { DownloadTask } from "../../types";
+import type { DownloadTask, Software } from "../../types";
 
 /**
  * What the filter picks. `active` is the bucket the Downloads tab badge
@@ -63,7 +65,10 @@ export default function DownloadList() {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const addToast = useToastStore((s) => s.addToast);
   const { accounts } = useAccounts();
-  const { startDownload, toastDownloadError } = useDownloadAction();
+  const { startDownload, listVersionsWithLicense, toastDownloadError } =
+    useDownloadAction();
+  const { versionMeta, pendingMeta, fillVersionsSilently } =
+    useVersionMetadataMap();
   const previewEnabled = isDownloadPreviewEnabled(location.search);
   const displayTasks = previewEnabled ? previewDownloadTasks : tasks;
 
@@ -76,6 +81,15 @@ export default function DownloadList() {
   });
   const [deleteTarget, setDeleteTarget] = useState<DownloadTask | null>(null);
   const [deleting, setDeleting] = useState(false);
+  /** The row whose update check is in flight, and what it found. */
+  const [checkingUpdateId, setCheckingUpdateId] = useState<string | null>(null);
+  const [updateTarget, setUpdateTarget] = useState<{
+    task: DownloadTask;
+    app: Software;
+    versions: string[];
+    selected: string;
+  } | null>(null);
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -142,6 +156,10 @@ export default function DownloadList() {
     }),
   }));
 
+  /** The account a task was downloaded with, as this list knows it. */
+  const taskOwner = (task: DownloadTask) =>
+    accounts.find((a) => a.email === hashToEmail[task.accountHash]);
+
   function handleDelete(id: string) {
     const task = displayTasks.find((item) => item.id === id);
     // A queued second click (e.g. a double-click where the first deletion
@@ -164,9 +182,7 @@ export default function DownloadList() {
     try {
       // Only announce success once the deletion actually completed.
       await deleteDownload(deleteTarget.id);
-      const accountEmail = hashToEmail[deleteTarget.accountHash];
-      const account = accounts.find((a) => a.email === accountEmail);
-      const ctx = getAccountContext(account, t);
+      const ctx = getAccountContext(taskOwner(deleteTarget), t);
 
       addToast(
         t("toast.msg", { appName: deleteTarget.software.name, ...ctx }),
@@ -228,9 +244,7 @@ export default function DownloadList() {
     }
 
     const task = tasks.find((item) => item.id === id);
-    const account = task
-      ? accounts.find((a) => a.email === hashToEmail[task.accountHash])
-      : undefined;
+    const account = task ? taskOwner(task) : undefined;
     if (!task || !account) return;
 
     try {
@@ -248,6 +262,76 @@ export default function DownloadList() {
       await deleteDownload(id);
     } catch {
       // The retry itself succeeded; a stale row is harmless.
+    }
+  }
+
+  /**
+   * Asks the storefront for this app's latest version and, when it is newer
+   * than the build the row holds, offers to fetch it. The question is the
+   * owning account's to ask — the new build is redeemed against its license,
+   * and its storefront is the one worth asking — which is why the row only
+   * offers the check while that account is still here.
+   *
+   * This is the same question `检查更新` asks of every finished row at once;
+   * here the answer is one row's, and the newer build is the user's to pick.
+   */
+  async function handleCheckUpdate(id: string) {
+    if (previewEnabled) {
+      showPreviewNotice();
+      return;
+    }
+
+    const task = displayTasks.find((item) => item.id === id);
+    const account = task ? taskOwner(task) : undefined;
+    if (!task || !account) return;
+
+    setCheckingUpdateId(id);
+    try {
+      const country = storeIdToCountry(account.store) ?? "US";
+      const app = await lookupApp(task.software.bundleID, country);
+
+      if (app && isNewerVersion(app.version, task.software.version)) {
+        const result = await listVersionsWithLicense(account, app);
+        setUpdateTarget({
+          task,
+          app,
+          versions: result.versions,
+          selected: result.versions[0] || "",
+        });
+        // Shared cache first, then the missing labels filled silently.
+        fillVersionsSilently(account, app, result.versions);
+      } else {
+        addToast(t("downloads.package.noUpdate"), "info");
+      }
+    } catch {
+      addToast(t("downloads.package.checkUpdateFailed"), "error");
+    } finally {
+      setCheckingUpdateId(null);
+    }
+  }
+
+  /**
+   * Fetches the build the user picked and drops the row it replaces: a task is
+   * terminal once it is finished, and the same app cannot be held twice by one
+   * account, so the old package would only linger as a duplicate.
+   */
+  async function handleConfirmUpdate() {
+    if (!updateTarget || updating) return;
+
+    const { task, app, versions, selected } = updateTarget;
+    const account = taskOwner(task);
+    if (!account) return;
+
+    setUpdating(true);
+    try {
+      const isLatest = versions.length > 0 && selected === versions[0];
+      await startDownload(account, app, isLatest ? undefined : selected);
+      await deleteDownload(task.id);
+      setUpdateTarget(null);
+    } catch {
+      addToast(t("downloads.package.updateFailed"), "error");
+    } finally {
+      setUpdating(false);
     }
   }
 
@@ -274,8 +358,7 @@ export default function DownloadList() {
       if (cancelCheckRef.current) break;
 
       const task = completedTasks[i];
-      const accountEmail = hashToEmail[task.accountHash];
-      const account = accounts.find((a) => a.email === accountEmail);
+      const account = taskOwner(task);
 
       setCheckProgress((prev) => ({ ...prev, appName: task.software.name }));
 
@@ -462,7 +545,7 @@ export default function DownloadList() {
         <div className="space-y-3">
           {sortedTasks.map((task) => {
             const accountEmail = hashToEmail[task.accountHash];
-            const owner = accounts.find((a) => a.email === accountEmail);
+            const owner = taskOwner(task);
             return (
               <DownloadItem
                 key={task.id}
@@ -473,6 +556,8 @@ export default function DownloadList() {
                 onPause={handlePause}
                 onResume={handleResume}
                 onRetry={owner ? handleRetry : undefined}
+                onCheckUpdate={owner ? handleCheckUpdate : undefined}
+                checkingUpdate={checkingUpdateId === task.id}
                 onDelete={handleDelete}
               />
             );
@@ -516,6 +601,65 @@ export default function DownloadList() {
               className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
             >
               {t("settings.data.cancel")}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={updateTarget !== null}
+        onClose={() => setUpdateTarget(null)}
+        title={t("downloads.package.updateAvailable")}
+      >
+        <div className="min-w-0 space-y-4">
+          <p className="min-w-0 break-words text-sm text-gray-600 dark:text-gray-300">
+            {t("downloads.package.updatePrompt", {
+              version: updateTarget?.app.version,
+            })}
+          </p>
+          {updateTarget && updateTarget.versions.length > 0 && (
+            <div className="min-w-0">
+              <label className="mb-1 block pl-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+                {t("downloads.package.selectVersion")}
+              </label>
+              <Select
+                value={updateTarget.selected}
+                onChange={(next) =>
+                  setUpdateTarget((current) =>
+                    current ? { ...current, selected: next } : current,
+                  )
+                }
+                options={updateTarget.versions.map((version) => ({
+                  value: version,
+                  label: versionRowLabel(
+                    version,
+                    versionMeta[version],
+                    pendingMeta[version],
+                  ),
+                  group: t("search.product.version"),
+                }))}
+                ariaLabel={t("downloads.package.selectVersion")}
+                className="min-h-11 w-full min-w-0 max-w-full truncate rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              />
+            </div>
+          )}
+          <div className="mt-6 grid min-w-0 grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setUpdateTarget(null)}
+              disabled={updating}
+              className="min-h-11 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              {t("settings.data.cancel")}
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmUpdate}
+              disabled={updating}
+              className="min-h-11 min-w-0 inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {updating && <Spinner />}
+              {t("downloads.package.update")}
             </button>
           </div>
         </div>

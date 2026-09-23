@@ -193,9 +193,6 @@
       "actionHint": "Preview actions do not affect real downloads.",
       "account": "Preview account"
     },
-    "item": {
-      "viewPackage": "View Package"
-    },
     "add": {
       "versionId": "Version ID (optional)",
       "versionIdPlaceholder": "Leave empty for the latest version",
@@ -204,13 +201,9 @@
       "localRecordNote": "This app left the App Store, and the info comes from a previously downloaded package on this server."
     },
     "package": {
-      "title": "Package Details",
-      "notFound": "Download not found.",
-      "deleteConfirm": "Delete this download?",
       "bundleId": "Bundle ID",
       "version": "Version",
       "appId": "App ID",
-      "versionId": "Version ID",
       "account": "Account",
       "downloadedAt": "Downloaded at",
       "install": "Install on Device",
@@ -223,11 +216,9 @@
       "quickActions": "Quick Actions",
       "shareFailed": "Could not share the install link.",
       "downloadFailed": "Could not fetch the package file.",
-      "information": "Package Information",
       "size": "Size",
       "minOs": "Minimum OS",
       "released": "Released",
-      "developer": "Developer",
       "fileUnavailable": "The package file is unavailable.",
       "pause": "Pause",
       "resume": "Resume",

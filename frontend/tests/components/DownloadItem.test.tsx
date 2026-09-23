@@ -40,9 +40,30 @@ function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
   };
 }
 
+function createAccount(overrides: Partial<Account> = {}): Account {
+  return {
+    email: 'owner-cn@example.test',
+    password: 'x',
+    appleId: 'owner-cn@example.test',
+    store: '143465',
+    firstName: 'Owner',
+    lastName: 'Cn',
+    passwordToken: 't',
+    directoryServicesIdentifier: 'dsid-owner',
+    cookies: [],
+    deviceIdentifier: 'aabbccddeeff',
+    ...overrides,
+  };
+}
+
 function renderItem(
   task: DownloadTask,
-  props: Partial<{ onRetry: (id: string) => void }> = {},
+  props: Partial<{
+    onRetry: (id: string) => void;
+    onCheckUpdate: (id: string) => void;
+    checkingUpdate: boolean;
+    accountEmail: string;
+  }> = {},
 ) {
   return render(
     <MemoryRouter>
@@ -106,11 +127,13 @@ function StateProbe() {
 describe('DownloadItem app-detail link', () => {
   afterEach(cleanup);
 
-  it('leads the second action row with a link carrying the platform', () => {
+  it('keeps the app link in the action row, after the row’s own action', () => {
     const task = createTask({
       software: { ...createTask().software, platform: 'tvos' },
     });
-    const { container, getByRole, getAllByRole } = renderItem(task);
+    const { container, getByRole, getAllByRole } = renderItem(task, {
+      onCheckUpdate: vi.fn(),
+    });
 
     const link = getByRole('link', { name: 'search.product.title' });
     expect(link).toHaveAttribute(
@@ -118,8 +141,15 @@ describe('DownloadItem app-detail link', () => {
       '/search/6503940939?platform=tvos',
     );
 
-    const secondRow = container.querySelector('div.grid.grid-cols-3');
-    expect(secondRow?.firstElementChild).toBe(link);
+    // The row's own action leads, the app's page follows it, delete stays last.
+    const actionRow = container.querySelector('div.grid.grid-cols-3');
+    expect(
+      Array.from(actionRow?.children ?? []).map((child) => child.textContent),
+    ).toEqual([
+      'downloads.package.checkUpdate',
+      'search.product.title',
+      'downloads.package.delete',
+    ]);
 
     // The icon and the name lead to the app, not the package.
     const headerLinks = getAllByRole('link', { name: 'Forward' });
@@ -142,18 +172,7 @@ describe('DownloadItem app-detail link', () => {
   });
 
   it('carries the owning account in the navigation state', () => {
-    const owner: Account = {
-      email: 'owner-cn@example.test',
-      password: 'x',
-      appleId: 'owner-cn@example.test',
-      store: '143465',
-      firstName: 'Owner',
-      lastName: 'Cn',
-      passwordToken: 't',
-      directoryServicesIdentifier: 'dsid-owner',
-      cookies: [],
-      deviceIdentifier: 'aabbccddeeff',
-    };
+    const owner = createAccount();
     const previous = useAccountsStore.getState().accounts;
     useAccountsStore.setState({ accounts: [owner] });
 
@@ -224,13 +243,14 @@ describe('DownloadItem app-detail link', () => {
 describe('DownloadItem retry', () => {
   afterEach(cleanup);
 
-  it('offers the retry in place of the package link when the download failed', () => {
-    // The package link would open a page about a file that never finished
-    // arriving, so that slot is where the retry belongs.
+  it('offers the retry rather than the update check when the download failed', () => {
+    // A failed download holds no package to compare against the storefront, so
+    // the slot asks for the same build again instead of looking for a newer one.
     const onRetry = vi.fn();
-    renderItem(createTask({ status: 'failed', error: 'Download timed out' }), {
-      onRetry,
-    });
+    const { container } = renderItem(
+      createTask({ status: 'failed', error: 'Download timed out' }),
+      { onRetry, onCheckUpdate: vi.fn() },
+    );
 
     fireEvent.click(
       screen.getByRole('button', { name: 'downloads.package.retry' }),
@@ -238,21 +258,27 @@ describe('DownloadItem retry', () => {
 
     expect(onRetry).toHaveBeenCalledWith('task-id');
     expect(
-      screen.queryByRole('link', { name: 'downloads.package.title' }),
+      screen.queryByRole('button', { name: 'downloads.package.checkUpdate' }),
     ).toBeNull();
+    // Whatever the row offers leads its action row in any state.
+    expect(container.querySelector('div.grid')?.firstElementChild?.textContent).toBe(
+      'downloads.package.retry',
+    );
   });
 
-  it('leaves the package link when the failed download has no account left', () => {
-    // Without its account there is nothing to retry with, so the row keeps what
-    // it can still offer instead of a button that would do nothing.
-    renderItem(createTask({ status: 'failed', error: 'Download timed out' }));
+  it('leaves the slot empty when the failed download has no account left', () => {
+    // Without its account there is nothing to retry with, so the row draws only
+    // the two buttons that can still work rather than one that would do nothing.
+    const { container } = renderItem(
+      createTask({ status: 'failed', error: 'Download timed out' }),
+    );
 
     expect(
       screen.queryByRole('button', { name: 'downloads.package.retry' }),
     ).toBeNull();
-    expect(
-      screen.getByRole('link', { name: 'downloads.package.title' }),
-    ).toBeTruthy();
+    expect(container.querySelector('div.grid')?.className).toContain(
+      'grid-cols-2',
+    );
   });
 
   it('offers no retry while the download is still running', () => {
@@ -267,6 +293,162 @@ describe('DownloadItem retry', () => {
     expect(
       screen.getByRole('button', { name: 'downloads.package.pause' }),
     ).toBeTruthy();
+  });
+});
+
+describe('DownloadItem update check', () => {
+  afterEach(cleanup);
+
+  it('offers it once the download is done, and hands back the row', () => {
+    const onCheckUpdate = vi.fn();
+    renderItem(createTask(), { onCheckUpdate });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'downloads.package.checkUpdate' }),
+    );
+
+    expect(onCheckUpdate).toHaveBeenCalledWith('task-id');
+  });
+
+  it('says the check is running, and refuses a second one', () => {
+    renderItem(createTask(), { onCheckUpdate: vi.fn(), checkingUpdate: true });
+
+    const button = screen.getByRole('button', {
+      name: 'downloads.package.checkingUpdate',
+    });
+    expect(button).toHaveProperty('disabled', true);
+  });
+
+  it('leaves the slot out when there is no account to ask with', () => {
+    // The check is the owning account's question; without it the row draws the
+    // app link and delete only.
+    const { container } = renderItem(createTask());
+    const actions = container.querySelector('div.grid');
+
+    expect(
+      screen.queryByRole('button', { name: 'downloads.package.checkUpdate' }),
+    ).toBeNull();
+    expect(actions?.className).toContain('grid-cols-2');
+  });
+});
+
+describe('DownloadItem missing package', () => {
+  afterEach(cleanup);
+
+  it('says a finished package is gone rather than looking installable', () => {
+    // Packages are temporary, so a finished row can outlive its file; it has to
+    // say so instead of leaving the user with install buttons that fail.
+    renderItem(createTask({ status: 'completed', hasFile: false }));
+
+    expect(screen.getByText('downloads.package.fileUnavailable')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'downloads.package.install' }))
+      .toBeNull();
+  });
+});
+
+describe('DownloadItem information tiles', () => {
+  afterEach(() => {
+    cleanup();
+    useAccountsStore.setState({ accounts: [] });
+  });
+
+  /** The row's facts, keyed by their label — the tiles it is drawn from. */
+  function tiles(container: HTMLElement): Record<string, string> {
+    return Object.fromEntries(
+      Array.from(container.querySelectorAll('dt')).map((dt) => [
+        dt.textContent ?? '',
+        dt.nextElementSibling?.textContent ?? '',
+      ]),
+    );
+  }
+
+  it('names the build first and closes with whose download it is', () => {
+    // What the app is and what it takes to run it (App ID, Bundle ID, minimum
+    // OS, size), then the build itself (version with its id, release date),
+    // then the two facts that tell two downloads of one build apart — whose it
+    // is, and when it arrived.
+    const { container } = renderItem(createTask());
+
+    expect(Object.keys(tiles(container))).toEqual([
+      'downloads.package.appId',
+      'downloads.package.bundleId',
+      'downloads.package.minOs',
+      'downloads.package.size',
+      'downloads.package.version',
+      'downloads.package.released',
+      'downloads.package.account',
+      'downloads.package.downloadedAt',
+    ]);
+  });
+
+  it('names the account the way the account pickers do', () => {
+    const owner = createAccount();
+    useAccountsStore.setState({ accounts: [owner] });
+
+    const { container } = renderItem(createTask(), {
+      accountEmail: owner.email,
+    });
+
+    // Storefront first, then the name and the address: the picker's own label,
+    // not the bare email the record carries.
+    expect(tiles(container)['downloads.package.account']).toBe(
+      'countries.CN · Owner Cn (owner-cn@example.test)',
+    );
+  });
+
+  it('falls back to what the record carries when its account is gone', () => {
+    // A package outlives the account it was downloaded with; the row says the
+    // address it is filed under rather than leaving the fact out.
+    const { container } = renderItem(createTask(), {
+      accountEmail: 'deleted@example.test',
+    });
+
+    expect(tiles(container)['downloads.package.account']).toBe(
+      'deleted@example.test',
+    );
+  });
+
+  it('says when the package arrived, in local time', () => {
+    const { container } = renderItem(createTask());
+
+    // The record carries UTC; the row prints the reader's own clock in one
+    // stable shape, like the package detail page does.
+    expect(tiles(container)['downloads.package.downloadedAt']).toMatch(
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/,
+    );
+  });
+
+  it('leaves the header to the app, and states the identifiers below', () => {
+    // The bundle id used to have a line of its own under the name, with the
+    // account under it; both are tiles now, stated once, among the facts.
+    const owner = createAccount();
+    useAccountsStore.setState({ accounts: [owner] });
+
+    const { container } = renderItem(createTask(), {
+      accountEmail: owner.email,
+    });
+
+    expect(container.querySelector('p.font-mono')).toBeNull();
+    expect(tiles(container)['downloads.package.bundleId']).toBe(
+      'flux.inchmade.app',
+    );
+    expect(tiles(container)['downloads.package.appId']).toBe('6503940939');
+    expect(
+      (container.textContent?.match(/downloads\.package\.account/g) ?? [])
+        .length,
+    ).toBe(1);
+  });
+
+  it('says so when the bundle id is one the record does not carry', () => {
+    // A by-ID download of an app nothing has named yet: the grid keeps its
+    // shape and marks the identifier unknown, as it does for a date.
+    const { container } = renderItem(
+      createTask({
+        software: { ...createTask().software, bundleID: '' },
+      }),
+    );
+
+    expect(tiles(container)['downloads.package.bundleId']).toBe('—');
   });
 });
 

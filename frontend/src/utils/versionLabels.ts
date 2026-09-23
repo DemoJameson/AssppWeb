@@ -17,7 +17,8 @@ function datedLabel(versionId: string, meta: VersionMetadata): string {
 }
 
 /**
- * Option text for the download version pickers (ProductDetail, PackageDetail):
+ * Option text for the download version pickers (ProductDetail's, and the
+ * downloads page's update picker):
  * the display version leads, the external id stays in parentheses because it is
  * the value the picker submits, and the release date follows when a package
  * vouches for it. A version being looked up right now appends a fetching
@@ -33,7 +34,7 @@ export function versionOptionLabel(
 }
 
 /**
- * Row text for version browsing (PackageDetail's update picker):
+ * Row text for version browsing (the downloads page's update picker):
  * the same shape as {@link versionOptionLabel}, so the version menus
  * read alike. Uncached rows show the raw id; a lookup in flight appends the
  * fetching marker.

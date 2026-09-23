@@ -193,9 +193,6 @@
       "actionHint": "プレビュー操作は実際のダウンロードには影響しません。",
       "account": "プレビューアカウント"
     },
-    "item": {
-      "viewPackage": "パッケージを表示"
-    },
     "add": {
       "versionId": "バージョン ID（任意）",
       "versionIdPlaceholder": "空欄なら最新バージョン",
@@ -204,13 +201,9 @@
       "localRecordNote": "この App は App Store から削除されています、情報は以前にダウンロードしたパッケージの記録によるものです。"
     },
     "package": {
-      "title": "パッケージの詳細",
-      "notFound": "ダウンロードが見つかりません。",
-      "deleteConfirm": "このダウンロードを削除しますか？",
       "bundleId": "Bundle ID",
       "version": "バージョン",
       "appId": "アプリ ID",
-      "versionId": "バージョン ID",
       "account": "アカウント",
       "downloadedAt": "ダウンロード日時",
       "install": "デバイスにインストール",
@@ -223,11 +216,9 @@
       "quickActions": "クイック操作",
       "shareFailed": "インストールリンクを共有できませんでした。",
       "downloadFailed": "パッケージファイルを取得できませんでした。",
-      "information": "パッケージ情報",
       "size": "サイズ",
       "minOs": "最小OS",
       "released": "リリース日",
-      "developer": "開発元",
       "fileUnavailable": "パッケージファイルを利用できません。",
       "pause": "一時停止",
       "resume": "再開",

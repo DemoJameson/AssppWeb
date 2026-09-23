@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { TFunction } from "i18next";
-import { accountHardwareId, accountSelectLabel } from "../../src/utils/account";
+import {
+  accountHardwareId,
+  accountSelectLabel,
+  packageAccountLabel,
+} from "../../src/utils/account";
 import type { Account } from "../../src/types";
 
 const t = ((_key: string, fallback?: string) =>
@@ -24,6 +28,36 @@ describe("accountSelectLabel", () => {
     expect(accountSelectLabel(account, t)).toBe(
       "JP · Demo User (demo@example.test)",
     );
+  });
+
+  it("leaves out a name the account does not carry", () => {
+    // An account with no name on it is its address alone — no empty pair of
+    // brackets, and no separator introducing nothing.
+    expect(
+      accountSelectLabel({ ...account, firstName: "", lastName: "" }, t),
+    ).toBe("JP · demo@example.test");
+  });
+
+  it("still names an account whose storefront is unknown", () => {
+    expect(accountSelectLabel({ ...account, store: "" }, t)).toBe(
+      "Demo User (demo@example.test)",
+    );
+  });
+});
+
+describe("packageAccountLabel", () => {
+  it("names the account the way the pickers name it", () => {
+    // A download is told apart by whose it is, and the row has to say that in
+    // the same words the account select offers — one account, one name.
+    expect(packageAccountLabel(account, "123456789", t)).toBe(
+      "JP · Demo User (demo@example.test)",
+    );
+  });
+
+  it("falls back to what the record still carries once the account is gone", () => {
+    // A package outlives the account it was downloaded with, so the row says
+    // the key that package is filed under rather than nothing at all.
+    expect(packageAccountLabel(undefined, "abc123hash", t)).toBe("abc123hash");
   });
 });
 

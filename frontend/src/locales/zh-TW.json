@@ -193,9 +193,6 @@
       "actionHint": "預覽操作不會影響實際下載。",
       "account": "預覽帳號"
     },
-    "item": {
-      "viewPackage": "查看安裝包"
-    },
     "add": {
       "versionId": "版本 ID（可選）",
       "versionIdPlaceholder": "留空即最新版",
@@ -204,13 +201,9 @@
       "localRecordNote": "此 App 已從 App Store 下架，資訊來自本伺服器已下載的安裝包記錄。"
     },
     "package": {
-      "title": "安裝包詳情",
-      "notFound": "找不到下載。",
-      "deleteConfirm": "刪除此下載？",
       "bundleId": "Bundle ID",
       "version": "版本",
       "appId": "App ID",
-      "versionId": "版本 ID",
       "account": "帳號",
       "downloadedAt": "下載時間",
       "install": "在裝置上安裝",
@@ -223,11 +216,9 @@
       "quickActions": "快速操作",
       "shareFailed": "無法分享安裝連結。",
       "downloadFailed": "無法取回安裝包檔案。",
-      "information": "安裝包資訊",
       "size": "大小",
       "minOs": "最低系統版本",
       "released": "發佈日期",
-      "developer": "開發者",
       "fileUnavailable": "安裝包檔案無法使用。",
       "pause": "暫停",
       "resume": "繼續",
