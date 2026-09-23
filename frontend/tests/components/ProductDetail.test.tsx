@@ -20,6 +20,7 @@ import { useToastStore } from '../../src/store/toast';
 import { useVersionListsStore } from '../../src/store/versionLists';
 import { useVersionMetadataStore } from '../../src/store/versionMetadata';
 import { formatBytes } from '../../src/utils/format';
+import { accountHash } from '../../src/utils/account';
 import type { Account, DownloadTask, Software } from '../../src/types';
 
 const mocks = vi.hoisted(() => ({
@@ -135,6 +136,11 @@ const account: Account = {
   cookies: [],
   deviceIdentifier: '001122aabbcc',
 };
+
+// The key the download list files a package under: a package belongs to the
+// account that fetched it, so a fixture task is one of this account's only when
+// it wears this account's digest (see `utils/downloaded`).
+const accountKey = await accountHash(account);
 
 /** A numeric App ID nothing knows: the version exchange is what decides it. */
 const bareRecord: Software = {
@@ -1098,7 +1104,7 @@ describe('ProductDetail download action', () => {
     const held: DownloadTask = {
       id: 'held',
       software: { ...app, platform: 'ios', externalVersionId: '890657720' },
-      accountHash: 'hash',
+      accountHash: accountKey,
       status: 'completed',
       progress: 100,
       speed: '',
@@ -1172,7 +1178,7 @@ describe('ProductDetail download action', () => {
         minimumOsVersion: '15.0',
         releaseDate: '2026-06-01T10:00:00Z',
       },
-      accountHash: 'hash',
+      accountHash: accountKey,
       status: 'completed',
       progress: 100,
       speed: '',
@@ -1337,7 +1343,7 @@ describe('ProductDetail download action', () => {
         minimumOsVersion: '15.0',
         releaseDate: '2026-06-01T10:00:00Z',
       },
-      accountHash: 'hash',
+      accountHash: accountKey,
       status: 'completed',
       progress: 100,
       speed: '',
@@ -1415,7 +1421,7 @@ describe('ProductDetail download action', () => {
     const held: DownloadTask = {
       id: 'held-888',
       software: { ...app, version: '3.4.4', externalVersionId: '888' },
-      accountHash: 'hash',
+      accountHash: accountKey,
       status: 'completed',
       progress: 100,
       speed: '',
@@ -1468,7 +1474,7 @@ describe('ProductDetail download action', () => {
         minimumOsVersion: '15.0',
         releaseDate: '2026-06-01T10:00:00Z',
       },
-      accountHash: 'hash',
+      accountHash: accountKey,
       status: 'completed',
       progress: 100,
       speed: '',
@@ -1531,7 +1537,7 @@ describe('ProductDetail download action', () => {
     const held: DownloadTask = {
       id: 'held-tvos',
       software: { ...app, platform: 'tvos', externalVersionId: '890657720' },
-      accountHash: 'hash',
+      accountHash: accountKey,
       status: 'completed',
       progress: 100,
       speed: '',
@@ -1548,6 +1554,60 @@ describe('ProductDetail download action', () => {
     await waitFor(() => expect(accountSelect).toHaveTextContent(account.email));
 
     expect(screen.queryByText('search.product.alreadyDownloaded')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'search.product.download' }),
+    ).toBeEnabled();
+  });
+
+  it('lets another account download a build this one already holds', async () => {
+    // A package belongs to the account that fetched it: the same build under a
+    // second account is a package of its own, so the first account's copy
+    // neither marks it here nor keeps the download button out.
+    mocks.accounts = [
+      account,
+      {
+        ...account,
+        email: 'second@example.test',
+        appleId: 'second@example.test',
+        // Distinct accounts have distinct Apple ids, which is what the digest
+        // of the download list is taken from.
+        directoryServicesIdentifier: '987654321',
+        firstName: 'Second',
+        lastName: 'User',
+      },
+    ];
+    const held: DownloadTask = {
+      id: 'held',
+      software: { ...app, platform: 'ios', externalVersionId: '890657720' },
+      accountHash: accountKey,
+      status: 'completed',
+      progress: 100,
+      speed: '',
+      hasFile: true,
+      createdAt: '2026-09-20T00:00:00.000Z',
+    };
+    useDownloadsStore.setState({ tasks: [held] });
+    useVersionListsStore.setState({
+      lists: { '123456:ios:US': ['890657720', '818970197'] },
+    });
+    renderProductDetail(undefined, { metadataSource: 'local' });
+
+    // The owning account opens on its own package, and the build is refused.
+    const accountSelect = screen.getByRole('combobox', {
+      name: 'search.product.account',
+    });
+    await waitFor(() => expect(accountSelect).toHaveTextContent(account.email));
+    await waitFor(() =>
+      expect(screen.getByText('search.product.alreadyDownloaded')).toBeTruthy(),
+    );
+
+    // The other account has no package of that build, so it may fetch it.
+    fireEvent.click(accountSelect);
+    fireEvent.click(screen.getByRole('option', { name: /second@example\.test/ }));
+
+    await waitFor(() =>
+      expect(screen.queryByText('search.product.alreadyDownloaded')).toBeNull(),
+    );
     expect(
       screen.getByRole('button', { name: 'search.product.download' }),
     ).toBeEnabled();

@@ -13,6 +13,7 @@ import {
   useVersionListsStore,
   versionListKey,
 } from "../../src/store/versionLists";
+import { accountHash } from "../../src/utils/account";
 import type { Account, DownloadTask, Software } from "../../src/types";
 
 const mocks = vi.hoisted(() => ({
@@ -91,6 +92,11 @@ const account: Account = {
   cookies: [],
   deviceIdentifier: "aabbccddeeff",
 };
+
+// The key the queue files a package under: the duplicate check asks whether
+// *this* account holds the build, so a fixture task has to wear this account's
+// digest to speak for it (see `utils/downloaded`).
+const accountKey = await accountHash(account);
 
 const app: Software = {
   id: 1492142120,
@@ -364,12 +370,13 @@ describe("useDownloadAction", () => {
     expect(apiPost).not.toHaveBeenCalled();
   });
 
-  /** A package the server holds — downloading it again is a duplicate. */
+  /** A package the account holds — downloading it again is a duplicate. */
   function heldTask(overrides: {
     version?: string;
     externalVersionId?: string;
     platform?: Software["platform"];
     status?: DownloadTask["status"];
+    accountHash?: string;
   } = {}): DownloadTask {
     return {
       id: "held",
@@ -379,7 +386,7 @@ describe("useDownloadAction", () => {
         platform: overrides.platform ?? app.platform,
         externalVersionId: overrides.externalVersionId,
       },
-      accountHash: "hash",
+      accountHash: overrides.accountHash ?? accountKey,
       status: overrides.status ?? "completed",
       progress: 100,
       speed: "",
@@ -387,7 +394,7 @@ describe("useDownloadAction", () => {
     };
   }
 
-  it("refuses a pinned build the server already holds", async () => {
+  it("refuses a pinned build the account already holds", async () => {
     mocks.tasks = [heldTask({ externalVersionId: "900" })];
 
     const { result } = renderHook(() => useDownloadAction());
@@ -400,6 +407,23 @@ describe("useDownloadAction", () => {
     expect(apiPost).not.toHaveBeenCalled();
     const titles = useToastStore.getState().toasts.map((toast) => toast.title);
     expect(titles).toEqual(["toast.title.alreadyDownloaded"]);
+  });
+
+  it("downloads the same build for another account", async () => {
+    // The build is already here under a different account. A package belongs to
+    // the account that fetched it, so asking for it here is not a repeat — the
+    // queue's copy of it is not this account's.
+    mocks.tasks = [
+      heldTask({ externalVersionId: "900", accountHash: "another-account" }),
+    ];
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, app, "900");
+    });
+
+    expect(getDownloadInfo).toHaveBeenCalledTimes(1);
+    expect(apiPost).toHaveBeenCalled();
   });
 
   it("refuses a repeat of the version the record names", async () => {

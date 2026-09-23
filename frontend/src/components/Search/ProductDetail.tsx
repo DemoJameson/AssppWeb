@@ -13,6 +13,7 @@ import {
   previewProductApp,
 } from './productPreview';
 import { useAccounts } from "../../hooks/useAccounts";
+import { useAccountHashes } from "../../hooks/useAccountHashes";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useSelectedAccount } from "../../hooks/useSelectedAccount";
 import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
@@ -131,8 +132,10 @@ export default function ProductDetail() {
     fillVersionsSilently,
   } = useVersionMetadataMap();
 
-  // Every package the server holds: what the version list marks as downloaded,
-  // and what a download refuses to add a second time.
+  // Every package the download list carries: what the version list may mark as
+  // downloaded, and what a download refuses to add a second time. Both are
+  // asked of one account (`accountKey`) — a package belongs to the account
+  // that fetched it.
   const tasks = useDownloadsStore((s) => s.tasks);
 
   const { selectedAccount, selectAccount } = useSelectedAccount(
@@ -141,6 +144,11 @@ export default function ProductDetail() {
   );
 
   const account = productAccounts.find((a) => a.email === selectedAccount);
+  // The key a package is filed under, per account (see `utils/downloaded`):
+  // everything this page calls "已下载" is asked of the account on screen — the
+  // same build under another account is a package of its own.
+  const accountHashes = useAccountHashes(productAccounts);
+  const accountKey = account ? accountHashes[account.email] ?? '' : '';
   const isDownloading = loadingAction === 'download';
   const isPurchasing = loadingAction === 'purchase';
   const isSelectingVersions = loadingAction === 'versions';
@@ -164,13 +172,14 @@ export default function ProductDetail() {
   // list — and everything it is matched with — belongs to the dimension the
   // page is showing.
   const appPlatform = app?.platform ?? platform;
-  // The builds the server already holds of this app. A version list is asked
-  // of one platform, so only that platform's packages can answer for the ids
-  // it offers.
+  // The builds the selected account already holds of this app. A version list
+  // is asked of one platform, so only that platform's packages can answer for
+  // the ids it offers — and only that account's, since another account's copy
+  // of a build neither marks it here nor keeps it out of a download.
   const downloaded = app
-    ? downloadedBuilds(tasks, app.id, appPlatform)
+    ? downloadedBuilds(tasks, app.id, appPlatform, accountKey)
     : undefined;
-  /** Whether the build behind this version id is already on the server. */
+  /** Whether the build behind this version id is already held by this account. */
   const isVersionDownloaded = (versionId: string) =>
     !!downloaded &&
     isBuildDownloaded(
@@ -191,7 +200,7 @@ export default function ProductDetail() {
   const currentVersionId =
     selectedVersion || routeVersionId || latestListVersionId;
   const currentMeta = versionMeta[currentVersionId];
-  // The package the server holds of that build, when it holds one: a compiled
+  // The package the account holds of that build, when it holds one: a compiled
   // package is the authority for its own version, size, minimum OS and date.
   const heldBuild = app
     ? heldBuildFor(
@@ -200,6 +209,7 @@ export default function ProductDetail() {
         appPlatform,
         currentVersionId,
         currentMeta?.displayVersion,
+        accountKey,
       )
     : undefined;
   // Whether the record describes the build on screen. The record carries its
@@ -600,7 +610,7 @@ export default function ProductDetail() {
     navigate("/downloads", { state: { highlightTaskId: taskId } });
   }
 
-  /** The task that holds this version-list build, when one does. */
+  /** The task of this account that holds this version-list build, when one does. */
   function heldTaskFor(versionId: string) {
     return app
       ? heldBuildFor(
@@ -609,6 +619,7 @@ export default function ProductDetail() {
           appPlatform,
           versionId,
           versionMeta[versionId]?.displayVersion,
+          accountKey,
         )
       : undefined;
   }
@@ -645,8 +656,8 @@ export default function ProductDetail() {
     // The build the package hop came from keeps the pick: that is the build the
     // page was opened on, and its row says 已下载 — moving to the next unheld
     // build on open would read as the page forgetting which package it is
-    // about. Otherwise the first build the server does not hold is picked, so
-    // the download button has something to ask for.
+    // about. Otherwise the first build this account does not hold is picked,
+    // so the download button has something to ask for.
     const selectable = list.filter((id) => !isVersionDownloaded(id));
     setSelectedVersion(
       routeVersionId && list.includes(routeVersionId)
@@ -874,7 +885,7 @@ export default function ProductDetail() {
                       versionMeta[v],
                       pendingMeta[v],
                     );
-                    // A build this server already holds refuses the pick —
+                    // A build this account already holds refuses the pick —
                     // there is nothing to gain from downloading it twice. Its
                     // 已下载 mark is a clickable chip instead of a suffix: it
                     // leads to the package on the downloads page.
@@ -1002,8 +1013,8 @@ export default function ProductDetail() {
                 )}
               </div>
             )}
-            {/* Why the download button is out: the build it would ask for is
-                already on the server. The button before the text leads to that
+            {/* Why the download button is out: the account already holds the
+                build it would ask for. The button before the text leads to that
                 package — the downloads page highlights and scrolls to it. */}
             {!noRegionAccount && targetDownloaded && (
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">

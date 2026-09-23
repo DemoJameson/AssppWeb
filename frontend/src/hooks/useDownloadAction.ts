@@ -74,15 +74,20 @@ export function useDownloadAction() {
     const appName = app.name;
     const pin = versionId || versionPinFallback(app, account, country);
 
-    // A build the server already holds — or is still fetching — would only
-    // become a second copy of the same package. The queue is re-read first:
-    // it moves on its own, and a page opened straight from search may never
-    // have read it at all.
+    // A build *this account* already holds — or is still fetching — would only
+    // become a second copy of the same package; the same build under another
+    // account is a package of its own, and asking for it there is the point.
+    // The queue is re-read first: it moves on its own, and a page opened
+    // straight from search may never have read it at all. The hash is taken
+    // from the account as it stands — the rows in that queue are keyed by the
+    // same digest, so the comparison lands on the tasks this account can see.
+    const accountKey = await accountHash(account);
     await fetchTasks();
     const duplicate = findDuplicateDownload(
       useDownloadsStore.getState().tasks,
       app,
       pin,
+      accountKey,
     );
     if (duplicate) {
       addToast(
@@ -164,6 +169,8 @@ export function useDownloadAction() {
       !!app.version &&
       app.version === output.bundleShortVersionString;
 
+    // The account the package is filed under: the session the license step may
+    // have refreshed, whose digest is the key the finished task is listed by.
     const hash = await accountHash(currentAccount);
 
     // A macOS package has to be decrypted once it lands, and only this side

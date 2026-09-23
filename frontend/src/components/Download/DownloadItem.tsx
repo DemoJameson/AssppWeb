@@ -4,6 +4,7 @@ import AppIcon from '../common/AppIcon';
 import Badge from '../common/Badge';
 import ProgressBar from '../common/ProgressBar';
 import PackageQuickActions, { dangerButtonClass } from './PackageQuickActions';
+import { isPreviewDownloadTask } from './previewTasks';
 import { useAccounts } from '../../hooks/useAccounts';
 import { accountStoreCountry } from '../../utils/account';
 import { formatDateISO } from '../../utils/software';
@@ -64,6 +65,12 @@ export default function DownloadItem({
   // package and a build already here reads as 已下载. The state rides the
   // Link's `state` prop — the object form of `to` drops it here.
   const owningAccount = accounts.find((a) => a.email === accountEmail);
+  // A package belongs to the account it was downloaded with. The hash is the
+  // record's own key; the email is the name the user reads, and a task whose
+  // account is gone (or a preview row) falls back to what the record carries.
+  const accountLabel = isPreviewDownloadTask(task)
+    ? t('downloads.preview.account')
+    : accountEmail || task.accountHash;
   const appDetailHref = task.software.id
     ? `/search/${task.software.id}?platform=${task.software.platform ?? 'ios'}${
         preview ? '&preview=product' : ''
@@ -134,6 +141,20 @@ export default function DownloadItem({
             className="mt-1 truncate font-mono text-[11px] text-gray-400 dark:text-gray-500"
           >
             {task.software.bundleID}
+          </p>
+          {/* The account the package belongs to — the same fact the package
+              detail page leads with, and what tells two packages of one build
+              apart now that each account keeps its own. */}
+          <p className="mt-0.5 flex min-w-0 items-baseline gap-1.5 truncate text-[11px] text-gray-400 dark:text-gray-500">
+            <span className="shrink-0">
+              {t('downloads.package.account')}
+            </span>
+            <span
+              title={accountLabel}
+              className="min-w-0 truncate text-gray-500 dark:text-gray-400"
+            >
+              {accountLabel}
+            </span>
           </p>
         </div>
       </div>

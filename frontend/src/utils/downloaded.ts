@@ -20,16 +20,25 @@ export function blocksRedownload(task: DownloadTask): boolean {
 }
 
 /**
- * The tasks that speak for one app on one platform. A package compiled before
- * the platform was recorded carries none and so cannot contradict the pick —
- * it stays a candidate.
+ * The tasks that speak for one app on one platform *under one account*. A
+ * package belongs to the account that fetched it — it carries that account's
+ * license and its signature — so another account's copy is not this account's:
+ * it neither blocks this account from downloading the same build nor answers as
+ * something this account holds. `accountHash` is the download list's own key
+ * (`utils/account.accountHash`); a hash that names no account (an account whose
+ * digest is not known yet) matches nothing.
+ *
+ * A package compiled before the platform was recorded carries none and so
+ * cannot contradict the pick — it stays a candidate.
  */
 export function tasksForApp(
   tasks: DownloadTask[],
   appId: number,
-  platform?: Platform,
+  platform: Platform | undefined,
+  accountHash: string,
 ): DownloadTask[] {
   return tasks.filter((task) => {
+    if (task.accountHash !== accountHash) return false;
     if (task.software.id !== appId) return false;
     const recorded = task.software.platform;
     return !platform || !recorded || recorded === platform;
@@ -47,17 +56,18 @@ export interface DownloadedBuilds {
 }
 
 /**
- * What the server already holds of one app on one platform: the builds a
+ * What one account already holds of one app on one platform: the builds a
  * version list may mark as downloaded, and a download may refuse to repeat.
  */
 export function downloadedBuilds(
   tasks: DownloadTask[],
   appId: number,
-  platform?: Platform,
+  platform: Platform | undefined,
+  accountHash: string,
 ): DownloadedBuilds {
   const ids = new Set<string>();
   const versions = new Set<string>();
-  for (const task of tasksForApp(tasks, appId, platform)) {
+  for (const task of tasksForApp(tasks, appId, platform, accountHash)) {
     if (!holdsPackage(task)) continue;
     const id = task.software.externalVersionId?.trim();
     if (id) {
@@ -71,7 +81,7 @@ export function downloadedBuilds(
 }
 
 /**
- * Whether a build of a version list is one the server already holds. The
+ * Whether a build of a version list is one the account already holds. The
  * external id decides it; the version number is the fallback for packages that
  * predate the id, and two builds can share a number — so it only ever speaks
  * for a package that has no id of its own.
@@ -86,10 +96,10 @@ export function isBuildDownloaded(
 }
 
 /**
- * The held package that *is* the build a version list named — the task its
- * facts can be read from: the compiled package's own version, size, minimum OS
- * and date, which is what a detail view describes when that build is the one on
- * screen.
+ * The package the account holds that *is* the build a version list named — the
+ * task its facts can be read from: the compiled package's own version, size,
+ * minimum OS and date, which is what a detail view describes when that build is
+ * the one on screen. Another account's package of the same build is not it.
  *
  * Identity follows {@link isBuildDownloaded}: the external id decides it, and a
  * version number only ever speaks for a package that has no id of its own.
@@ -99,10 +109,11 @@ export function heldBuildFor(
   appId: number,
   platform: Platform | undefined,
   versionId: string,
-  displayVersion?: string,
+  displayVersion: string | undefined,
+  accountHash: string,
 ): DownloadTask | undefined {
   if (!versionId && !displayVersion) return undefined;
-  return tasksForApp(tasks, appId, platform).find((task) => {
+  return tasksForApp(tasks, appId, platform, accountHash).find((task) => {
     if (!holdsPackage(task)) return false;
     const id = task.software.externalVersionId?.trim();
     if (id) return id === versionId;
@@ -111,11 +122,14 @@ export function heldBuildFor(
 }
 
 /**
- * The task that already covers the build a download would ask for — the one
- * that makes adding it a duplicate, and that the caller should point at
- * instead. Undefined when the build is not covered, or when neither the pin
- * nor the record can name the build the request would land on (Apple picks it
- * then, so nothing is knowingly repeated).
+ * The task of this account that already covers the build a download would ask
+ * for — the one that makes adding it a duplicate, and that the caller should
+ * point at instead. Undefined when the account does not hold the build, or when
+ * neither the pin nor the record can name the build the request would land on
+ * (Apple picks it then, so nothing is knowingly repeated).
+ *
+ * The account is what "already downloaded" is asked of: the same build under
+ * another account is a different package, and downloading it there is the point.
  *
  * A pinned build is identified by its external id alone: the record's own
  * version number belongs to whatever build the catalogue named, not to the one
@@ -124,11 +138,15 @@ export function heldBuildFor(
 export function findDuplicateDownload(
   tasks: DownloadTask[],
   app: Software,
-  versionId?: string,
+  versionId: string | undefined,
+  accountHash: string,
 ): DownloadTask | undefined {
-  const covering = tasksForApp(tasks, app.id, app.platform).filter(
-    blocksRedownload,
-  );
+  const covering = tasksForApp(
+    tasks,
+    app.id,
+    app.platform,
+    accountHash,
+  ).filter(blocksRedownload);
   if (versionId) {
     return covering.find(
       (task) => task.software.externalVersionId === versionId,
