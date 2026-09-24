@@ -3,12 +3,14 @@ import { useAccounts } from "./useAccounts";
 import { useToastStore } from "../store/toast";
 import { useDownloadsStore } from "../store/downloads";
 import { useSettingsStore } from "../store/settings";
+import { useAccountsStore } from "../store/accounts";
 import { DownloadError, getDownloadInfo } from "../apple/download";
 import { purchaseApp } from "../apple/purchase";
 import { authenticate } from "../apple/authenticate";
 import { FAILURE_LICENSE_NOT_FOUND } from "../apple/config";
 import { needsPlatformPin } from "../apple/platform";
 import { listVersions } from "../apple/versionFinder";
+import { getVersionMetadata } from "../apple/versionLookup";
 import { getCachedVersionList, versionListKey } from "../store/versionLists";
 import { apiPost, apiGet } from "../api/client";
 import {
@@ -52,6 +54,17 @@ function versionPinFallback(
   return getCachedVersionList(
     versionListKey(app.id, app.platform, region),
   )?.[0];
+}
+
+/** The newest build an app still serves, as `lookupNewestServableVersion` finds
+ * it: the id to fetch, the number to name it by, and the list to pick from. */
+export interface ServableVersion {
+  /** Apple's id of the newest build the list names. */
+  versionId: string;
+  /** The build's own version number, when an exchange could name one. */
+  displayVersion?: string;
+  /** The app's builds, newest first — what an update picker offers. */
+  versions: string[];
 }
 
 /**
@@ -307,6 +320,74 @@ export function useDownloadAction() {
     return result;
   }
 
+  /**
+   * The newest build an app still serves, with the version number to name it by
+   * — the answer to "is there an update" for an app the storefront has
+   * forgotten.
+   *
+   * A listed app needs none of this: the catalogue's own `version` is the
+   * newest, so `lookupApp` answers for it alone. A delisted app is what this
+   * exists for. The catalogue has nothing left for it, and the package-app index
+   * the backend falls back to only describes the build already on disk — so a
+   * check comparing against *that* can never see an update, however long the app
+   * has moved on. The version exchange is the channel that outlives delisting:
+   * pinned to a build recorded for the app (`versionPins`), it answers with the
+   * app's version list, whose newest entry — the list arrives newest first — is
+   * the newest *servable* build.
+   *
+   * One further pinned exchange then reads that build's display version, which
+   * is the number an update message reports. It is skipped when the list's
+   * newest build is the one recorded, which is the no-update case and needs no
+   * number. A build the exchange will not describe is still an answer — it is
+   * servable, and the caller can name it by its id. Undefined only when the list
+   * names no build at all, which is not "up to date" but "could not be told".
+   */
+  async function lookupNewestServableVersion(
+    account: Account,
+    app: Software,
+    recordedVersionId?: string,
+  ): Promise<ServableVersion | undefined> {
+    const pinned = recordedVersionId?.trim() || undefined;
+    const list = await listVersionsWithLicense(account, app, pinned);
+    const versionId = list.versions[0];
+    if (!versionId) return undefined;
+
+    // The newest build the list names is the one already held: nothing newer to
+    // name, and so nothing for a second exchange to describe.
+    if (pinned && versionId === pinned) {
+      return { versionId, versions: list.versions };
+    }
+
+    // The license step — and the list before it — may have refreshed the
+    // session, so the exchange runs on the account as it now stands rather than
+    // on the caller's snapshot.
+    const freshest =
+      useAccountsStore
+        .getState()
+        .accounts.find((stored) => stored.email === account.email) ?? account;
+
+    try {
+      const { metadata, updatedCookies } = await getVersionMetadata(
+        freshest,
+        app,
+        versionId,
+      );
+      try {
+        await updateAccount({ ...freshest, cookies: updatedCookies });
+      } catch {
+        // Bookkeeping only — the answer matters more than the session it came
+        // with, the same trade the silent version fill makes.
+      }
+      return {
+        versionId,
+        displayVersion: metadata.displayVersion,
+        versions: list.versions,
+      };
+    } catch {
+      return { versionId, versions: list.versions };
+    }
+  }
+
   function toastDownloadError(account: Account, app: Software, error: unknown) {
     const ctx = getAccountContext(account, t);
     addToast(
@@ -337,6 +418,7 @@ export function useDownloadAction() {
     startDownload,
     acquireLicense,
     listVersionsWithLicense,
+    lookupNewestServableVersion,
     toastDownloadError,
     toastLicenseError,
   };

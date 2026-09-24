@@ -15,7 +15,10 @@ import {
 import { useDownloads } from "../../hooks/useDownloads";
 import { isActiveDownload } from "../../store/downloads";
 import { useAccounts } from "../../hooks/useAccounts";
-import { useDownloadAction } from "../../hooks/useDownloadAction";
+import {
+  useDownloadAction,
+  type ServableVersion,
+} from "../../hooks/useDownloadAction";
 import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
 import { useToastStore } from "../../store/toast";
 import { lookupApp } from "../../api/search";
@@ -23,8 +26,9 @@ import { getErrorMessage } from "../../utils/error";
 import { getAccountContext } from "../../utils/toast";
 import { isNewerVersion } from "../../utils/version";
 import { versionRowLabel } from "../../utils/versionLabels";
+import { needsVersionExchange } from "../../utils/software";
 import { storeIdToCountry } from "../../apple/config";
-import type { DownloadTask, Software } from "../../types";
+import type { Account, DownloadTask, Software } from "../../types";
 
 /**
  * What the filter picks. `active` is the bucket the Downloads tab badge
@@ -41,6 +45,117 @@ function matchesFilter(task: DownloadTask, pick: StatusFilter): boolean {
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * What a row's update check found. `unknown` is deliberately not `current`: an
+ * app nothing can name, or one whose version list names no build, has not been
+ * shown to be up to date — the check could not be made at all, and reporting it
+ * as an answer would be a lie. (That conflation is what hid a delisted app's
+ * updates: the storefront has nothing for it, and the fallback only ever
+ * describes the build already on disk.)
+ */
+type UpdateCheck =
+  | {
+      status: "newer";
+      app: Software;
+      /**
+       * The build to fetch, when one had to be named. A recalled record is
+       * reached only through a pin, so its newest build travels explicitly;
+       * absent when the storefront's current version is the one to fetch.
+       */
+      pin?: string;
+      /** The version number the update message reports. */
+      latestVersion: string;
+      /** The app's builds, newest first, when the version exchange named them. */
+      versions?: string[];
+    }
+  | { status: "current" }
+  | { status: "unknown" };
+
+/**
+ * Whether the newest build an app still serves is an update on the one a row
+ * holds. The exchange names the newest build's version number whenever it can,
+ * and that number decides — the same comparison the storefront path makes.
+ *
+ * When no number came back, the list's order is all there is to go on: the held
+ * build's own place in it says whether anything sits above it. Two ways that
+ * answer is not available, and both are left unanswered rather than guessed at:
+ * the row holds no id, or the list does not carry the build it holds — a build
+ * that is merely *different* could be an older one, and offering that as an
+ * update would replace a newer package with it.
+ */
+function isNewerServable(
+  newest: ServableVersion,
+  task: DownloadTask,
+): boolean | undefined {
+  if (newest.displayVersion) {
+    return isNewerVersion(newest.displayVersion, task.software.version);
+  }
+
+  const heldId = task.software.externalVersionId?.trim();
+  if (!heldId) return undefined;
+
+  const heldAt = newest.versions.indexOf(heldId);
+  if (heldAt === -1) return undefined;
+  return heldAt > 0;
+}
+
+/**
+ * Asks what an app still serves for a row's platform and whether it is newer
+ * than the build the row holds.
+ *
+ * Two sources, in order. The storefront, by bundle id: its `version` is the
+ * current one, and for a listed app that is the whole answer. When the
+ * storefront has forgotten the app — a delisted one, answered from the package
+ * index instead — that record describes only the build already on disk, so the
+ * comparison has to come from the version exchange, the one channel delisting
+ * leaves open (`lookupNewestServableVersion`), pinned to a build recorded for
+ * the app.
+ */
+async function checkForUpdate(
+  account: Account,
+  task: DownloadTask,
+  country: string,
+  lookupNewestServableVersion: (
+    account: Account,
+    app: Software,
+    recordedVersionId?: string,
+  ) => Promise<ServableVersion | undefined>,
+): Promise<UpdateCheck> {
+  // The platform travels with the lookup: the backend answers a delisted app
+  // from the package index per platform, and without it an id search would only
+  // ever see the iOS build (see `lookupEntityFor`).
+  const app = await lookupApp(
+    task.software.bundleID,
+    country,
+    task.software.platform,
+  );
+  if (!app) return { status: "unknown" };
+
+  if (needsVersionExchange(app)) {
+    const newest = await lookupNewestServableVersion(
+      account,
+      app,
+      task.software.externalVersionId,
+    );
+    if (!newest) return { status: "unknown" };
+    const newer = isNewerServable(newest, task);
+    if (newer === undefined) return { status: "unknown" };
+    if (!newer) return { status: "current" };
+    return {
+      status: "newer",
+      app,
+      pin: newest.versionId,
+      latestVersion: newest.displayVersion ?? newest.versionId,
+      versions: newest.versions,
+    };
+  }
+
+  if (!isNewerVersion(app.version, task.software.version)) {
+    return { status: "current" };
+  }
+  return { status: "newer", app, latestVersion: app.version };
+}
 
 export default function DownloadList() {
   const { t } = useTranslation();
@@ -65,8 +180,12 @@ export default function DownloadList() {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const addToast = useToastStore((s) => s.addToast);
   const { accounts } = useAccounts();
-  const { startDownload, listVersionsWithLicense, toastDownloadError } =
-    useDownloadAction();
+  const {
+    startDownload,
+    listVersionsWithLicense,
+    lookupNewestServableVersion,
+    toastDownloadError,
+  } = useDownloadAction();
   const { versionMeta, pendingMeta, fillVersionsSilently } =
     useVersionMetadataMap();
   const previewEnabled = isDownloadPreviewEnabled(location.search);
@@ -86,6 +205,8 @@ export default function DownloadList() {
   const [updateTarget, setUpdateTarget] = useState<{
     task: DownloadTask;
     app: Software;
+    /** The version the update message names — the newest one found. */
+    latestVersion: string;
     versions: string[];
     selected: string;
   } | null>(null);
@@ -288,21 +409,39 @@ export default function DownloadList() {
     setCheckingUpdateId(id);
     try {
       const country = storeIdToCountry(account.store) ?? "US";
-      const app = await lookupApp(task.software.bundleID, country);
+      const found = await checkForUpdate(
+        account,
+        task,
+        country,
+        lookupNewestServableVersion,
+      );
 
-      if (app && isNewerVersion(app.version, task.software.version)) {
-        const result = await listVersionsWithLicense(account, app);
-        setUpdateTarget({
-          task,
-          app,
-          versions: result.versions,
-          selected: result.versions[0] || "",
-        });
-        // Shared cache first, then the missing labels filled silently.
-        fillVersionsSilently(account, app, result.versions);
-      } else {
-        addToast(t("downloads.package.noUpdate"), "info");
+      // A check that could not be made is not an answer: it says so rather than
+      // joining "已经是最新版本" and dressing a failure up as a verdict.
+      if (found.status === "unknown") {
+        addToast(t("downloads.package.checkUpdateFailed"), "error");
+        return;
       }
+      if (found.status === "current") {
+        addToast(t("downloads.package.noUpdate"), "info");
+        return;
+      }
+
+      // The storefront path opens the picker on the exchange's own list — what
+      // the account may pick from — while the version-exchange path already
+      // carries the list it read.
+      const versions =
+        found.versions ??
+        (await listVersionsWithLicense(account, found.app)).versions;
+      setUpdateTarget({
+        task,
+        app: found.app,
+        latestVersion: found.latestVersion,
+        versions,
+        selected: found.pin ?? versions[0] ?? "",
+      });
+      // Shared cache first, then the missing labels filled silently.
+      fillVersionsSilently(account, found.app, versions);
     } catch {
       addToast(t("downloads.package.checkUpdateFailed"), "error");
     } finally {
@@ -325,8 +464,24 @@ export default function DownloadList() {
     setUpdating(true);
     try {
       const isLatest = versions.length > 0 && selected === versions[0];
-      await startDownload(account, app, isLatest ? undefined : selected);
-      await deleteDownload(task.id);
+      // A recalled record is reached only through a pin, so the picked build
+      // travels even when it is the newest: left unpinned, the request would
+      // resolve the pin a past download recorded — the build already on disk,
+      // not the one being asked for. A storefront record keeps the historical
+      // unpinned request for the current version.
+      const pin = needsVersionExchange(app)
+        ? selected
+        : isLatest
+          ? undefined
+          : selected;
+      // A recalled record's list is the app's own, so it can name the build this
+      // very row holds. Asking for that one is refused as a duplicate — and the
+      // row must then stay, or the deletion would take away the only handle on
+      // a package that nothing replaced.
+      const picksHeldBuild =
+        selected !== "" && selected === (task.software.externalVersionId ?? "");
+      await startDownload(account, app, pin || undefined);
+      if (!picksHeldBuild) await deleteDownload(task.id);
       setUpdateTarget(null);
     } catch {
       addToast(t("downloads.package.updateFailed"), "error");
@@ -372,13 +527,18 @@ export default function DownloadList() {
         if (cancelCheckRef.current) break;
 
         const country = storeIdToCountry(account.store) ?? "US";
-        const latestApp = await lookupApp(task.software.bundleID, country);
+        const found = await checkForUpdate(
+          account,
+          task,
+          country,
+          lookupNewestServableVersion,
+        );
 
-        if (
-          latestApp &&
-          isNewerVersion(latestApp.version, task.software.version)
-        ) {
-          await startDownload(account, latestApp);
+        // A row whose check could not be made is left as it is: neither the
+        // storefront nor the version exchange could name a newer build, and
+        // starting a download on that basis is not this loop's to guess.
+        if (found.status === "newer") {
+          await startDownload(account, found.app, found.pin);
           await deleteDownload(task.id);
           count++;
         }
@@ -614,7 +774,7 @@ export default function DownloadList() {
         <div className="min-w-0 space-y-4">
           <p className="min-w-0 break-words text-sm text-gray-600 dark:text-gray-300">
             {t("downloads.package.updatePrompt", {
-              version: updateTarget?.app.version,
+              version: updateTarget?.latestVersion,
             })}
           </p>
           {updateTarget && updateTarget.versions.length > 0 && (

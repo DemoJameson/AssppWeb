@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useDownloadAction } from "../../src/hooks/useDownloadAction";
 import { DownloadError, getDownloadInfo } from "../../src/apple/download";
 import { listVersions } from "../../src/apple/versionFinder";
+import { getVersionMetadata } from "../../src/apple/versionLookup";
 import { purchaseApp } from "../../src/apple/purchase";
 import { authenticate } from "../../src/apple/authenticate";
 import { apiGet, apiPost } from "../../src/api/client";
 import { useToastStore } from "../../src/store/toast";
+import { useAccountsStore } from "../../src/store/accounts";
 import { useSettingsStore } from "../../src/store/settings";
 import {
   rememberVersionList,
@@ -57,6 +59,12 @@ vi.mock("../../src/apple/purchase", () => ({
 
 vi.mock("../../src/apple/versionFinder", () => ({
   listVersions: vi.fn(),
+}));
+
+// The newest servable build's version number comes from a pinned download
+// exchange; the module is stubbed so its transport stays out of the graph.
+vi.mock("../../src/apple/versionLookup", () => ({
+  getVersionMetadata: vi.fn(),
 }));
 
 vi.mock("../../src/apple/authenticate", () => ({
@@ -128,6 +136,9 @@ describe("useDownloadAction", () => {
   beforeEach(() => {
     useToastStore.setState({ toasts: [] });
     useVersionListsStore.setState({ lists: {} });
+    // The hook re-reads the session from here; no account unless a test puts
+    // one back (the one the license step would have stored).
+    useAccountsStore.setState({ accounts: [] });
     useSettingsStore.setState({
       autoFetchVersionInfo: true,
       autoAcquireLicense: true,
@@ -153,6 +164,11 @@ describe("useDownloadAction", () => {
     vi.mocked(listVersions).mockReset();
     vi.mocked(listVersions).mockResolvedValue({
       versions: ["333", "222"],
+      updatedCookies: [],
+    });
+    vi.mocked(getVersionMetadata).mockReset();
+    vi.mocked(getVersionMetadata).mockResolvedValue({
+      metadata: { displayVersion: "3.4.6", releaseDate: "2026-08-02T00:00:00Z" },
       updatedCookies: [],
     });
   });
@@ -640,5 +656,116 @@ describe("useDownloadAction", () => {
 
     expect(purchaseApp).not.toHaveBeenCalled();
     expect(listVersions).toHaveBeenCalledTimes(1);
+  });
+
+  describe("lookupNewestServableVersion", () => {
+    // The record the backend answers with for an app the storefront has
+    // forgotten: the build already on disk, which is why its own version can
+    // never be the comparison.
+    const recalled: Software = {
+      ...app,
+      version: "3.4.4",
+      externalVersionId: "222",
+      metadataSource: "local",
+    };
+
+    it("names the newest build the list offers, with its version number", async () => {
+      const { result } = renderHook(() => useDownloadAction());
+      let found;
+      await act(async () => {
+        found = await result.current.lookupNewestServableVersion(
+          account,
+          recalled,
+          recalled.externalVersionId,
+        );
+      });
+
+      // The list is pinned to the build already held — the only pin a delisted
+      // app can still be reached through — and its newest entry is the answer.
+      expect(listVersions).toHaveBeenCalledWith(account, recalled, "222");
+      expect(found).toEqual({
+        versionId: "333",
+        displayVersion: "3.4.6",
+        versions: ["333", "222"],
+      });
+      expect(mocks.updateAccount).toHaveBeenCalledTimes(2);
+    });
+
+    it("stops at the list when its newest build is the one already held", async () => {
+      vi.mocked(listVersions).mockResolvedValue({
+        versions: ["222", "111"],
+        updatedCookies: [],
+      });
+
+      const { result } = renderHook(() => useDownloadAction());
+      let found;
+      await act(async () => {
+        found = await result.current.lookupNewestServableVersion(
+          account,
+          recalled,
+          "222",
+        );
+      });
+
+      expect(found).toEqual({ versionId: "222", versions: ["222", "111"] });
+      // Nothing newer to describe, so no second exchange is spent on a number
+      // the caller will not print.
+      expect(getVersionMetadata).not.toHaveBeenCalled();
+    });
+
+    it("still names the build when the exchange will not describe it", async () => {
+      vi.mocked(getVersionMetadata).mockRejectedValue(new Error("no metadata"));
+
+      const { result } = renderHook(() => useDownloadAction());
+      let found;
+      await act(async () => {
+        found = await result.current.lookupNewestServableVersion(
+          account,
+          recalled,
+          "222",
+        );
+      });
+
+      expect(found).toEqual({ versionId: "333", versions: ["333", "222"] });
+    });
+
+    it("answers with nothing when the list names no build", async () => {
+      vi.mocked(listVersions).mockResolvedValue({
+        versions: [],
+        updatedCookies: [],
+      });
+
+      const { result } = renderHook(() => useDownloadAction());
+      let found;
+      await act(async () => {
+        found = await result.current.lookupNewestServableVersion(
+          account,
+          recalled,
+        );
+      });
+
+      expect(found).toBeUndefined();
+    });
+
+    it("reads the display version on the session the license step stored", async () => {
+      // The list exchange may have renewed the session on its way, and the
+      // stored account is where that lands — the caller's snapshot predates it,
+      // so the second exchange must not run on that.
+      vi.mocked(listVersions)
+        .mockRejectedValueOnce(new DownloadError("license", "9610"))
+        .mockResolvedValueOnce({ versions: ["333"], updatedCookies: [] });
+      useAccountsStore.setState({
+        accounts: [{ ...account, passwordToken: "stored-token" }],
+      });
+
+      const { result } = renderHook(() => useDownloadAction());
+      await act(async () => {
+        await result.current.lookupNewestServableVersion(account, recalled, "222");
+      });
+
+      expect(purchaseApp).toHaveBeenCalledTimes(1);
+      const usedAccount = vi.mocked(getVersionMetadata).mock.calls[0][0];
+      expect(usedAccount.passwordToken).toBe("stored-token");
+    });
   });
 });
