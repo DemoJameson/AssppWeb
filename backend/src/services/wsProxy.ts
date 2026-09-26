@@ -1,6 +1,7 @@
 import { Server as HttpServer } from "http";
 import { server as wisp } from "@mercuryworkshop/wisp-js/server";
 import { accessPasswordHash, verifyAccessToken } from "../config.js";
+import { DestinationSocket } from "./destinationSocket.js";
 
 // Allow only Apple hosts required by bag/auth/purchase/version/download flows,
 // plus the SAP signing endpoints the bag advertises (sign-sap-setup and
@@ -47,7 +48,11 @@ export function setupWsProxy(server: HttpServer) {
         }
       }
 
-      wisp.routeRequest(req, socket, head);
+      // DestinationSocket dials the hostname's address pool in turn and swaps
+      // the connection out when one stays silent — some of Apple's addresses
+      // accept a connection and then never answer the handshake, which used to
+      // leave the request waiting forever. See destinationSocket.ts.
+      wisp.routeRequest(req, socket, head, { TCPSocket: DestinationSocket });
     } else {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
       socket.destroy();

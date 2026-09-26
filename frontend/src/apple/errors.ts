@@ -24,6 +24,25 @@ export class DownloadError extends Error {
 }
 
 /**
+ * The request never produced an answer from Apple: the tunnel stalled, the
+ * request outlived its timeout, or the connection died before anything came
+ * back. Nothing is known about the request itself, so a caller may repeat it —
+ * on Apple's other endpoint, say — which is exactly what it may *not* do with an
+ * error Apple answered with (a refused sign-in comes back as a response).
+ *
+ * The message is meant for the user; `cause` keeps whatever the transport said.
+ */
+export class AppleUnreachableError extends Error {
+  constructor(
+    message: string,
+    public readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = "AppleUnreachableError";
+  }
+}
+
+/**
  * Apple answered with something that is not a plist — an HTML error page, or a
  * status with nothing in it. Mirrors ipatool's `UnexpectedResponseError`; the
  * `snippet` is what the redownload recovery path inspects to tell an empty HTTP

@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useDownloadAction } from "../../src/hooks/useDownloadAction";
 import { DownloadError, getDownloadInfo } from "../../src/apple/download";
+import { AppleUnreachableError } from "../../src/apple/errors";
 import { listVersions } from "../../src/apple/versionFinder";
 import { getVersionMetadata } from "../../src/apple/versionLookup";
 import { purchaseApp } from "../../src/apple/purchase";
@@ -22,10 +23,16 @@ const mocks = vi.hoisted(() => ({
   updateAccount: vi.fn(),
   fetchTasks: vi.fn(),
   tasks: [] as DownloadTask[],
+  /** One `t` for the whole file: the identity `useTranslation` really keeps. */
+  stableT: (key: string) => key,
 }));
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  // `t` keeps one identity per language in the real react-i18next (it lives in
+  // a useState, see its useTranslation), and the hook's actions take `t` as a
+  // useCallback dependency: a mock that hands out a fresh arrow per render
+  // would make every action unstable for a reason the app does not have.
+  useTranslation: () => ({ t: mocks.stableT }),
   // The real i18n module (pulled in via apple/download) still initialises,
   // so the plugin slot has to exist.
   initReactI18next: { type: "3rdParty", init: () => {} },
@@ -314,6 +321,47 @@ describe("useDownloadAction", () => {
     });
 
     expect(getDownloadInfo).toHaveBeenCalledTimes(1);
+    expect(apiPost).not.toHaveBeenCalled();
+  });
+
+  it("asks again for a license Apple never answered", async () => {
+    vi.mocked(getDownloadInfo)
+      .mockRejectedValueOnce(new DownloadError("license", "9610"))
+      .mockResolvedValueOnce({ output, updatedCookies: [] });
+    // The storefront host's pool leaves connections silent (see AGENTS.md), so
+    // a grant that never reached Apple is worth one more try.
+    vi.mocked(purchaseApp)
+      .mockRejectedValueOnce(new AppleUnreachableError("Apple did not answer"))
+      .mockResolvedValueOnce({ updatedCookies: [] });
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, app);
+    });
+
+    expect(purchaseApp).toHaveBeenCalledTimes(2);
+    expect(apiPost).toHaveBeenCalledWith(
+      "/api/downloads",
+      expect.objectContaining({ accountHash: expect.any(String) }),
+    );
+  });
+
+  it("gives up on a license that stayed unanswered twice", async () => {
+    vi.mocked(getDownloadInfo).mockRejectedValueOnce(
+      new DownloadError("license", "9610"),
+    );
+    vi.mocked(purchaseApp).mockRejectedValue(
+      new AppleUnreachableError("Apple did not answer"),
+    );
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await expect(
+        result.current.startDownload(account, app),
+      ).rejects.toThrow("Apple did not answer");
+    });
+
+    expect(purchaseApp).toHaveBeenCalledTimes(2);
     expect(apiPost).not.toHaveBeenCalled();
   });
 
@@ -767,5 +815,28 @@ describe("useDownloadAction", () => {
       const usedAccount = vi.mocked(getVersionMetadata).mock.calls[0][0];
       expect(usedAccount.passwordToken).toBe("stored-token");
     });
+  });
+
+  it("hands out actions of stable identity, so an effect does not re-run for having rendered", () => {
+    // The detail page's probe effect takes these as dependencies. A closure that
+    // is new on every render re-runs that effect on every render — and the
+    // effect reads the backend and writes a store the page subscribes to, which
+    // is the request loop `AGENTS.md` describes. Rendering again must hand the
+    // same functions back.
+    const { result, rerender } = renderHook(() => useDownloadAction());
+    const first = result.current;
+
+    rerender();
+
+    expect(result.current.startDownload).toBe(first.startDownload);
+    expect(result.current.acquireLicense).toBe(first.acquireLicense);
+    expect(result.current.listVersionsWithLicense).toBe(
+      first.listVersionsWithLicense,
+    );
+    expect(result.current.lookupNewestServableVersion).toBe(
+      first.lookupNewestServableVersion,
+    );
+    expect(result.current.toastDownloadError).toBe(first.toastDownloadError);
+    expect(result.current.toastLicenseError).toBe(first.toastLicenseError);
   });
 });

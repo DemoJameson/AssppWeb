@@ -12,6 +12,7 @@ import { buildPlist, parsePlist } from "./plist";
 import { extractAndMergeCookies } from "./cookies";
 import { fetchBag } from "./bag";
 import {
+  AppleUnreachableError,
   DownloadError,
   PlatformVersionUnavailableError,
   UnexpectedAppleResponseError,
@@ -97,13 +98,27 @@ export async function requestDownloadProduct(
     externalVersionId = await pinnedLatestVersionId(session);
   }
 
-  const volumeStoreReply = await sendDownloadRequest(
-    session,
-    volumeStoreEndpoint(account.pod, guid),
-    externalVersionId,
-  );
+  // A request Apple never answered says nothing about whether this endpoint
+  // could have served the app — and the fallbacks live on another host, so the
+  // next one is a real alternative rather than a repeat of the same dead path.
+  // (The storefront host's address pool is the one that goes silent; see
+  // AGENTS.md.) Everything Apple *answered* stays with the shape checks below,
+  // which is where an empty or unavailable reply is decided.
+  let volumeStoreReply: DownloadReply | null = null;
+  let volumeStoreFailure: unknown;
+  try {
+    volumeStoreReply = await sendDownloadRequest(
+      session,
+      volumeStoreEndpoint(account.pod, guid),
+      externalVersionId,
+    );
+  } catch (error) {
+    if (!(error instanceof AppleUnreachableError)) throw error;
+    volumeStoreFailure = error;
+  }
 
   if (
+    volumeStoreReply &&
     !isEmptyDownloadResponse(volumeStoreReply) &&
     !isUnavailableDownloadResponse(volumeStoreReply)
   ) {
@@ -111,9 +126,11 @@ export async function requestDownloadProduct(
   }
 
   const bag = await fetchBag(guid);
-  // Nothing advertised to fall back to: report what volumeStore said.
+  // Nothing advertised to fall back to: report what volumeStore said — or, when
+  // it never got through, the transport failure itself.
   if (!bag.redownloadEndpoint) {
-    return volumeStoreReply;
+    if (volumeStoreReply) return volumeStoreReply;
+    throw volumeStoreFailure;
   }
 
   const redownload = dispatchEndpoint(
@@ -124,9 +141,20 @@ export async function requestDownloadProduct(
 
   // "Unpinned redownloads can fail or return a tvOS package. Select the current
   // iOS build before sending." The reply that would normally carry the version
-  // id — the volumeStore document — is the very thing that came back empty.
+  // id — the volumeStore document — is the very thing that came back empty, or
+  // never came back at all.
   if (!externalVersionId) {
-    externalVersionId = await pinnedLatestVersionId(session);
+    try {
+      externalVersionId = await pinnedLatestVersionId(session);
+    } catch (error) {
+      // Reached only because the exchange is already recovering from something:
+      // when volumeStore never answered, the pin lookup fails for that same
+      // reason, and "this platform has no build" would be a wrong diagnosis of a
+      // request that never reached Apple. Report what actually happened; on the
+      // empty-reply path there is no such failure to report and the lookup's own
+      // answer stands.
+      throw volumeStoreFailure ?? error;
+    }
   }
 
   let redownloadReply: DownloadReply;
@@ -137,7 +165,11 @@ export async function requestDownloadProduct(
       externalVersionId,
     );
   } catch (error) {
-    if (bag.updateEndpoint && externalVersionId && isEmptyRedownloadError(error)) {
+    if (
+      bag.updateEndpoint &&
+      externalVersionId &&
+      (isEmptyRedownloadError(error) || error instanceof AppleUnreachableError)
+    ) {
       return sendUpdateProduct(
         session,
         dispatchEndpoint(bag.updateEndpoint, UPDATE_PRODUCT_PATH, guid),

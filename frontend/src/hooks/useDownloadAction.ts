@@ -10,6 +10,7 @@ import { purchaseApp } from "../apple/purchase";
 import { authenticate } from "../apple/authenticate";
 import { FAILURE_LICENSE_NOT_FOUND } from "../apple/config";
 import { needsPlatformPin } from "../apple/platform";
+import { repeatUnreachable } from "../apple/retry";
 import { listVersions } from "../apple/versionFinder";
 import { getVersionMetadata } from "../apple/versionLookup";
 import { getCachedVersionList, versionListKey } from "../store/versionLists";
@@ -110,7 +111,13 @@ export function useDownloadAction() {
         // Ignore — proceed with existing token
       }
 
-      const result = await purchaseApp(currentAccount, app);
+      // The license grant is the download flow's one request with nowhere else
+      // to go: unlike the download-product exchange, it has no fallback host to
+      // move to. A request Apple never answered is repeated once — the grant is
+      // idempotent on Apple's side (a repeat comes back as "already owned").
+      const result = await repeatUnreachable(() =>
+        purchaseApp(currentAccount, app),
+      );
       const updated = { ...currentAccount, cookies: result.updatedCookies };
       await updateAccount(updated);
       return updated;

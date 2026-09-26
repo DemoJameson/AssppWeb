@@ -445,6 +445,10 @@
     "ZA": "South Africa"
   },
   "errors": {
+    "request": {
+      "timeout": "Apple did not answer within {{seconds}} seconds. Please try again.",
+      "unreachable": "Could not reach Apple. Please try again."
+    },
     "download": {
       "redirectLocation": "Failed to retrieve redirect location",
       "passwordExpired": "Password token is expired",
@@ -488,7 +492,8 @@
       "emptyBody": "Authentication failed: server returned HTTP {{status}} with empty body",
       "missingAccountInfo": "Missing accountInfo in response",
       "missingAddress": "Missing address in response",
-      "unknownReason": "Authentication failed for an unknown reason"
+      "unknownReason": "Authentication failed for an unknown reason",
+      "signerTimeout": "The signing component stopped responding."
     }
   },
   "toast": {

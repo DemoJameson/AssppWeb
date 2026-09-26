@@ -4,6 +4,7 @@ import { buildPlist, parsePlist } from "./plist";
 import { extractAndMergeCookies } from "./cookies";
 import { fetchBag, defaultAuthURL } from "./bag";
 import { authStoreFront } from "./config";
+import { AppleUnreachableError } from "./errors";
 import { prepareSigner } from "./sap/client";
 import i18n from "../i18n";
 
@@ -28,16 +29,26 @@ export async function authenticate(
   let storeFront = "";
   let lastError: Error | null = null;
 
-  const defaultAuthEndpoint = new URL(defaultAuthURL);
-  defaultAuthEndpoint.searchParams.set("guid", deviceId);
-  let requestHost = defaultAuthEndpoint.hostname;
-  let requestPath = `${defaultAuthEndpoint.pathname}${defaultAuthEndpoint.search}`;
-
+  // A sign-in goes to the storefront endpoint the bag advertises. fetchBag
+  // answers with Apple's native endpoint whenever the bag cannot be read, so
+  // there is always one to call.
   const bag = await fetchBag(deviceId);
-  const authEndpoint = new URL(bag.authURL);
-  authEndpoint.searchParams.set("guid", deviceId);
-  requestHost = authEndpoint.hostname;
-  requestPath = `${authEndpoint.pathname}${authEndpoint.search}`;
+  const bagEndpoint = new URL(bag.authURL);
+  bagEndpoint.searchParams.set("guid", deviceId);
+  let requestHost = bagEndpoint.hostname;
+  let requestPath = `${bagEndpoint.pathname}${bagEndpoint.search}`;
+
+  // Apple answers sign-ins on two equivalent endpoints: the storefront one
+  // above, and the native one. They do not fail together — measured from one
+  // network, the storefront host's address pool went silent for minutes at a
+  // time while the native endpoint answered every request — so a request that
+  // never reached Apple is worth repeating on the other one before the sign-in
+  // is called off.
+  const altAuthEndpoint = new URL(defaultAuthURL);
+  altAuthEndpoint.searchParams.set("guid", deviceId);
+  let triedAltEndpoint =
+    altAuthEndpoint.hostname === bagEndpoint.hostname &&
+    altAuthEndpoint.pathname === bagEndpoint.pathname;
 
   // When the bag advertises the SAP signing protocol, every request to the
   // auth endpoint must carry X-Apple-ActionSignature over its body bytes.
@@ -187,6 +198,16 @@ export async function authenticate(
         throw e;
       }
       lastError = e instanceof Error ? e : new Error(String(e));
+      // Only a request that never reached Apple is worth repeating somewhere
+      // else — Apple refusing the sign-in answers with a response, not an
+      // error. Keeping the try count means the other endpoint gets the same
+      // two tries this one had.
+      if (!triedAltEndpoint && e instanceof AppleUnreachableError) {
+        triedAltEndpoint = true;
+        requestHost = altAuthEndpoint.hostname;
+        requestPath = `${altAuthEndpoint.pathname}${altAuthEndpoint.search}`;
+        currentAttempt--;
+      }
     }
   }
 

@@ -445,6 +445,10 @@
     "ZA": "南アフリカ"
   },
   "errors": {
+    "request": {
+      "timeout": "Apple から {{seconds}} 秒以内に応答がありませんでした。もう一度お試しください。",
+      "unreachable": "Apple に接続できませんでした。もう一度お試しください。"
+    },
     "download": {
       "redirectLocation": "リダイレクト先を取得できませんでした",
       "passwordExpired": "パスワードトークンの期限が切れています",
@@ -488,7 +492,8 @@
       "emptyBody": "認証失敗: サーバーが空のボディでHTTP {{status}}を返しました",
       "missingAccountInfo": "レスポンスに accountInfo がありません",
       "missingAddress": "レスポンスに address がありません",
-      "unknownReason": "不明な理由により認証に失敗しました"
+      "unknownReason": "不明な理由により認証に失敗しました",
+      "signerTimeout": "署名コンポーネントが応答しなくなりました。"
     }
   },
   "toast": {

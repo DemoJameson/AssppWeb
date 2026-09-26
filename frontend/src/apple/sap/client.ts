@@ -12,6 +12,7 @@ import { exchangeSetupBuffer, fetchSetupCertificate } from "./protocol";
 import { loadSapAssets } from "./assets";
 import type { SapEndpoints } from "./types";
 import { useSapStore } from "../../store/sap";
+import i18n from "../../i18n";
 
 interface WorkerResult {
   type: "result";
@@ -25,16 +26,37 @@ interface WorkerError {
   message: string;
 }
 
-const SETUP_TIMEOUT_MS = 2 * 60 * 1000;
+/**
+ * How long one call into the emulation may take.
+ *
+ * Nothing else bounds these calls: they run before the Apple request that they
+ * are preparing a signature for, so the request's own timeout never sees them,
+ * and a worker that stops answering would leave the sign-in button spinning
+ * with no way out. The interpreter is deterministic — the same input arrives at
+ * the same answer in seconds (the whole preparation measured ~4 s) — so a call
+ * still out at two minutes is not slow, it is wedged, and the signer has to be
+ * given up rather than waited on.
+ */
+export const SAP_CALL_TIMEOUT_MS = 2 * 60 * 1000;
 
 class WorkerMachineDriver implements SapMachineDriver {
   private nextId = 1;
+  /** Set once a call has run past its timeout: the worker is done for. */
+  private wedged = false;
   private readonly pending = new Map<
     number,
     { resolve: (value: WorkerResult) => void; reject: (error: Error) => void }
   >();
 
-  constructor(private readonly worker: Worker) {
+  constructor(
+    private readonly worker: Worker,
+    /**
+     * Called when a call has gone past {@link SAP_CALL_TIMEOUT_MS}. The worker
+     * is not coming back, so nothing may keep using it — and nothing may keep
+     * offering it to the next attempt either.
+     */
+    private readonly onWedged: () => void = () => undefined,
+  ) {
     worker.onmessage = (event: MessageEvent<WorkerResult | WorkerError>) => {
       const message = event.data;
       const entry = this.pending.get(message.id);
@@ -54,11 +76,53 @@ class WorkerMachineDriver implements SapMachineDriver {
     request: Record<string, unknown>,
     transfer?: Transferable[],
   ): Promise<WorkerResult> {
+    if (this.wedged) {
+      // The worker is gone; anything else asking it something would wait out
+      // another whole timeout for an answer that cannot come.
+      return Promise.reject(new Error(i18n.t("errors.auth.signerTimeout")));
+    }
+
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.wedged = true;
+        this.pending.delete(id);
+        this.onWedged();
+        reject(new Error(i18n.t("errors.auth.signerTimeout")));
+      }, SAP_CALL_TIMEOUT_MS);
+
+      this.pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
       this.worker.postMessage({ ...request, id }, transfer ?? []);
     });
+  }
+
+  async close(): Promise<void> {
+    if (this.wedged) {
+      this.terminate();
+      return;
+    }
+    await this.call({ type: "close" });
+    this.worker.terminate();
+  }
+
+  /** Drops the worker without waiting for it to acknowledge anything. */
+  terminate(): void {
+    // Anything still in flight has lost its worker: rejecting settles those
+    // callers now rather than leaving them on a promise nothing can resolve.
+    for (const entry of this.pending.values()) {
+      entry.reject(new Error(i18n.t("errors.auth.signerTimeout")));
+    }
+    this.pending.clear();
+    this.worker.terminate();
   }
 
   async open(
@@ -132,11 +196,6 @@ class WorkerMachineDriver implements SapMachineDriver {
   async teardown(contextValue: number): Promise<void> {
     await this.call({ type: "teardown", contextValue });
   }
-
-  async close(): Promise<void> {
-    await this.call({ type: "close" });
-    this.worker.terminate();
-  }
 }
 
 interface PreparedSigner {
@@ -206,6 +265,7 @@ async function runPreparation(
 
   const previous = prepared;
   prepared = null;
+  let driver: WorkerMachineDriver | null = null;
   try {
     // Tear down the old signer first: the worker holds ~160 MB of wasm heap.
     await previous?.driver.close().catch(() => undefined);
@@ -220,9 +280,16 @@ async function runPreparation(
     const worker = new Worker(new URL("./worker.ts", import.meta.url), {
       type: "module",
     });
-    const driver = new WorkerMachineDriver(worker);
+    // A wedged worker must not outlive the attempt that found it: the cached
+    // signer would keep being handed back, and every retry would spend another
+    // two minutes waiting on the same dead emulation.
+    const wedged = new WorkerMachineDriver(worker, () => {
+      if (prepared?.driver === wedged) prepared = null;
+      wedged.terminate();
+    });
+    driver = wedged;
     const wasm = await loadWorkerWasmBinary();
-    await driver.open(assets, wasm);
+    await wedged.open(assets, wasm);
 
     const signer = await SapSigner.create(
       {
@@ -230,18 +297,23 @@ async function runPreparation(
         hardwareID: new TextEncoder().encode(hardwareID),
         assets,
       },
-      driver,
+      wedged,
       {
         fetchCertificate: () => fetchSetupCertificate(endpoints),
         exchange: (input) => exchangeSetupBuffer(endpoints, input),
       },
     );
 
-    const result = { signer, driver, hardwareID, endpoints };
+    const result = { signer, driver: wedged, hardwareID, endpoints };
     prepared = result;
     useSapStore.getState().setReady();
     return result;
   } catch (error) {
+    // The worker above holds ~160 MB of wasm heap (see the note at the top of
+    // this file) and nothing outside this function can reach it once the
+    // preparation is called off — a transient Apple 502 on the setup exchange
+    // is enough to get here. Left running, each retry would add another one.
+    driver?.terminate();
     useSapStore
       .getState()
       .setError(error instanceof Error ? error.message : String(error));

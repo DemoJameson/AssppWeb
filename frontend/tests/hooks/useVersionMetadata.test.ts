@@ -590,4 +590,32 @@ describe("useVersionMetadataMap", () => {
     expect(getDownloadInfo).not.toHaveBeenCalled();
     expect(getVersionMetadata).not.toHaveBeenCalled();
   });
+
+  it("remembers a failed shared-cache read as done, and fills anyway", async () => {
+    // The read is an optimisation, not a prerequisite: a fill whose cache step
+    // failed still asks Apple. It also must not be retried on the next render —
+    // that retry is the request loop — and nothing may reject out of a
+    // fire-and-forget fill.
+    vi.mocked(fetchVersionMetadata).mockRejectedValue(new Error("backend down"));
+    vi.mocked(getVersionMetadata).mockResolvedValue({
+      metadata: { displayVersion: "1.0.0", releaseDate: "d" },
+      updatedCookies: [],
+    });
+
+    const { result } = renderHook(() => useVersionMetadataMap());
+    await act(async () => {
+      await result.current.fillVersionsSilently(account, app, ["500"]);
+    });
+
+    expect(fetchVersionMetadata).toHaveBeenCalledTimes(1);
+    expect(getVersionMetadata).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.fillVersionsSilently(account, app, ["501"]);
+    });
+
+    // The failed read is remembered for the page: one more fill, still one read.
+    expect(fetchVersionMetadata).toHaveBeenCalledTimes(1);
+    expect(getVersionMetadata).toHaveBeenCalledTimes(2);
+  });
 });

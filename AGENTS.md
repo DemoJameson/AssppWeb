@@ -119,6 +119,8 @@ The Dockerfile prebakes the stripped SAP assets at build time (a `sap-assets` st
 - The signer only ever sees the deviceIdentifier and public Apple assets; the password reaches the signer solely as opaque body bytes it signs in-place — it is never transmitted anywhere except through the wisp tunnel inside the auth request itself
 - Bag missing the SAP keys → signing is skipped (graceful degradation to the legacy flow)
 - SAP session lifetime = the page session: the signer is a singleton per deviceIdentifier, reused across sign-in attempts (2FA retries included); switching accounts rebuilds it. Initialization ≈ 150–300 ms of emulation plus the setup exchange round-trips
+- Every call *into* the emulation is bounded at two minutes (`SAP_CALL_TIMEOUT_MS` in `client.ts`). Nothing else bounds them — they run before the Apple request they sign for, so the request's own 20 s timeout never sees them — and a Worker that stops answering would otherwise leave the sign-in button spinning with no way out. A timed-out call is **wedged**, not slow: the driver terminates the worker, refuses further calls and drops the cached signer, so a retry rebuilds instead of waiting another two minutes on the same dead emulation
+- A preparation that fails after its worker was created terminates that worker. The worker holds ~160 MB of wasm heap and nothing outside `runPreparation` can reach it, so a transient Apple 502 on the setup exchange (measured) must not leave one running per attempt
 - First login downloads ~14 MB over the wire (22.5 MB stripped assets, gzipped); a background warmup and inline progress line cover it. Release images prebake the assets, so the backend serves them instantly
 - The live bag currently returns the legacy `MZFinance` authenticate endpoint (see upstream PR discussion); `normalizeAuthURL` is effectively inert, and all three advertised endpoints sit in the SAP-signed list — signing applies regardless
 
@@ -178,6 +180,23 @@ The Wisp server validates target hosts via `hostname_whitelist` in `backend/src/
 - Loopback IP targets blocked (`allow_loopback_ips = false`)
 - Private/reserved resolved IPs allowed (`allow_private_ips = true`) for Docker/OrbStack DNS translation while hostname allowlist remains the primary control
 
+Destinations are dialled by `DestinationSocket` (`backend/src/services/destinationSocket.ts`), injected through `routeRequest(..., { TCPSocket })`. Apple's hostnames answer with a pool of addresses and not every member is usable from every network: measured from one network, `buy.itunes.apple.com`'s 17.8.132.x pool contained addresses that accept the TCP connection in ~1 ms and then never answer the TLS handshake (17.8.132.185 completed 1 handshake in 3, each miss silent past 20 seconds, while 17.8.132.117 answered every time). wisp's own socket dials the first address the resolver returns and has no timeout anywhere, so such a connection hangs the request forever. This socket instead:
+
+- dials the pool in order, skipping addresses that failed in the last 30 s *for any stream in the process*, and tries the next one when a connect is refused or times out
+- arms a 6 s guard once the guest's bytes have gone out and nothing has come back; on expiry it drops that connection, dials the next candidate and **replays the bytes the guest sent before the destination said anything** (a TLS ClientHello, as far as the relay can tell), so the guest sees one unbroken stream
+- replays that prefix by index and stops the guest from writing beside the replay: those bytes are the same list the replay is walking, so writing them here as well would put the same record on the wire twice (and a TLS record delivered twice is a broken connection, not a slower one). Bytes the guest sends while the replay runs are appended and go out after the ones already queued
+- clamps the stream when every candidate (at most 3) stayed silent or the connection dies mid-stream: the guest reads what already arrived and then sees the stream end, so the request fails and can be retried instead of waiting on a connection that is over
+- spends a **17 s recovery budget** (`RECOVERY_BUDGET_MS`) on the whole attempt — the resolver, every dial and every silence window, each clamped to what is left of it. This is what keeps the relay inside the client's view of the request: `appleRequest` bounds each request at 20 s, and a recovery that ran past it would be spent on a request the client had already abandoned. When the budget is gone the stream is closed, which fails the request at once (the user reads `errors.request.unreachable` and retries) instead of racing the client's timer. The resolver itself is bounded too (`DNS_TIMEOUT_MS`, 3 s): a hung lookup would otherwise stall a stream outside every other bound here
+- drains its receive queue on close, where wisp's own queue drops what is still buffered — the bytes were received, and discarding them would truncate an answer that arrived just as the destination went away
+
+The relay still only relays: no byte is interpreted, and only the *presence* of an answer is used. A swap logs a `[wisp] … stayed silent at …, moving the stream to …` warning — the only place a degrading path to Apple is visible.
+
+## Request Bounds and Endpoint Failover (Frontend)
+
+`appleRequest` (`frontend/src/apple/request.ts`) bounds every Apple call at 20 s (`APPLE_REQUEST_TIMEOUT_MS`), aborts the underlying WASM curl transfer, and raises `AppleUnreachableError` for anything that produced no answer (stall, timeout, dead connection) — which is the type `authenticate` uses to decide its fallback below. Without it the WASM client has no timeout at all: a request Apple never answers stays pending for as long as the peer holds the socket, which showed up as a sign-in button spinning forever.
+
+Apple answers sign-ins on two equivalent endpoints: the storefront one the bag advertises (`buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate`) and the native one (`auth.itunes.apple.com/auth/v1/native/fast/`, `defaultAuthURL` in `bag.ts`, also what this client uses when the bag cannot be read). They do not fail together — measured from one network, the storefront host's whole address pool went silent for minutes while the native endpoint answered 5 of 5 requests in 336–1368 ms. `authenticate` therefore repeats a request that never reached Apple (`AppleUnreachableError`) on the other endpoint, keeping the two-try budget; a *refusal* from Apple is a response, not an error, so it never moves endpoints.
+
 ## Download Endpoint Chain (Frontend)
 
 `frontend/src/apple/download.ts` mirrors ipatool's `sendDownloadProduct`
@@ -203,6 +222,29 @@ Fallback triggers, exactly as in ipatool:
   another host. `5002` is grouped with the password-token failures (`2034`,
   `2042`, `1008`) and reported as a session problem; `9610` means the license is
   missing.
+- A request that **never reached Apple** (`AppleUnreachableError`) moves to the
+  next endpoint too, for the same reason the empty reply does: it says nothing
+  about what that endpoint could have served, and the next one is a different
+  host rather than a repeat of the same dead path. Without this, a silent
+  storefront host aborted the whole exchange — which is what the version picker
+  and the download button run on. When the bag advertises no fallback at all, the
+  transport failure is what surfaces.
+
+The same exchange backs every download-flow request — `getDownloadInfo`,
+`listVersions` (the version picker) and `getVersionMetadata` all call
+`requestDownloadProduct` — so this one fallback covers downloads, version
+listing and version metadata alike.
+
+The licence grant (`purchaseApp`) is the flow's one request with nowhere else to
+go, so it is repeated once through `repeatUnreachable` (`apple/retry.ts`) instead:
+nothing reached Apple, and a repeat comes back as "already owned" if the first
+grant did land. A call Apple *answered* is never repeated.
+
+In a total Apple outage (every endpoint and every address silent) these flows now
+end in the request timeout rather than hanging: the client bounds each request at
+20 s, so a picker or a download settles with a translated error in about eighty
+seconds, and much sooner — usually succeeding — when only one host's pool is
+silent.
 
 Both dispatch URLs come from the bag and are validated against an exact
 host/path pair (`downloadDispatchEndpoint` in `config.ts`) before use.

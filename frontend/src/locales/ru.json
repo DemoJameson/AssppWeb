@@ -445,6 +445,10 @@
     "ZA": "ЮАР"
   },
   "errors": {
+    "request": {
+      "timeout": "Apple не ответила в течение {{seconds}} с. Попробуйте ещё раз.",
+      "unreachable": "Не удалось связаться с Apple. Повторите попытку."
+    },
     "download": {
       "redirectLocation": "Не удалось получить адрес перенаправления",
       "passwordExpired": "Токен пароля истек",
@@ -488,7 +492,8 @@
       "emptyBody": "Ошибка аутентификации: сервер вернул HTTP {{status}} с пустым телом",
       "missingAccountInfo": "В ответе отсутствует accountInfo",
       "missingAddress": "В ответе отсутствует address",
-      "unknownReason": "Аутентификация не удалась по неизвестной причине"
+      "unknownReason": "Аутентификация не удалась по неизвестной причине",
+      "signerTimeout": "Компонент подписи перестал отвечать."
     }
   },
   "toast": {

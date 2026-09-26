@@ -445,6 +445,10 @@
     "ZA": "南非"
   },
   "errors": {
+    "request": {
+      "timeout": "Apple 在 {{seconds}} 秒內沒有回應，請重試。",
+      "unreachable": "無法連線到 Apple，請重試。"
+    },
     "download": {
       "redirectLocation": "無法取得重新導向位址",
       "passwordExpired": "密碼權杖已過期",
@@ -488,7 +492,8 @@
       "emptyBody": "認證失敗：伺服器傳回 HTTP {{status}} 且回應主體為空",
       "missingAccountInfo": "回應中缺少 accountInfo",
       "missingAddress": "回應中缺少 address",
-      "unknownReason": "未知原因導致認證失敗"
+      "unknownReason": "未知原因導致認證失敗",
+      "signerTimeout": "簽名組件已停止回應。"
     }
   },
   "toast": {

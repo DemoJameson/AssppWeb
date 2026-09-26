@@ -3,6 +3,7 @@ import { buildPlist } from "../../src/apple/plist";
 import { getDownloadInfo } from "../../src/apple/download";
 import { appleRequest } from "../../src/apple/request";
 import { fetchBag } from "../../src/apple/bag";
+import { AppleUnreachableError } from "../../src/apple/errors";
 import { apiGet } from "../../src/api/client";
 import i18n from "../../src/i18n";
 import type { Account, Software } from "../../src/types";
@@ -136,7 +137,7 @@ const offersMissingDoc = () => JSON.stringify({ results: { "1492142120": { offer
 
 type RequestOptions = { host: string; path: string; body?: string };
 
-let downloadReplies: Reply[] = [];
+let downloadReplies: (Reply | Error)[] = [];
 let lookupBody = lookupDoc("891042628");
 
 const allCalls = () =>
@@ -174,6 +175,8 @@ describe("apple/download", () => {
       if (!next) {
         throw new Error("unexpected extra download request");
       }
+      // A queued Error is what a request Apple never answered throws.
+      if (next instanceof Error) throw next;
       return next;
     });
   });
@@ -321,6 +324,59 @@ describe("apple/download", () => {
     downloadReplies = [reply(purchaseDoc())];
 
     await expect(getDownloadInfo(account, app)).rejects.toThrow(/\[HTTP 200\]/);
+    expect(downloadCalls()).toHaveLength(1);
+  });
+
+  it("moves to the bag's redownload host when volumeStore never answers", async () => {
+    downloadReplies = [new AppleUnreachableError("timed out"), reply(downloadDoc())];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[0].host).toBe("p25-buy.itunes.apple.com");
+    expect(calls[1].host).toBe(DISPATCH_HOST);
+    expect(calls[1].body).toContain("<key>appExtVrsId</key><string>891042628</string>");
+  });
+
+  it("moves on to updateProduct when redownload never answers", async () => {
+    downloadReplies = [
+      reply(purchaseDoc()),
+      new AppleUnreachableError("timed out"),
+      reply(updateDoc("891042628")),
+    ];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(3);
+    expect(calls[2].path).toContain("/up/updateProduct");
+  });
+
+  it("surfaces a stalled request when the bag advertises nothing to fall back to", async () => {
+    withBag({});
+    downloadReplies = [new AppleUnreachableError("Apple did not answer")];
+
+    await expect(getDownloadInfo(account, app)).rejects.toThrow(
+      "Apple did not answer",
+    );
+    expect(downloadCalls()).toHaveLength(1);
+  });
+
+  it("reports the stalled request when no version can be named either", async () => {
+    // Both fail, for the same reason: the request never reached Apple. The
+    // version lookup's own "no build for this platform" would be a wrong
+    // diagnosis of it.
+    lookupBody = offersMissingDoc();
+    downloadReplies = [new AppleUnreachableError("Apple did not answer")];
+
+    await expect(getDownloadInfo(account, app)).rejects.toThrow(
+      "Apple did not answer",
+    );
     expect(downloadCalls()).toHaveLength(1);
   });
 

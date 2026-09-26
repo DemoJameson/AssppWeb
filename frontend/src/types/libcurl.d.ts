@@ -16,6 +16,12 @@ declare module "libcurl.js" {
     body?: string | ArrayBuffer | Uint8Array;
     redirect?: "follow" | "manual" | "error";
     proxy?: string;
+    /**
+     * Cancels the transfer: aborting tears down the curl handle and errors the
+     * response stream, so a request that would otherwise stay pending for as
+     * long as the peer keeps the socket open settles immediately.
+     */
+    signal?: AbortSignal;
     _libcurl_verbose?: number;
     _libcurl_http_version?: number;
   }
