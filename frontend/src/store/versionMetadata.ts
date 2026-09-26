@@ -36,7 +36,17 @@ export const useVersionMetadataStore = create<VersionMetadataState>((set) => ({
     ),
 
   mergeEntries: (entries) =>
-    set((state) => ({ entries: { ...entries, ...state.entries } })),
+    set((state) => {
+      // Cached-first means a merge can only ever *add*: every id the store
+      // already knows keeps its own value. When there is nothing to add — the
+      // daily case of a page folding the shared cache in a second time — the
+      // state is handed back untouched. A fresh `entries` object would wake
+      // every subscriber of the store, and the pages that fold the cache in are
+      // among them: read → merge → re-render → read is a request loop.
+      const fresh = Object.keys(entries).some((id) => !state.entries[id]);
+      if (!fresh) return state;
+      return { entries: { ...entries, ...state.entries } };
+    }),
 
   putEntry: (versionId, metadata) =>
     set((state) => {

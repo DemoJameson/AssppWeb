@@ -2169,6 +2169,52 @@ describe('ProductDetail download action', () => {
     expect(screen.queryByText('search.bareUnverified')).toBeNull();
   });
 
+  it('reads the shared version cache once, however often the page re-renders', async () => {
+    // A cached version list makes the probe effect fold the shared cache in.
+    // That read lands in the store this page subscribes to, and the account
+    // store hands out a new array every time an exchange writes its cookies
+    // back — so an unguarded read comes round again on the next render, which
+    // is the request loop the page showed after switching to another
+    // region's account.
+    vi.mocked(fetchVersionMetadata).mockResolvedValue({
+      '890964826': {
+        displayVersion: '9.9.9',
+        releaseDate: '2026-01-01T00:00:00Z',
+        source: 'package',
+      },
+    });
+    useVersionListsStore.setState({ lists: { '123456:ios:US': ['890964826'] } });
+    const tree = () => (
+      <MemoryRouter
+        initialEntries={[
+          {
+            pathname: `/search/${app.id}`,
+            state: { app: { ...app, metadataSource: 'local' }, country: 'US' },
+          },
+        ]}
+      >
+        <Routes>
+          <Route path="/search/:appId" element={<ProductDetail />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    const { rerender } = render(tree());
+
+    await waitFor(() =>
+      expect(vi.mocked(fetchVersionMetadata)).toHaveBeenCalledTimes(1),
+    );
+
+    // A cookie refresh replaces the accounts array: the page re-renders with
+    // new identities, and the cache read must not come round again.
+    mocks.accounts = [{ ...account, cookies: [] }];
+    rerender(tree());
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(vi.mocked(fetchVersionMetadata)).toHaveBeenCalledTimes(1);
+  });
+
   it('fills the version labels from an account of the page region', async () => {
     // The silent fill drives the same authenticated exchange as the probe, so
     // it goes out under a region account too. The selection opened on the first

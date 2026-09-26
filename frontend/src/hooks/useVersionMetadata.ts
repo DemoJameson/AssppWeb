@@ -89,23 +89,41 @@ async function fillAccurate(
 
 /**
  * Session-wide version metadata map. `ensureLoaded` pulls the backend's shared
- * cache once a version list has loaded; `recordMetadata` stores a metadata the
- * page fetched live from Apple (and writes it back to the backend); and
- * `prefetchMissing` silently fills versions that still have none — up to a
- * hundred per call, five lookups in flight for the first twenty and the rest
- * one at a time. Leaving the page cancels the queue; lookups already in
- * flight finish and stay written back. Nothing here ever rejects: failures
+ * cache once a version list has loaded — once per app for the life of the page,
+ * so a re-rendering page cannot turn the read into a loop; `recordMetadata`
+ * stores a metadata the page fetched live from Apple (and writes it back to the
+ * backend); and `prefetchMissing` silently fills versions that still have none
+ * — up to a hundred per call, five lookups in flight for the first twenty and
+ * the rest one at a time. Leaving the page cancels the queue; lookups already
+ * in flight finish and stay written back. Nothing here ever rejects: failures
  * leave the manual per-version button as the fallback.
  */
 export function useVersionMetadataMap() {
   const versionMeta = useVersionMetadataStore((s) => s.entries);
   const pendingMeta = useVersionMetadataStore((s) => s.pending);
 
-  const ensureLoaded = useCallback(async (appId: string | number) => {
-    const entries = await fetchVersionMetadata(appId);
-    if (Object.keys(entries).length === 0) return;
-    // Cached-first: an entry already on screen is never replaced.
-    useVersionMetadataStore.getState().mergeEntries(entries);
+  /**
+   * The shared-cache reads this page has already asked for, keyed by app id.
+   * Reading the cache is what every fill starts with, and a page that re-renders
+   * must not re-read it: the answer is the same map, and the read is a request.
+   * One read per app per page visit — a page that has read it once has all it
+   * can use, and the fill's own lookups add the rest as they land.
+   */
+  const cacheLoads = useRef(new Map<string, Promise<void>>());
+
+  const ensureLoaded = useCallback((appId: string | number) => {
+    const key = String(appId);
+    const running = cacheLoads.current.get(key);
+    if (running) return running;
+
+    const load = (async () => {
+      const entries = await fetchVersionMetadata(appId);
+      if (Object.keys(entries).length === 0) return;
+      // Cached-first: an entry already on screen is never replaced.
+      useVersionMetadataStore.getState().mergeEntries(entries);
+    })();
+    cacheLoads.current.set(key, load);
+    return load;
   }, []);
 
   /**

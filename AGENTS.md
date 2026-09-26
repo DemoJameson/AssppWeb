@@ -569,6 +569,21 @@ ties a version id to the task that holds it. Delisted records carry the same
 「已下架 · 本地记录」 tag on the detail header plus the local-record note, and the
 developer column falls back to the artist name the package named.
 
+**The silent version fill runs once per app+platform+region, and the shared
+cache it starts with is read once per app.** Both are guards against a request
+loop, not an optimisation: the probe effect re-runs whenever the page re-renders
+with a fresh dependency identity (a storefront switch, a new record, or the
+account store handing over a new array after an exchange writes its cookies
+back), the fill writes what it learns into a store the page subscribes to, and
+the merge that store performs wakes every subscriber. Read → merge → re-render →
+read hammered `GET /api/version-metadata/:appId` at ~560/s (five
+thousand in nine seconds) after an account switch; hence `ensureLoaded`
+keeps one promise per app id, the page keeps a `filledListKeys` set, and
+`mergeEntries` hands the same `entries` object back when a merge adds
+nothing. For the same reason `useDownloadAction` hands out actions of
+stable identity — an effect whose dependency is new on every render re-runs on
+every render.
+
 ### App icon extraction
 
 The icon comes out of the package during the same pass that reads the metadata —

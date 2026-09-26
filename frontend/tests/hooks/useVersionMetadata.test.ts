@@ -422,6 +422,40 @@ describe("useVersionMetadataMap", () => {
     expect(result.current.versionMeta).toEqual({});
   });
 
+  it("reads the shared cache once per app, however often it is asked", async () => {
+    // The read is what every fill starts with, and it is a request: a page that
+    // re-renders (a storefront switch, a cookie refresh handing the account
+    // store a new array) must not keep asking for the same answer. The second
+    // ask waits on the first promise rather than opening a new one.
+    vi.mocked(fetchVersionMetadata).mockResolvedValue({
+      "894041913": { displayVersion: "8.2.1", releaseDate: "2025-06-12" },
+    });
+
+    const { result } = renderHook(() => useVersionMetadataMap());
+    await act(() =>
+      Promise.all([
+        result.current.ensureLoaded(6503940939),
+        result.current.ensureLoaded(6503940939),
+      ]),
+    );
+    await act(() => result.current.ensureLoaded(6503940939));
+
+    expect(fetchVersionMetadata).toHaveBeenCalledTimes(1);
+    expect(result.current.versionMeta["894041913"].displayVersion).toBe("8.2.1");
+  });
+
+  it("reads the cache of each app separately", async () => {
+    vi.mocked(fetchVersionMetadata).mockResolvedValue({});
+
+    const { result } = renderHook(() => useVersionMetadataMap());
+    await act(async () => {
+      await result.current.ensureLoaded(1);
+      await result.current.ensureLoaded(2);
+    });
+
+    expect(fetchVersionMetadata).toHaveBeenCalledTimes(2);
+  });
+
   it("skips the prefetch when the automation switch is off", async () => {
     useSettingsStore.setState({ autoFetchVersionInfo: false });
 

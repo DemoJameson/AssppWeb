@@ -417,6 +417,18 @@ export default function ProductDetail() {
   // the notice saying why it could not be settled. A failure about the session
   // or the transport concludes nothing either way.
   const prefetchedListKeysRef = useRef<Set<string>>(new Set());
+  /**
+   * The keys whose silent fill has already been started. The fill begins by
+   * folding the backend's shared cache in, and this effect re-runs whenever the
+   * page re-renders with a fresh dependency identity — a storefront switch, a
+   * new record, or the account store handing over a new array after the cookies
+   * of an exchange were written back. Without this guard each of those runs
+   * asks for the same cache again, and since the answer lands in the store this
+   * page subscribes to, the asks sustain themselves: the request loop seen when
+   * the page moved to another region's account. One fill per
+   * app+platform+region per page visit.
+   */
+  const filledListKeysRef = useRef<Set<string>>(new Set());
   /** False once the page is gone: a settled probe must not touch state. */
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -460,6 +472,12 @@ export default function ProductDetail() {
       return;
     }
     const key = versionListKey(app.id, app.platform, country);
+    /** The silent fill for this key — started at most once per page visit. */
+    const fillOnce = (versions: string[]) => {
+      if (filledListKeysRef.current.has(key)) return;
+      filledListKeysRef.current.add(key);
+      fillVersionsSilently(probeAccount, app, versions);
+    };
     const cached = getCachedVersionList(key);
     if (cached) {
       // The exchange already answered for this id and produced versions: they
@@ -467,7 +485,7 @@ export default function ProductDetail() {
       // and no verdict from another storefront survives it.
       setProbeNote("");
       setPlatformUnavailable(false);
-      fillVersionsSilently(probeAccount, app, cached);
+      fillOnce(cached);
       return;
     }
     if (prefetchedListKeysRef.current.has(key)) return;
@@ -481,7 +499,7 @@ export default function ProductDetail() {
         if (!mountedRef.current) return;
         setProbeNote("");
         setPlatformUnavailable(false);
-        fillVersionsSilently(probeAccount, app, versions);
+        fillOnce(versions);
       })
       .catch((error: unknown) => {
         if (!mountedRef.current || !verify) return;

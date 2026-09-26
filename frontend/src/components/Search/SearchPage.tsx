@@ -143,8 +143,9 @@ export default function SearchPage() {
 
   /**
    * Records what the version exchange said about a bare App ID. Equal states
-   * keep their identity: the probe effect re-runs on every render (its action
-   * identities are fresh each time), and a new object would re-render forever.
+   * keep their identity: `probes` is one of the probe effect's dependencies, so
+   * a new object would re-run the effect — and its work — for a verdict that did
+   * not change.
    */
   function settleProbe(id: number, state: ProbeState) {
     setProbes((probes) =>

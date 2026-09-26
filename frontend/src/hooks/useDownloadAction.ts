@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useAccounts } from "./useAccounts";
 import { useToastStore } from "../store/toast";
@@ -70,6 +71,13 @@ export interface ServableVersion {
 /**
  * Shared hook for download & purchase actions.
  * Eliminates the duplicated flow across the pages that trigger downloads.
+ *
+ * Every action it hands out keeps a stable identity for as long as the pieces
+ * it closes over do: pages take them as dependencies of their effects (the
+ * detail page's version-list probe, the search page's), and an action that is
+ * new on every render would re-run those effects on every render — which, for
+ * an effect that reads the backend and writes a store the page subscribes to,
+ * is a request loop.
  */
 export function useDownloadAction() {
   const { updateAccount } = useAccounts();
@@ -77,12 +85,45 @@ export function useDownloadAction() {
   const fetchTasks = useDownloadsStore((s) => s.fetchTasks);
   const { t } = useTranslation();
 
-  async function startDownload(
+  /**
+   * Acquires the app's license, silently renewing the password token first (a
+   * stale token would fail the purchase). Returns the account with the fresh
+   * cookies so the caller can keep using the same session.
+   */
+  const acquireLicenseFor = useCallback(
+    async (account: Account, app: Software): Promise<Account> => {
+      // Silently renew the password token before purchasing. This prevents
+      // "token expired" (2034/2042) errors that would otherwise require the
+      // user to manually re-authenticate.
+      let currentAccount = account;
+      try {
+        const renewed = await authenticate(
+          account.email,
+          account.password,
+          undefined,
+          account.cookies,
+          account.deviceIdentifier,
+        );
+        await updateAccount(renewed);
+        currentAccount = renewed;
+      } catch {
+        // Ignore — proceed with existing token
+      }
+
+      const result = await purchaseApp(currentAccount, app);
+      const updated = { ...currentAccount, cookies: result.updatedCookies };
+      await updateAccount(updated);
+      return updated;
+    },
+    [updateAccount],
+  );
+
+  const startDownload = useCallback(async (
     account: Account,
     app: Software,
     versionId?: string,
     country?: string,
-  ) {
+  ) => {
     const ctx = getAccountContext(account, t);
     const appName = app.name;
     const pin = versionId || versionPinFallback(app, account, country);
@@ -233,53 +274,23 @@ export function useDownloadAction() {
       "info",
       t("toast.title.downloadStarted"),
     );
-  }
+  }, [acquireLicenseFor, addToast, fetchTasks, t, updateAccount]);
 
-  /**
-   * Acquires the app's license, silently renewing the password token first (a
-   * stale token would fail the purchase). Returns the account with the fresh
-   * cookies so the caller can keep using the same session.
-   */
-  async function acquireLicenseFor(
-    account: Account,
-    app: Software,
-  ): Promise<Account> {
-    // Silently renew the password token before purchasing. This prevents
-    // "token expired" (2034/2042) errors that would otherwise require the
-    // user to manually re-authenticate.
-    let currentAccount = account;
-    try {
-      const renewed = await authenticate(
-        account.email,
-        account.password,
-        undefined,
-        account.cookies,
-        account.deviceIdentifier,
+  const acquireLicense = useCallback(
+    async (account: Account, app: Software) => {
+      const ctx = getAccountContext(account, t);
+      const appName = app.name;
+
+      await acquireLicenseFor(account, app);
+
+      addToast(
+        t("toast.msg", { appName, ...ctx }),
+        "success",
+        t("toast.title.licenseSuccess"),
       );
-      await updateAccount(renewed);
-      currentAccount = renewed;
-    } catch {
-      // Ignore — proceed with existing token
-    }
-
-    const result = await purchaseApp(currentAccount, app);
-    const updated = { ...currentAccount, cookies: result.updatedCookies };
-    await updateAccount(updated);
-    return updated;
-  }
-
-  async function acquireLicense(account: Account, app: Software) {
-    const ctx = getAccountContext(account, t);
-    const appName = app.name;
-
-    await acquireLicenseFor(account, app);
-
-    addToast(
-      t("toast.msg", { appName, ...ctx }),
-      "success",
-      t("toast.title.licenseSuccess"),
-    );
-  }
+    },
+    [acquireLicenseFor, addToast, t],
+  );
 
   /**
    * Lists an app's versions, acquiring the license first when Apple reports
@@ -287,38 +298,41 @@ export function useDownloadAction() {
    * just like a download does. The refreshed session cookies are stored on
    * the account either way, and the list is returned to the caller.
    */
-  async function listVersionsWithLicense(
-    account: Account,
-    app: Software,
-    pinnedVersionId?: string,
-  ): Promise<Awaited<ReturnType<typeof listVersions>>> {
-    let currentAccount = account;
-    let result: Awaited<ReturnType<typeof listVersions>>;
-    try {
-      result = await listVersions(currentAccount, app, pinnedVersionId);
-    } catch (err) {
-      if (
-        !(err instanceof DownloadError) ||
-        err.code !== FAILURE_LICENSE_NOT_FOUND ||
-        !useSettingsStore.getState().autoAcquireLicense
-      ) {
-        throw err;
+  const listVersionsWithLicense = useCallback(
+    async (
+      account: Account,
+      app: Software,
+      pinnedVersionId?: string,
+    ): Promise<Awaited<ReturnType<typeof listVersions>>> => {
+      let currentAccount = account;
+      let result: Awaited<ReturnType<typeof listVersions>>;
+      try {
+        result = await listVersions(currentAccount, app, pinnedVersionId);
+      } catch (err) {
+        if (
+          !(err instanceof DownloadError) ||
+          err.code !== FAILURE_LICENSE_NOT_FOUND ||
+          !useSettingsStore.getState().autoAcquireLicense
+        ) {
+          throw err;
+        }
+
+        const ctx = getAccountContext(account, t);
+        currentAccount = await acquireLicenseFor(currentAccount, app);
+        addToast(
+          t("toast.msg", { appName: app.name, ...ctx }),
+          "success",
+          t("toast.title.licenseSuccess"),
+        );
+
+        result = await listVersions(currentAccount, app, pinnedVersionId);
       }
 
-      const ctx = getAccountContext(account, t);
-      currentAccount = await acquireLicenseFor(currentAccount, app);
-      addToast(
-        t("toast.msg", { appName: app.name, ...ctx }),
-        "success",
-        t("toast.title.licenseSuccess"),
-      );
-
-      result = await listVersions(currentAccount, app, pinnedVersionId);
-    }
-
-    await updateAccount({ ...currentAccount, cookies: result.updatedCookies });
-    return result;
-  }
+      await updateAccount({ ...currentAccount, cookies: result.updatedCookies });
+      return result;
+    },
+    [acquireLicenseFor, addToast, t, updateAccount],
+  );
 
   /**
    * The newest build an app still serves, with the version number to name it by
@@ -342,77 +356,86 @@ export function useDownloadAction() {
    * servable, and the caller can name it by its id. Undefined only when the list
    * names no build at all, which is not "up to date" but "could not be told".
    */
-  async function lookupNewestServableVersion(
-    account: Account,
-    app: Software,
-    recordedVersionId?: string,
-  ): Promise<ServableVersion | undefined> {
-    const pinned = recordedVersionId?.trim() || undefined;
-    const list = await listVersionsWithLicense(account, app, pinned);
-    const versionId = list.versions[0];
-    if (!versionId) return undefined;
+  const lookupNewestServableVersion = useCallback(
+    async (
+      account: Account,
+      app: Software,
+      recordedVersionId?: string,
+    ): Promise<ServableVersion | undefined> => {
+      const pinned = recordedVersionId?.trim() || undefined;
+      const list = await listVersionsWithLicense(account, app, pinned);
+      const versionId = list.versions[0];
+      if (!versionId) return undefined;
 
-    // The newest build the list names is the one already held: nothing newer to
-    // name, and so nothing for a second exchange to describe.
-    if (pinned && versionId === pinned) {
-      return { versionId, versions: list.versions };
-    }
-
-    // The license step — and the list before it — may have refreshed the
-    // session, so the exchange runs on the account as it now stands rather than
-    // on the caller's snapshot.
-    const freshest =
-      useAccountsStore
-        .getState()
-        .accounts.find((stored) => stored.email === account.email) ?? account;
-
-    try {
-      const { metadata, updatedCookies } = await getVersionMetadata(
-        freshest,
-        app,
-        versionId,
-      );
-      try {
-        await updateAccount({ ...freshest, cookies: updatedCookies });
-      } catch {
-        // Bookkeeping only — the answer matters more than the session it came
-        // with, the same trade the silent version fill makes.
+      // The newest build the list names is the one already held: nothing newer to
+      // name, and so nothing for a second exchange to describe.
+      if (pinned && versionId === pinned) {
+        return { versionId, versions: list.versions };
       }
-      return {
-        versionId,
-        displayVersion: metadata.displayVersion,
-        versions: list.versions,
-      };
-    } catch {
-      return { versionId, versions: list.versions };
-    }
-  }
 
-  function toastDownloadError(account: Account, app: Software, error: unknown) {
-    const ctx = getAccountContext(account, t);
-    addToast(
-      t("toast.msgFailed", {
-        appName: app.name,
-        ...ctx,
-        error: getErrorMessage(error, t("toast.title.downloadFailed")),
-      }),
-      "error",
-      t("toast.title.downloadFailed"),
-    );
-  }
+      // The license step — and the list before it — may have refreshed the
+      // session, so the exchange runs on the account as it now stands rather than
+      // on the caller's snapshot.
+      const freshest =
+        useAccountsStore
+          .getState()
+          .accounts.find((stored) => stored.email === account.email) ?? account;
 
-  function toastLicenseError(account: Account, app: Software, error: unknown) {
-    const ctx = getAccountContext(account, t);
-    addToast(
-      t("toast.msgFailed", {
-        appName: app.name,
-        ...ctx,
-        error: getErrorMessage(error, t("toast.title.licenseFailed")),
-      }),
-      "error",
-      t("toast.title.licenseFailed"),
-    );
-  }
+      try {
+        const { metadata, updatedCookies } = await getVersionMetadata(
+          freshest,
+          app,
+          versionId,
+        );
+        try {
+          await updateAccount({ ...freshest, cookies: updatedCookies });
+        } catch {
+          // Bookkeeping only — the answer matters more than the session it came
+          // with, the same trade the silent version fill makes.
+        }
+        return {
+          versionId,
+          displayVersion: metadata.displayVersion,
+          versions: list.versions,
+        };
+      } catch {
+        return { versionId, versions: list.versions };
+      }
+    },
+    [listVersionsWithLicense, updateAccount],
+  );
+
+  const toastDownloadError = useCallback(
+    (account: Account, app: Software, error: unknown) => {
+      const ctx = getAccountContext(account, t);
+      addToast(
+        t("toast.msgFailed", {
+          appName: app.name,
+          ...ctx,
+          error: getErrorMessage(error, t("toast.title.downloadFailed")),
+        }),
+        "error",
+        t("toast.title.downloadFailed"),
+      );
+    },
+    [addToast, t],
+  );
+
+  const toastLicenseError = useCallback(
+    (account: Account, app: Software, error: unknown) => {
+      const ctx = getAccountContext(account, t);
+      addToast(
+        t("toast.msgFailed", {
+          appName: app.name,
+          ...ctx,
+          error: getErrorMessage(error, t("toast.title.licenseFailed")),
+        }),
+        "error",
+        t("toast.title.licenseFailed"),
+      );
+    },
+    [addToast, t],
+  );
 
   return {
     startDownload,
