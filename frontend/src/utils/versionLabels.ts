@@ -1,16 +1,17 @@
 import i18n from "../i18n";
 import type { VersionMetadata } from "../types";
+import { dateComesFromPackage } from "./versionMetadataSource";
 
 /**
  * The date a version row may print: only one that was read out of the build's
- * own package. Apple's exchange metadata dates the *app* — the same day comes
- * back whichever version is pinned, and the `iTunesMetadata.plist` inside a
- * download says the same thing — so a package read (the backend's
- * `packageVersionMetadata`, ipatool's way) is the only source a date can come
- * from without being wrong for every other row.
+ * own package (see `versionMetadataSource`). Apple's exchange metadata dates the
+ * *app* — the same day comes back whichever version is pinned, and the
+ * `iTunesMetadata.plist` inside a download says the same thing — so a package
+ * read (the backend's `packageVersionMetadata`, ipatool's way) is the only
+ * source a date can come from without being wrong for every other row.
  */
 function datedLabel(versionId: string, meta: VersionMetadata): string {
-  if (meta.source === "package" && meta.releaseDate) {
+  if (dateComesFromPackage(meta.source) && meta.releaseDate) {
     return `${meta.displayVersion} (${versionId}) · ${meta.releaseDate.slice(0, 10)}`;
   }
   return `${meta.displayVersion} (${versionId})`;

@@ -162,27 +162,49 @@ const phoneAppleIDRegions: {
   },
 ];
 
+/**
+ * The forms one region's number may have been dialled in: as written, without a
+ * trunk prefix, with the country code, or with `00` before it. All of them are
+ * tried against the region's national rule, because stripping the country code
+ * blindly is what misread a valid Indian number — `9187654321` is an Indian
+ * mobile (9, then 1) as much as it is `91` followed by eight digits, and the
+ * stripped form failed the ten-digit test while the number itself passed it.
+ */
+function nationalForms(digits: string, dialing: string): string[] {
+  const forms = [digits];
+  if (digits.startsWith("0")) forms.push(digits.slice(1));
+  if (digits.startsWith(dialing)) forms.push(digits.slice(dialing.length));
+  if (digits.startsWith("00" + dialing)) {
+    forms.push(digits.slice(2 + dialing.length));
+  }
+  return forms;
+}
+
 export function authStoreFront(identifier: string): string {
   if (identifier.includes("@")) return "";
 
   const digits = identifier.replace(/\D/g, "");
 
   for (const region of phoneAppleIDRegions) {
-    const international = "00" + region.dialing;
-    let national: string;
-
-    if (digits.startsWith(international)) {
-      national = digits.slice(international.length);
-    } else if (digits.startsWith(region.dialing)) {
-      national = digits.slice(region.dialing.length);
-    } else {
-      national = digits.startsWith("0") ? digits.slice(1) : digits;
+    if (nationalForms(digits, region.dialing).some(region.national)) {
+      return countryCodeMap[region.country];
     }
-
-    if (region.national(national)) return countryCodeMap[region.country];
   }
 
   return "";
+}
+
+/**
+ * Whether a host belongs to Apple. Every request this app makes to Apple carries
+ * the account's session cookies (and, on the download exchange, its DSID), so
+ * the answer is what decides where those may go: a cookie Apple set without a
+ * `Domain` attribute is host-only by RFC 6265, and a redirect is only worth
+ * following when it stays on Apple's own domains.
+ */
+const APPLE_HOST_RE = /(^|\.)apple\.com$/i;
+
+export function isAppleHost(hostname: string): boolean {
+  return APPLE_HOST_RE.test(hostname);
 }
 
 export function generateDeviceId(): string {

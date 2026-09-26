@@ -52,7 +52,7 @@ describe("apple/cookies", () => {
         makeCookie({ name: "b", value: "2" }),
       ];
 
-      const header = buildCookieHeader(cookies, "https://example.com/path");
+      const header = buildCookieHeader(cookies, "https://buy.itunes.apple.com/path");
       expect(header).toContain("a=1");
       expect(header).toContain("b=2");
       expect(header).toContain("; ");
@@ -78,13 +78,30 @@ describe("apple/cookies", () => {
       expect(header).toContain("sub=1");
     });
 
+    it("confines a cookie with no domain to Apple's hosts", () => {
+      // Apple's session cookies arrive without a `Domain` attribute often
+      // enough that they have to be carried across Apple's own hosts — but
+      // nowhere else, or a redirect would hand the session to its target.
+      const cookies = [makeCookie({ name: "myacinfo", value: "session" })];
+
+      expect(buildCookieHeader(cookies, "https://buy.itunes.apple.com/")).toContain(
+        "myacinfo=session",
+      );
+      expect(buildCookieHeader(cookies, "https://apple.com/")).toContain(
+        "myacinfo=session",
+      );
+      expect(buildCookieHeader(cookies, "https://example.com/")).toBe("");
+      expect(buildCookieHeader(cookies, "https://notapple.com/")).toBe("");
+      expect(buildCookieHeader(cookies, "https://apple.com.evil.test/")).toBe("");
+    });
+
     it("should filter by path", () => {
       const cookies = [
         makeCookie({ name: "root", value: "1", path: "/" }),
         makeCookie({ name: "api", value: "2", path: "/api" }),
       ];
 
-      const header = buildCookieHeader(cookies, "https://example.com/other");
+      const header = buildCookieHeader(cookies, "https://buy.itunes.apple.com/other");
       expect(header).toContain("root=1");
       expect(header).not.toContain("api=2");
     });
@@ -95,7 +112,7 @@ describe("apple/cookies", () => {
         makeCookie({ name: "valid", value: "2" }),
       ];
 
-      const header = buildCookieHeader(cookies, "https://example.com/");
+      const header = buildCookieHeader(cookies, "https://buy.itunes.apple.com/");
       expect(header).not.toContain("expired=1");
       expect(header).toContain("valid=2");
     });
@@ -106,7 +123,7 @@ describe("apple/cookies", () => {
         makeCookie({ name: "normal", value: "2" }),
       ];
 
-      const header = buildCookieHeader(cookies, "http://example.com/");
+      const header = buildCookieHeader(cookies, "http://buy.itunes.apple.com/");
       expect(header).not.toContain("secure=1");
       expect(header).toContain("normal=2");
     });
@@ -116,7 +133,7 @@ describe("apple/cookies", () => {
         makeCookie({ name: "secure", value: "1", secure: true }),
       ];
 
-      const header = buildCookieHeader(cookies, "https://example.com/");
+      const header = buildCookieHeader(cookies, "https://buy.itunes.apple.com/");
       expect(header).toContain("secure=1");
     });
 
@@ -127,7 +144,7 @@ describe("apple/cookies", () => {
         makeCookie({ name: "ok", value: "ok" }),
       ];
 
-      const header = buildCookieHeader(cookies, "https://example.com/");
+      const header = buildCookieHeader(cookies, "https://buy.itunes.apple.com/");
       expect(header).toBe("ok=ok");
     });
 

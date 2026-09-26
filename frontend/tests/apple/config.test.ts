@@ -141,6 +141,11 @@ describe("apple/config", () => {
       ["9876543210", "143467"],
       ["09876543210", "143467"],
       ["919876543210", "143467"],
+      ["00919876543210", "143467"],
+      // A valid Indian mobile that happens to start with 91: stripping the
+      // country code blindly left eight digits and failed the ten-digit test.
+      ["9187654321", "143467"],
+      ["8698765432", "143467"],
       ["test@example.com", ""],
       ["13800138000@example.com", ""],
       ["", ""],

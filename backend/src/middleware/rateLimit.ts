@@ -13,11 +13,16 @@ interface Bucket {
 }
 
 /**
- * Key a request by its direct socket address.
+ * Key a request by its client address.
  *
- * `X-Forwarded-For` is deliberately NOT consulted: a client can forge it, and
- * this app is single-tenant (one shared access password), so requests sharing
- * a reverse proxy's IP sharing one bucket is the intended behavior.
+ * `X-Forwarded-For` is not read here — a client can forge it, and this app is
+ * single-tenant with one shared access password. Behind a reverse proxy that
+ * means every request arrives from the proxy's address, so all clients share a
+ * bucket: the intended reading of "one tenant, one quota", but it also lets one
+ * caller burn the quota and lock the real user out for a window. Express's
+ * `trust proxy` setting is what resolves that — with it on, `req.ip` is the
+ * client the proxy reports, and each caller gets its own bucket, at the cost of
+ * trusting the proxy's word for it (see `TRUST_PROXY` in config.ts).
  */
 export function rateLimitKey(req: Request): string {
   return req.ip ?? req.socket?.remoteAddress ?? "unknown";
@@ -31,8 +36,25 @@ export function rateLimitKey(req: Request): string {
 export function createRateLimiter({ windowMs, max }: RateLimitOptions) {
   const buckets = new Map<string, Bucket>();
 
+  /**
+   * Drops every bucket whose window has closed.
+   *
+   * A bucket is created for each key the limiter is *asked* about, not only for
+   * the ones that fail, so without this the map would keep one entry per address
+   * that ever reached the route for the life of the process — an unbounded map
+   * fed by the very endpoint that exists to bound traffic. The limiter guards
+   * one login route, so a sweep per call is cheaper than a timer that has to be
+   * owned and cleaned up.
+   */
+  function pruneExpired(now: number): void {
+    for (const [key, bucket] of buckets) {
+      if (bucket.resetAt <= now) buckets.delete(key);
+    }
+  }
+
   function bucketFor(key: string): Bucket {
     const now = Date.now();
+    pruneExpired(now);
     let bucket = buckets.get(key);
     if (!bucket || bucket.resetAt <= now) {
       bucket = { count: 0, resetAt: now + windowMs };

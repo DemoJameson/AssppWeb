@@ -46,11 +46,16 @@ export const APPLE_REQUEST_TIMEOUT_MS = 20_000;
  * once every address of a host has stayed silent, which is how the opaque
  * version used to reach the screen. The detail is kept in `cause`, where a
  * console shows it.
+ *
+ * `delivered` marks the one failure here that is not "nothing reached Apple": a
+ * response arrived and *reading its body* failed. Apple has acted on the request
+ * by then, so a caller repeating it could duplicate that — see the type's note.
  */
-function unreachable(error: unknown): AppleUnreachableError {
+function unreachable(error: unknown, delivered = false): AppleUnreachableError {
   return new AppleUnreachableError(
     i18n.t("errors.request.unreachable"),
     error,
+    delivered,
   );
 }
 
@@ -119,7 +124,9 @@ export async function appleRequest(
     try {
       body = await resp.text();
     } catch (error) {
-      throw unreachable(error);
+      // The response has started, so this is not a request that never arrived —
+      // it is one Apple already processed.
+      throw unreachable(error, true);
     }
 
     return {

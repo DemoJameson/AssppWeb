@@ -1,10 +1,14 @@
-import { type MouseEvent, useState } from 'react';
+import { type MouseEvent, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
 import { isPreviewDownloadTask } from './previewTasks';
 import { useToastStore } from '../../store/toast';
 import { apiGet } from '../../api/client';
-import { getInstallInfo, openInstallUrl } from '../../api/install';
+import {
+  getInstallInfo,
+  openInstallUrl,
+  type InstallInfo,
+} from '../../api/install';
 import Modal from '../common/Modal';
 import {
   detectInstallDevice,
@@ -52,14 +56,46 @@ export default function PackageQuickActions({
   const { t } = useTranslation();
   const addToast = useToastStore((state) => state.addToast);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [installInfo, setInstallInfo] = useState<InstallInfo | null>(null);
   const [pendingInstall, setPendingInstall] = useState<PendingInstall | null>(
     null,
   );
+  const isPreview = isPreviewDownloadTask(task);
+
+  // The install links are signed by the server, so they are fetched rather than
+  // built here (see `api/install`). Once per package: the QR code below renders
+  // whatever this lands with, and a click re-mints it when the window has run
+  // out — a QR scanned from another device cannot, so the window is generous.
+  // A preview row stands for no task on the server, so there is nothing to ask.
+  useEffect(() => {
+    if (isPreview || task.status !== 'completed' || !task.hasFile) return;
+
+    let cancelled = false;
+    getInstallInfo(task.id)
+      .then((info) => {
+        if (!cancelled) setInstallInfo(info);
+      })
+      .catch(() => {
+        // Left null: the buttons stay inert rather than opening a link the
+        // server will refuse.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id, isPreview, task.status, task.hasFile]);
 
   if (task.status !== 'completed' || !task.hasFile) return null;
 
-  const installInfo = getInstallInfo(task.id);
-  const isPreview = isPreviewDownloadTask(task);
+  /** A fresh install URL: the fetched one while its window holds, else re-minted. */
+  async function resolveInstallUrl(): Promise<string> {
+    if (installInfo && !isUrlExpired(installInfo.manifestUrl)) {
+      return installInfo.installUrl;
+    }
+    const info = await getInstallInfo(task.id);
+    setInstallInfo(info);
+    return info.installUrl;
+  }
+
   // No font-size utility here on purpose: the app's unlayered
   // `font: inherit` beats Tailwind on <button>, so the <a> and <button>
   // twins only stay identical when both sides inherit one size.
@@ -110,10 +146,21 @@ export default function PackageQuickActions({
     });
   }
 
-  function confirmInstall() {
+  async function confirmInstall() {
     setPendingInstall(null);
-    addToast(task.software.name, 'info', t('toast.title.installStarted'));
-    openInstallUrl(installInfo.installUrl);
+    try {
+      // Minted before either toast: a link the server will not accept must not
+      // be announced as a started install.
+      const url = await resolveInstallUrl();
+      addToast(task.software.name, 'info', t('toast.title.installStarted'));
+      openInstallUrl(url);
+    } catch {
+      addToast(
+        t('downloads.package.installFailed'),
+        'error',
+        t('downloads.package.install'),
+      );
+    }
   }
 
   function closeInstallDialog() {
@@ -127,7 +174,8 @@ export default function PackageQuickActions({
     }
 
     try {
-      await copyText(installInfo.installUrl);
+      const url = await resolveInstallUrl();
+      await copyText(url);
       addToast(
         t('downloads.package.copied'),
         'success',
@@ -137,7 +185,7 @@ export default function PackageQuickActions({
       if (navigator.share) {
         await navigator.share({
           title: task.software.name,
-          text: installInfo.installUrl,
+          text: url,
         });
       }
     } catch (error) {
@@ -203,7 +251,7 @@ export default function PackageQuickActions({
       data-testid="package-quick-actions"
     >
       <a
-        href={installInfo.installUrl}
+        href={installInfo?.installUrl ?? '#'}
         onClick={handleInstall}
         className={`${buttonSize} inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900`}
         aria-label={t('downloads.package.install')}
@@ -216,14 +264,16 @@ export default function PackageQuickActions({
         <button
           type="button"
           onClick={handleShare}
-          aria-describedby={isPreview ? undefined : `install-qr-${task.id}`}
+          aria-describedby={
+            !isPreview && installInfo ? `install-qr-${task.id}` : undefined
+          }
           className={`${secondaryButton} w-full`}
           aria-label={t('downloads.package.share')}
         >
           <ShareIcon />
           <span className="truncate">{t('downloads.package.share')}</span>
         </button>
-        {!isPreview && (
+        {!isPreview && installInfo && (
           <div
             id={`install-qr-${task.id}`}
             role="tooltip"

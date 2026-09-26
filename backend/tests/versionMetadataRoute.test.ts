@@ -1,4 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  afterEach,
+  beforeEach,
+  vi,
+} from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -147,5 +156,155 @@ describe("Version Metadata Route", () => {
         expect(typeof res.body.error).toBe("string");
       });
     }
+  });
+
+  describe("POST /api/version-metadata/:appId/:versionId/package (what it stores)", () => {
+    /**
+     * The route reads a package at a URL the *client* named, so whatever it
+     * learns has to stay a client entry: refreshable, and unable to pose as the
+     * download pipeline's own compile. The alternative — a client-writable
+     * `package` entry — is a permanent, unoverwritable claim about any
+     * (app, version) pair, which any caller of the instance could plant.
+     */
+    const APP = 6503940940;
+    /** Seeded as if the pipeline had compiled it; the route must not displace it. */
+    const COMPILED_VERSION = "111111";
+    const LOOKED_UP_VERSION = "222222";
+    const SERVED_AT = new Date("2026-07-11T15:06:44Z");
+
+    /** A one-entry zip holding the app's Info.plist, served as byte ranges. */
+    function zipWithVersion(version: string, at: Date): Buffer {
+      const name = Buffer.from("Payload/App.app/Info.plist", "utf8");
+      const data = Buffer.from(
+        `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>` +
+          `<key>CFBundleShortVersionString</key><string>${version}</string>` +
+          `</dict></plist>`,
+        "utf8",
+      );
+      const dosTime =
+        ((at.getUTCHours() & 0x1f) << 11) |
+        ((at.getUTCMinutes() & 0x3f) << 5) |
+        (Math.floor(at.getUTCSeconds() / 2) & 0x1f);
+      const dosDate =
+        (((at.getUTCFullYear() - 1980) & 0x7f) << 9) |
+        (((at.getUTCMonth() + 1) & 0x0f) << 5) |
+        (at.getUTCDate() & 0x1f);
+
+      const local = Buffer.alloc(30);
+      local.writeUInt32LE(0x04034b50, 0);
+      local.writeUInt16LE(20, 4);
+      local.writeUInt16LE(0, 8); // stored, no compression
+      local.writeUInt16LE(dosTime, 10);
+      local.writeUInt16LE(dosDate, 12);
+      local.writeUInt32LE(data.length, 18);
+      local.writeUInt32LE(data.length, 22);
+      local.writeUInt16LE(name.length, 26);
+
+      const central = Buffer.alloc(46);
+      central.writeUInt32LE(0x02014b50, 0);
+      central.writeUInt16LE(20, 4);
+      central.writeUInt16LE(20, 6);
+      central.writeUInt16LE(dosTime, 12);
+      central.writeUInt16LE(dosDate, 14);
+      central.writeUInt32LE(data.length, 20);
+      central.writeUInt32LE(data.length, 24);
+      central.writeUInt16LE(name.length, 28);
+      central.writeUInt32LE(0, 42); // local header offset
+
+      const body = Buffer.concat([local, name, data]);
+      const directory = Buffer.concat([central, name]);
+      const eocd = Buffer.alloc(22);
+      eocd.writeUInt32LE(0x06054b50, 0);
+      eocd.writeUInt16LE(1, 8);
+      eocd.writeUInt16LE(1, 10);
+      eocd.writeUInt32LE(directory.length, 12);
+      eocd.writeUInt32LE(body.length, 16);
+
+      return Buffer.concat([body, directory, eocd]);
+    }
+
+    let archive: Buffer;
+
+    beforeEach(() => {
+      archive = zipWithVersion("3.0.0", SERVED_AT);
+      // The route's only network use: a HEAD for the size, then range reads of
+      // the archive. Nothing here reaches Apple.
+      vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => {
+        if (init?.method === "HEAD") {
+          return new Response(null, {
+            status: 200,
+            headers: { "content-length": String(archive.length) },
+          });
+        }
+        const range = String(
+          (init?.headers as Record<string, string> | undefined)?.Range ?? "",
+        );
+        const match = /bytes=(\d+)-(\d+)/.exec(range);
+        if (!match) return new Response(archive, { status: 200 });
+
+        const start = Number(match[1]);
+        const end = Math.min(Number(match[2]), archive.length - 1);
+        return new Response(archive.subarray(start, end + 1), {
+          status: 206,
+          headers: {
+            "content-range": `bytes ${start}-${end}/${archive.length}`,
+          },
+        });
+      });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const readPackage = (versionId: string) =>
+      request(createApp())
+        .post(`/api/version-metadata/${APP}/${versionId}/package`)
+        .send({ downloadURL: "https://example.apple.com/app.ipa" });
+
+    it("stores what it reads as a package read, not as the pipeline's own compile", async () => {
+      const res = await readPackage(LOOKED_UP_VERSION);
+      expect(res.status).toBe(200);
+      expect(res.body.saved).toBe(true);
+      // Displayable — the bytes came out of a package — but not authoritative:
+      // the URL was the client's, so the server cannot attest the package.
+      expect(res.body.entry.source).toBe("package-read");
+      expect(res.body.entry.displayVersion).toBe("3.0.0");
+      expect(res.body.entry.releaseDate).toBe("2026-07-11T15:06:44.000Z");
+
+      const list = await request(createApp()).get(
+        `/api/version-metadata/${APP}`,
+      );
+      const stored = list.body.entries.find(
+        (entry: { versionId: string }) =>
+          entry.versionId === LOOKED_UP_VERSION,
+      );
+      expect(stored.source).toBe("package-read");
+    });
+
+    it("lets a later read refresh an entry it wrote", async () => {
+      await readPackage(LOOKED_UP_VERSION);
+
+      archive = zipWithVersion("3.0.1", SERVED_AT);
+      const res = await readPackage(LOOKED_UP_VERSION);
+
+      expect(res.body.saved).toBe(true);
+      expect(res.body.entry.displayVersion).toBe("3.0.1");
+    });
+
+    it("cannot displace what the download pipeline compiled", async () => {
+      cache.seedVersionMetadata(APP, {
+        version: "1.3.18",
+        releaseDate: "2026-07-11T15:06:44.000Z",
+        externalVersionId: COMPILED_VERSION,
+      } satisfies PackageMetadata);
+
+      const res = await readPackage(COMPILED_VERSION);
+
+      expect(res.status).toBe(200);
+      expect(res.body.saved).toBe(false);
+      expect(res.body.entry.source).toBe("package");
+      expect(res.body.entry.displayVersion).toBe("1.3.18");
+    });
   });
 });

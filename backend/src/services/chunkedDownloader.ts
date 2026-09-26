@@ -8,6 +8,7 @@ import {
   CHUNK_RETRY_DELAY_MS,
   MAX_DOWNLOAD_SIZE,
 } from "../config.js";
+import { fetchFollowingRedirects } from "../utils/redirectFetch.js";
 
 interface ChunkRange {
   index: number;
@@ -95,10 +96,9 @@ export class ChunkedDownloader {
     supportsRange: boolean;
     contentLength: number;
   }> {
-    const res = await fetch(this.url, {
+    const res = await fetchFollowingRedirects(this.url, {
       method: "HEAD",
       signal,
-      redirect: "follow",
     });
     if (!res.ok) {
       throw new Error(`HEAD failed: HTTP ${res.status}`);
@@ -160,9 +160,8 @@ export class ChunkedDownloader {
       signal.addEventListener("abort", onAbort, { once: true });
 
       try {
-        const res = await fetch(this.url, {
+        const res = await fetchFollowingRedirects(this.url, {
           signal: ac.signal,
-          redirect: "follow",
           headers: { Range: `bytes=${chunk.start}-${chunk.end}` },
         });
 
@@ -224,6 +223,13 @@ export class ChunkedDownloader {
     const ws = fs.createWriteStream(this.destPath);
     for (let i = 0; i < chunkCount; i++) {
       const partPath = `${this.destPath}.part${i}`;
+      // A chunk that answered with nothing at all leaves no file behind, and
+      // reading it would fail with an ENOENT from inside the stream machinery —
+      // a reason that says nothing about what went wrong.
+      if (!fs.existsSync(partPath)) {
+        ws.destroy();
+        throw new Error(`chunk ${i} of ${chunkCount} produced no data`);
+      }
       const rs = fs.createReadStream(partPath);
       await pipeline(rs, ws, { end: false });
     }
@@ -233,7 +239,44 @@ export class ChunkedDownloader {
       ws.on("error", reject);
     });
 
+    await this.assertComplete();
     this.cleanPartFiles(chunkCount);
+  }
+
+  /**
+   * Refuses a transfer that did not produce the whole file.
+   *
+   * Nothing else catches this. A chunk that answers with fewer bytes than the
+   * range asked for ends its stream normally, so the part file is written,
+   * `pipeline` resolves and the merge succeeds — the package would simply be
+   * short, and a truncated IPA fails later as a package that cannot be read.
+   * `Apple`'s own `content-length` from the HEAD is the size every part was
+   * cut against, so it is what the assembled file has to match. A file that
+   * does not is removed rather than left where a retry could resume from it.
+   */
+  private async assertComplete(): Promise<void> {
+    if (this.totalSize <= 0) return;
+
+    let actual: number;
+    try {
+      actual = fs.statSync(this.destPath).size;
+    } catch (err) {
+      throw new Error(
+        `the downloaded file could not be measured: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
+    if (actual === this.totalSize) return;
+
+    try {
+      fs.unlinkSync(this.destPath);
+    } catch {
+      // Best effort: the error below is the one worth reporting.
+    }
+    throw new Error(
+      `the download is ${actual} bytes, not the ${this.totalSize} Apple announced`,
+    );
   }
 
   /** Remove .part temporary files. */
@@ -250,7 +293,7 @@ export class ChunkedDownloader {
 
   /** Single-stream fallback download. */
   private async downloadSingleStream(signal: AbortSignal): Promise<void> {
-    const res = await fetch(this.url, { signal, redirect: "follow" });
+    const res = await fetchFollowingRedirects(this.url, { signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     if (!res.body) throw new Error("No response body");
 
@@ -313,6 +356,9 @@ export class ChunkedDownloader {
       clearInterval(progressInterval);
     }
 
+    // A stream that ends early ends *cleanly* here too, so the length Apple
+    // announced is the only thing that can tell a whole file from a short one.
+    await this.assertComplete();
     this.onProgress?.({ downloaded, total: this.totalSize, speed: "0 B/s" });
   }
 

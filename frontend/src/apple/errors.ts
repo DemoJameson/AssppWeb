@@ -24,18 +24,23 @@ export class DownloadError extends Error {
 }
 
 /**
- * The request never produced an answer from Apple: the tunnel stalled, the
- * request outlived its timeout, or the connection died before anything came
- * back. Nothing is known about the request itself, so a caller may repeat it —
- * on Apple's other endpoint, say — which is exactly what it may *not* do with an
- * error Apple answered with (a refused sign-in comes back as a response).
+ * The request produced no answer from Apple: the tunnel stalled, the request
+ * outlived its timeout, or the connection died before anything came back.
  *
- * The message is meant for the user; `cause` keeps whatever the transport said.
+ * A caller may repeat it — on Apple's other endpoint, say — but only when
+ * nothing of Apple's own was seen. `delivered` is the exception that matters for
+ * a request with a side effect: reading the response failed *after* a response
+ * arrived, so Apple has processed the request and repeating it could duplicate
+ * what it did. `apple/retry.ts` reads this to decide; everything that merely
+ * wants to know "this was a transport failure, not an answer" can ignore it,
+ * which is why the flag is separate from the type.
  */
 export class AppleUnreachableError extends Error {
   constructor(
     message: string,
     public readonly cause?: unknown,
+    /** True when Apple's response had started before the failure. */
+    public readonly delivered: boolean = false,
   ) {
     super(message);
     this.name = "AppleUnreachableError";

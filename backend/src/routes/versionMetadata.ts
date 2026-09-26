@@ -2,10 +2,9 @@ import { Router, Request, Response } from "express";
 import {
   getVersionMetadataForApp,
   saveClientVersionMetadata,
-  seedVersionMetadata,
+  savePackageReadVersionMetadata,
 } from "../services/versionMetadataCache.js";
 import { versionMetadataFromDownloadURL } from "../services/packageVersionMetadata.js";
-import type { PackageMetadata } from "../services/sinfInjector.js";
 
 const router = Router();
 
@@ -83,6 +82,13 @@ router.put(
  * The client hands over the download URL it got from the pinned exchange; the
  * package is never fetched whole, and the URL is validated first like every
  * other package address.
+ *
+ * Reading a package does not make the result authoritative: the URL came from
+ * the *client*, so the server cannot attest that the package behind it is the
+ * build these ids name. It is therefore saved as a `package-read` entry — shown
+ * as the build's date, since that is where the value came from, but refreshable
+ * and unable to displace what the download pipeline compiled. `source =
+ * 'package'` is reserved for the pipeline, which reads the package it built.
  */
 router.post(
   "/version-metadata/:appId/:versionId/package",
@@ -106,20 +112,20 @@ router.post(
 
     try {
       const metadata = await versionMetadataFromDownloadURL(body.downloadURL);
-      seedVersionMetadata(appId, {
-        externalVersionId: versionId,
-        version: metadata.displayVersion,
-        releaseDate: metadata.releaseDate,
-      } as PackageMetadata);
+      const result = savePackageReadVersionMetadata(
+        appId,
+        versionId,
+        metadata.displayVersion,
+        metadata.releaseDate,
+      );
+      if (!result.saved && !result.entry) {
+        res.status(502).json({
+          error: "Could not read the version from its package",
+        });
+        return;
+      }
 
-      res.json({
-        saved: true,
-        entry: {
-          versionId,
-          displayVersion: metadata.displayVersion,
-          releaseDate: metadata.releaseDate,
-        },
-      });
+      res.json(result);
     } catch (error) {
       res.status(502).json({
         error:

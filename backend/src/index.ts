@@ -22,6 +22,11 @@ import packageBuildRoutes from "./routes/packageBuilds.js";
 
 const app = express();
 
+// Whether the socket address or the client a proxy reports is the caller's.
+// Off by default; see `TRUST_PROXY` in config.ts, and `rateLimitKey` for what
+// reads it.
+app.set("trust proxy", config.trustProxy);
+
 // Middleware
 app.use(httpsRedirect);
 app.use(securityHeaders);

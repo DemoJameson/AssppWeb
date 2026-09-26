@@ -128,6 +128,17 @@ describe("Search Route", () => {
     expect(res.body[0].platform).toBeUndefined();
   });
 
+  it("GET /api/search bounds the request it makes to the storefront", async () => {
+    // Node's fetch has no timeout of its own, so a storefront that accepts the
+    // connection and stops answering would hold this route open for minutes.
+    replyWithJson(iTunesPayload);
+
+    await request(app).get("/api/search?term=utility");
+
+    const init = iTunesFetch.mock.calls[0][1] as RequestInit | undefined;
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("GET /api/search omits the platform field when none was requested", async () => {
     replyWithJson(iTunesPayload);
 

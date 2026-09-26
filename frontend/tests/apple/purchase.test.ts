@@ -103,6 +103,18 @@ describe("apple/purchase", () => {
     expect(calls()).toHaveLength(1);
   });
 
+  it.each([
+    ["an empty body", ""],
+    ["a body that is not a plist", "<html><body>Internal Server Error</body></html>"],
+  ])("reads a 500 with %s as the same already-fulfilled order", async (_label, body) => {
+    // The status is the answer here, so parsing the body must not be able to
+    // pre-empt it — an empty one used to throw out of the plist parser.
+    replies = [reply(body, 500)];
+
+    await expect(purchaseApp(account, freeApp)).resolves.toBeDefined();
+    expect(calls()).toHaveLength(1);
+  });
+
   it("retries with the Apple Arcade pricing parameter when the item is unavailable", async () => {
     replies = [reply(failureDoc("2059")), reply(successDoc())];
 

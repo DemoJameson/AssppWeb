@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { ITUNES_TIMEOUT_MS } from "../config.js";
 import type { Platform } from "../types/index.js";
 import {
   buildForPlatform,
@@ -65,6 +66,7 @@ router.get("/search", async (req: Request, res: Response) => {
     const params = new URLSearchParams(query);
     const response = await fetch(
       `https://itunes.apple.com/search?${params.toString()}`,
+      { signal: AbortSignal.timeout(ITUNES_TIMEOUT_MS) },
     );
     const data = await response.json();
     const results = (data.results ?? []).map((item: Record<string, any>) =>
@@ -92,6 +94,7 @@ router.get("/search", async (req: Request, res: Response) => {
           try {
             const lookupResponse = await fetch(
               `https://itunes.apple.com/lookup?bundleId=${encodeURIComponent(record.bundleID)}&country=${encodeURIComponent(country)}`,
+              { signal: AbortSignal.timeout(ITUNES_TIMEOUT_MS) },
             );
             const lookupData = await lookupResponse.json();
             if (lookupData.resultCount > 0 && lookupData.results?.length > 0) {
@@ -129,6 +132,7 @@ router.get("/lookup", async (req: Request, res: Response) => {
     const params = new URLSearchParams(query);
     const response = await fetch(
       `https://itunes.apple.com/lookup?${params.toString()}`,
+      { signal: AbortSignal.timeout(ITUNES_TIMEOUT_MS) },
     );
     const data = await response.json();
     if (!data.resultCount || !data.results?.length) {

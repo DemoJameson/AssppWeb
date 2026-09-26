@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { VersionMetadata } from "../types";
+import { dateComesFromPackage } from "../utils/versionMetadataSource";
 
 /**
  * Session-wide version metadata map, shared by every page: merged from the
@@ -51,9 +52,12 @@ export const useVersionMetadataStore = create<VersionMetadataState>((set) => ({
   putEntry: (versionId, metadata) =>
     set((state) => {
       const existing = state.entries[versionId];
-      // A package-sourced entry is the build's own date and displaces whatever
-      // the exchange said; everything else keeps the first write.
-      if (existing && metadata.source !== "package") return state;
+      // A date read out of a package is the build's own and displaces whatever
+      // the exchange said; everything else keeps the first write. Asking
+      // `dateComesFromPackage` rather than naming `package` is what lets a value
+      // filled in by `fillAccurate` — a `package-read` — land here at all: it is
+      // the only path that brings a build's date into this store.
+      if (existing && !dateComesFromPackage(metadata.source)) return state;
       return { entries: { ...state.entries, [versionId]: metadata } };
     }),
 

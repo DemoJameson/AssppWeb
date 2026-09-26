@@ -1,4 +1,5 @@
 import type { Cookie } from "../types";
+import { isAppleHost } from "./config";
 
 export function extractAndMergeCookies(
   rawHeaders: Iterable<[string, string]>,
@@ -51,6 +52,12 @@ export function buildCookieHeader(cookies: Cookie[], url: string): string {
 
     if (cookie.domain) {
       if (!matchesDomain(cookie.domain, host)) continue;
+    } else if (!isAppleHost(host)) {
+      // A cookie Apple sent without a `Domain` attribute is host-only in a
+      // browser. Here it is carried *across* Apple's hosts on purpose — the
+      // session one endpoint sets is required by another — so it is confined to
+      // Apple's domains rather than sent to whatever host a redirect names.
+      continue;
     }
 
     if (!matchesPath(cookie.path, path)) continue;

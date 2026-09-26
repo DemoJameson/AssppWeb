@@ -4,6 +4,7 @@ import path from "path";
 import { config } from "../config.js";
 import { getAllTasks, iconPathFor } from "../services/downloadManager.js";
 import { buildManifest, getWhitePng } from "../services/manifestBuilder.js";
+import { createInstallTicket } from "../utils/downloadTicket.js";
 import { getIdParam } from "../utils/route.js";
 
 const router = Router();
@@ -51,6 +52,28 @@ function joinUrl(baseUrl: string, path: string): string {
   return `${base}/${suffix}`;
 }
 
+/**
+ * Appends an install ticket to a URL the device is expected to fetch itself.
+ *
+ * Every install URL is opened by iOS as a plain navigation — the manifest from
+ * the `itms-services://` link, the payload and the icons from inside the
+ * manifest — so none of them can carry the access-token header, and all of them
+ * are guarded by the signed pair this appends instead (see `middleware/accessAuth`).
+ * Without an instance password nothing is signed: those routes are open anyway.
+ */
+function signedInstallUrl(
+  baseUrl: string,
+  path: string,
+  taskId: string,
+): string {
+  const url = joinUrl(baseUrl, path);
+  const ticket = createInstallTicket(taskId);
+  if (!ticket) return url;
+
+  const params = new URLSearchParams({ exp: ticket.exp, sig: ticket.sig });
+  return `${url}?${params}`;
+}
+
 // The install manifest identifies the app by bundle identifier; iOS rejects a
 // package whose manifest disagrees with it. Tasks created from a bare app id
 // learn it from the compiled package, so this only trips if that failed.
@@ -76,9 +99,24 @@ router.get("/install/:id/manifest.plist", (req: Request, res: Response) => {
   }
 
   const baseUrl = getBaseUrl(req);
-  const payloadUrl = joinUrl(baseUrl, `/api/install/${id}/payload.ipa`);
-  const smallIconUrl = joinUrl(baseUrl, `/api/install/${id}/icon-small.png`);
-  const largeIconUrl = joinUrl(baseUrl, `/api/install/${id}/icon-large.png`);
+  // Each URL the manifest hands the device carries its own signed window: iOS
+  // fetches them without the access token, and this request has already proven
+  // it may have one by reaching a route `accessAuth` guards.
+  const payloadUrl = signedInstallUrl(
+    baseUrl,
+    `/api/install/${id}/payload.ipa`,
+    id,
+  );
+  const smallIconUrl = signedInstallUrl(
+    baseUrl,
+    `/api/install/${id}/icon-small.png`,
+    id,
+  );
+  const largeIconUrl = signedInstallUrl(
+    baseUrl,
+    `/api/install/${id}/icon-large.png`,
+    id,
+  );
 
   const manifest = buildManifest(
     task.software,
@@ -112,7 +150,11 @@ router.get("/install/:id/url", (req: Request, res: Response) => {
   }
 
   const baseUrl = getBaseUrl(req);
-  const manifestUrl = joinUrl(baseUrl, `/api/install/${id}/manifest.plist`);
+  const manifestUrl = signedInstallUrl(
+    baseUrl,
+    `/api/install/${id}/manifest.plist`,
+    id,
+  );
   const installUrl = `itms-services://?action=download-manifest&url=${encodeURIComponent(
     manifestUrl,
   )}`;
@@ -145,9 +187,10 @@ router.get("/install/:id/payload.ipa", (req: Request, res: Response) => {
   res.setHeader("Content-Length", stats.size);
 
   const stream = fs.createReadStream(resolvedPath);
-  // The read is unauthenticated and racy with a concurrent delete of the same
-  // package. Without a listener an ENOENT mid-stream would surface as a fatal
-  // unhandled 'error' event and take the whole process down.
+  // The read is anonymous — a signed link, not the access token — and racy with
+  // a concurrent delete of the same package. Without a listener an ENOENT
+  // mid-stream would surface as a fatal unhandled 'error' event and take the
+  // whole process down.
   stream.on("error", () => {
     if (!res.headersSent) {
       res.status(404).json({ error: "Package not found" });
@@ -164,8 +207,9 @@ router.get("/install/:id/payload.ipa", (req: Request, res: Response) => {
  * 57x57 and a 512x512 image, but iOS scales, and the package is unlikely to
  * hold anything near 512 anyway.
  *
- * iOS fetches these unauthenticated, so they stay reachable without a token and
- * fall back to a blank image when the package had no icon.
+ * iOS fetches these out of the manifest, carrying the ticket that manifest was
+ * fetched with (see `middleware/accessAuth`), and they fall back to a blank
+ * image when the package had no icon.
  */
 router.get("/install/:id/icon-small.png", (req: Request, res: Response) => {
   sendInstallIcon(getIdParam(req), res);

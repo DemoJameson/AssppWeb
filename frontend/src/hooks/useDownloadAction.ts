@@ -114,7 +114,9 @@ export function useDownloadAction() {
       // The license grant is the download flow's one request with nowhere else
       // to go: unlike the download-product exchange, it has no fallback host to
       // move to. A request Apple never answered is repeated once — the grant is
-      // idempotent on Apple's side (a repeat comes back as "already owned").
+      // idempotent on Apple's side (a repeat comes back as "already owned"), and
+      // `repeatUnreachable` still refuses to repeat one whose response had
+      // already started arriving, where the answer could be a duplicate.
       const result = await repeatUnreachable(() =>
         purchaseApp(currentAccount, app),
       );

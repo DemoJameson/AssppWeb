@@ -9,6 +9,7 @@ import { getVersionMetadata } from "../apple/versionLookup";
 import { useAccountsStore } from "../store/accounts";
 import { useSettingsStore } from "../store/settings";
 import { useVersionMetadataStore } from "../store/versionMetadata";
+import { dateComesFromPackage } from "../utils/versionMetadataSource";
 import type { Account, Software, VersionMetadata } from "../types";
 
 /** At most this many missing versions are filled per version list load. */
@@ -21,12 +22,18 @@ const PREFETCH_SLOW_CONCURRENCY = 1;
 
 /**
  * Whether a version still needs looking up. A version with no entry at all
- * does — and so does one whose entry is not package-sourced: it shows a number
- * with no date, and reading its package is the only way to add one, because
- * the exchange's own date is app-level and would be wrong on every row.
+ * does — and so does one whose entry carries no date from a build's package: it
+ * shows a number with no date, and reading its package is the only way to add
+ * one, because the exchange's own date is app-level and would be wrong on every
+ * row.
+ *
+ * A `package-read` entry — what a fill leaves behind — therefore reads as done.
+ * Naming `package` here instead would mark every version this instance had ever
+ * filled as still missing, and the silent pass would re-ask Apple for all of
+ * them (up to a hundred a page load) for a date it already had.
  */
 function needsFill(entry: VersionMetadata | undefined): boolean {
-  return !entry || entry.source !== "package";
+  return !entry || !(dateComesFromPackage(entry.source) && entry.releaseDate);
 }
 
 /**

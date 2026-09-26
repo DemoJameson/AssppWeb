@@ -19,15 +19,15 @@ import {
   requireAccountHash,
   verifyTaskOwnership,
 } from "../utils/route.js";
+import { fetchFollowingRedirects } from "../utils/redirectFetch.js";
 
 const router = Router();
 
 async function fetchDownloadSizeBytes(
   downloadURL: string,
 ): Promise<number | null> {
-  const headResponse = await fetch(downloadURL, {
+  const headResponse = await fetchFollowingRedirects(downloadURL, {
     method: "HEAD",
-    redirect: "follow",
     signal: AbortSignal.timeout(SIZE_PROBE_TIMEOUT_MS),
   });
   if (!headResponse.ok) {
@@ -42,10 +42,9 @@ async function fetchDownloadSizeBytes(
     return contentLength;
   }
 
-  const rangeResponse = await fetch(downloadURL, {
+  const rangeResponse = await fetchFollowingRedirects(downloadURL, {
     method: "GET",
     headers: { Range: "bytes=0-0" },
-    redirect: "follow",
     signal: AbortSignal.timeout(SIZE_PROBE_TIMEOUT_MS),
   });
   try {
@@ -98,6 +97,43 @@ router.post("/downloads", async (req: Request, res: Response) => {
         "Missing required fields: software, accountHash, downloadURL, sinfs",
     });
     return;
+  }
+
+  // These arrive straight off the wire and are used well below the point where a
+  // mistake would be obvious: `sinfs` is indexed and base64-decoded inside the
+  // injector, and `software.name` is turned into a file name. A wrong type here
+  // would surface as a `TypeError` inside a running download, so it is refused
+  // at the boundary where the caller can still be told what was wrong.
+  if (
+    !Array.isArray(sinfs) ||
+    sinfs.some(
+      (sinf) =>
+        typeof sinf !== "object" ||
+        sinf === null ||
+        typeof (sinf as { sinf?: unknown }).sinf !== "string",
+    )
+  ) {
+    res.status(400).json({
+      error: "Invalid sinfs: expected an array of { id, sinf } entries",
+    });
+    return;
+  }
+
+  if (iTunesMetadata !== undefined && typeof iTunesMetadata !== "string") {
+    res.status(400).json({
+      error: "Invalid iTunesMetadata: expected a base64 string",
+    });
+    return;
+  }
+
+  for (const field of ["name", "version", "bundleID", "platform"] as const) {
+    const value = (software as Record<string, unknown>)[field];
+    if (value !== undefined && value !== null && typeof value !== "string") {
+      res.status(400).json({
+        error: `Invalid software.${field}: expected a string`,
+      });
+      return;
+    }
   }
 
   // The app id is the one piece of software metadata a download cannot work

@@ -153,10 +153,18 @@ describe("useVersionMetadataMap", () => {
       entries: {
         // Package-sourced: the row already carries the build's own date.
         known: { displayVersion: "0.1.0", releaseDate: "x", source: "package" },
+        // And the same, from a package read at a client's URL — what a fill
+        // leaves behind. It carries a build's date, so it is just as done.
+        filled: {
+          displayVersion: "0.2.0",
+          releaseDate: "y",
+          source: "package-read",
+        },
       },
     });
     const versions = [
       "known",
+      "filled",
       ...Array.from({ length: 125 }, (_, index) => `missing-${index}`),
     ];
 
@@ -175,6 +183,7 @@ describe("useVersionMetadataMap", () => {
       .mocked(getVersionMetadata)
       .mock.calls.map((call) => call[2]);
     expect(asked).not.toContain("known");
+    expect(asked).not.toContain("filled");
   });
 
   it("keeps at most five lookups in flight", async () => {
@@ -262,7 +271,7 @@ describe("useVersionMetadataMap", () => {
     vi.mocked(fetchPackageVersionMetadata).mockResolvedValue({
       displayVersion: "1.0.0",
       releaseDate: "2026-01-01T00:00:00Z",
-      source: "package",
+      source: "package-read",
     });
 
     const versions = Array.from({ length: 100 }, (_, index) => `v-${index}`);
@@ -361,7 +370,7 @@ describe("useVersionMetadataMap", () => {
     vi.mocked(fetchPackageVersionMetadata).mockResolvedValue({
       displayVersion: "2.2.2",
       releaseDate: "2026-05-05T00:00:00Z",
-      source: "package",
+      source: "package-read",
     });
 
     const { result } = renderHook(() => useVersionMetadataMap());

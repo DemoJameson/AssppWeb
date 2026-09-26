@@ -29,6 +29,7 @@ import {
   REDOWNLOAD_PRODUCT_PATH,
   UPDATE_PRODUCT_PATH,
   downloadDispatchEndpoint,
+  isAppleHost,
   storeIdToCountry,
   volumeStoreEndpoint,
   type StoreDownloadEndpoint,
@@ -299,6 +300,17 @@ async function followRedirects(
     }
 
     const url = new URL(location, `https://${host}`);
+    // This request carries the session cookies and the account's DSID header,
+    // and the Location is a host Apple chose. A hop off Apple's own domains
+    // would hand both to whoever that host is, so it is refused here — the
+    // response is returned as it stands, exactly like a redirect with no
+    // Location, and the caller reports a download it could not fetch.
+    if (!isAppleHost(url.hostname)) {
+      console.warn(
+        `[download] refused a redirect from ${host} to ${url.hostname}: not an Apple domain`,
+      );
+      return response;
+    }
     host = url.hostname;
     path = url.pathname + url.search;
   }

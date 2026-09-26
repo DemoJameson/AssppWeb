@@ -62,7 +62,7 @@ If your build log fails at `Deploy a container application` with `Unauthorized`,
 **Setup Docker Compose**
 
 ```bash
-curl -O https://raw.githubusercontent.com/DemoJameson/AssppWeb/main/compose.yml
+curl -O https://raw.githubusercontent.com/DemoJameson/AssppWeb/improve/compose.yml
 docker compose up -d
 ```
 
@@ -81,6 +81,7 @@ docker compose up -d
 | `VERSION_METADATA_MAX_ENTRIES`              | `20000`         | Max entries kept in the shared version metadata cache (oldest evicted first)                |
 | `STOREFRONT_FALLBACK_COUNTRIES`             | `cn`            | Storefronts tried when the account's own cannot answer a macOS/visionOS version lookup — relevant on a mainland-China network (comma-separated country codes; empty disables) |
 | `ACCESS_PASSWORD`                           | _(none)_        | Require a password to access the web UI and API (empty to disable)                          |
+| `TRUST_PROXY`                               | _(off)_         | Express `trust proxy`: `true`, a hop count, `loopback`, or a subnet list. Set it behind a reverse proxy so the login rate limit keys on the real client instead of the proxy's address |
 
 **Reverse Proxy (Required for Install Apps on iOS)**
 

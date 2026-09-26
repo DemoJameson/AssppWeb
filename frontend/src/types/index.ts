@@ -109,10 +109,13 @@ export interface VersionMetadata {
    */
   releaseDate: string;
   /**
-   * Where the date came from — a compiled package (the build's own, accurate)
-   * or Apple's exchange (app-level). Pickers show only the former.
+   * Where the date came from. `package` is this instance's own compiled
+   * package, `package-read` a package read at a URL the client supplied (the
+   * server cannot attest it is the build these ids name), and `client` Apple's
+   * exchange, which dates the *app* rather than the build. Pickers print a date
+   * only for the two package sources.
    */
-  source?: "package" | "client";
+  source?: "package" | "package-read" | "client";
 }
 
 export interface DownloadTask {

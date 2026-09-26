@@ -40,4 +40,20 @@ describe("apple/retry", () => {
     await expect(repeatUnreachable(call)).rejects.toBe(refusal);
     expect(call).toHaveBeenCalledTimes(1);
   });
+
+  it("never repeats a request whose answer had already started", async () => {
+    // The response arrived and reading its body failed: Apple has acted on the
+    // request, so a write repeated here could be applied twice.
+    const lost = new AppleUnreachableError(
+      "the answer was lost while being read",
+      undefined,
+      true,
+    );
+    const call = vi.fn(async () => {
+      throw lost;
+    });
+
+    await expect(repeatUnreachable(call)).rejects.toBe(lost);
+    expect(call).toHaveBeenCalledTimes(1);
+  });
 });

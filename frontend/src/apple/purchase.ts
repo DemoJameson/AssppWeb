@@ -44,6 +44,24 @@ export async function purchaseApp(
   }
 }
 
+/**
+ * The reply's plist, or an empty dict when the body is not one.
+ *
+ * The 500 below is answered from the status alone and its body is not always a
+ * plist (or there at all), so the parse cannot be what decides whether that
+ * answer is reached: an empty body used to throw a `DOMParser` error from
+ * inside `parsePlist`, which is not a `PurchaseError` and so read as an
+ * unexplained failure — the opposite of the "license already exists" this
+ * handler was written to recognise.
+ */
+function parseReply(body: string): Record<string, any> {
+  try {
+    return parsePlist(body) as Record<string, any>;
+  } catch {
+    return {};
+  }
+}
+
 async function purchaseWithParams(
   account: Account,
   app: Software,
@@ -92,7 +110,7 @@ async function purchaseWithParams(
     account.cookies,
   );
 
-  const dict = parsePlist(response.body) as Record<string, any>;
+  const dict = parseReply(response.body);
 
   if (dict.failureType) {
     const failureType = String(dict.failureType);

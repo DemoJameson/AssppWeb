@@ -5,8 +5,17 @@ import PackageQuickActions from '../../src/components/Download/PackageQuickActio
 import { previewDownloadTasks } from '../../src/components/Download/previewTasks';
 import { useToastStore } from '../../src/store/toast';
 import { detectInstallDevice, isAppleSiliconMac } from '../../src/utils/device';
-import { openInstallUrl } from '../../src/api/install';
+import { openInstallUrl, getInstallInfo } from '../../src/api/install';
 import type { DownloadTask } from '../../src/types';
+
+// The install links are minted by the server (they carry a signature this side
+// cannot produce), so the fetch that asks for them is stubbed at the module
+// boundary. The download-link fetch below stays real and asserts on `fetch`.
+const INSTALL_MANIFEST_URL =
+  'https://example.test/api/install/real-download-task/manifest.plist?exp=9999999999999&sig=abc';
+const INSTALL_URL = `itms-services://?action=download-manifest&url=${encodeURIComponent(
+  INSTALL_MANIFEST_URL,
+)}`;
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -27,7 +36,7 @@ vi.mock('../../src/utils/device', async (importOriginal) => {
 
 vi.mock('../../src/api/install', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/api/install')>();
-  return { ...actual, openInstallUrl: vi.fn() };
+  return { ...actual, getInstallInfo: vi.fn(), openInstallUrl: vi.fn() };
 });
 
 const originalClipboard = Object.getOwnPropertyDescriptor(
@@ -90,6 +99,10 @@ describe('PackageQuickActions', () => {
       name: 'iPhone',
     });
     vi.mocked(isAppleSiliconMac).mockResolvedValue(false);
+    vi.mocked(getInstallInfo).mockResolvedValue({
+      installUrl: INSTALL_URL,
+      manifestUrl: INSTALL_MANIFEST_URL,
+    });
     vi.mocked(openInstallUrl).mockClear();
     vi.mocked(openInstallUrl).mockImplementation(() => {});
   });
@@ -102,13 +115,17 @@ describe('PackageQuickActions', () => {
     useToastStore.setState({ toasts: [] });
   });
 
-  it('shows install, share, and download for a completed package with a file', () => {
+  it('shows install, share, and download for a completed package with a file', async () => {
     render(<PackageQuickActions task={createTask()} />);
 
     expect(screen.getByTestId('package-quick-actions')).toBeInTheDocument();
-    expect(
-      screen.getByRole('link', { name: 'downloads.package.install' }),
-    ).toHaveAttribute('href', expect.stringMatching(/^itms-services:\/\//));
+    // The link arrives from the server, so it is the rendered result of a fetch
+    // rather than something this side could compute.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('link', { name: 'downloads.package.install' }),
+      ).toHaveAttribute('href', expect.stringMatching(/^itms-services:\/\//)),
+    );
     expect(
       screen.getByRole('button', { name: 'downloads.package.share' }),
     ).toBeInTheDocument();
@@ -344,8 +361,10 @@ describe('PackageQuickActions', () => {
 
     fireEvent.click(screen.getByText('install.continue'));
 
-    expect(openInstallUrl).toHaveBeenCalledWith(
-      expect.stringMatching(/^itms-services:\/\//),
+    await waitFor(() =>
+      expect(openInstallUrl).toHaveBeenCalledWith(
+        expect.stringMatching(/^itms-services:\/\//),
+      ),
     );
     await waitFor(() =>
       expect(screen.queryByText('install.overwrite.title')).toBeNull(),

@@ -11,13 +11,22 @@ import { accessPasswordHash } from "../config.js";
  */
 const TICKET_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * Install links are handed to a *device* rather than used on the spot: the URL
+ * is shown as a QR code and scanned from another machine, sometimes minutes
+ * after the page was opened. Its window is therefore wider than the file
+ * link's, while still being bounded — the password gate's point is that a
+ * leaked link stops working.
+ */
+const INSTALL_TICKET_TTL_MS = 30 * 60 * 1000;
+
 export function createDownloadTicket(
   taskId: string,
   accountHash: string,
 ): { exp: string; sig: string } | null {
   if (!accessPasswordHash) return null;
   const exp = String(Date.now() + TICKET_TTL_MS);
-  return { exp, sig: sign(taskId, accountHash, exp) };
+  return { exp, sig: signDownload(taskId, accountHash, exp) };
 }
 
 export function verifyDownloadTicket(
@@ -27,17 +36,58 @@ export function verifyDownloadTicket(
   sig: string,
 ): boolean {
   if (!accessPasswordHash) return false;
+  return verify(exp, sig, signDownload(taskId, accountHash, exp));
+}
 
+/**
+ * Issues the pair the install routes accept: `manifest.plist`, `payload.ipa`
+ * and the two icon sizes, which iOS fetches itself and therefore cannot
+ * authenticate with the access token. Minted by `GET /install/:id/url`, which
+ * *is* behind the token.
+ */
+export function createInstallTicket(
+  taskId: string,
+): { exp: string; sig: string } | null {
+  if (!accessPasswordHash) return null;
+  const exp = String(Date.now() + INSTALL_TICKET_TTL_MS);
+  return { exp, sig: signInstall(taskId, exp) };
+}
+
+export function verifyInstallTicket(
+  taskId: string,
+  exp: string,
+  sig: string,
+): boolean {
+  if (!accessPasswordHash) return false;
+  return verify(exp, sig, signInstall(taskId, exp));
+}
+
+function verify(exp: string, sig: string, expected: string): boolean {
   const expMs = Number(exp);
   if (!Number.isFinite(expMs) || expMs < Date.now()) return false;
 
-  const expected = Buffer.from(sign(taskId, accountHash, exp), "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
   const actual = Buffer.from(sig, "utf8");
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
+  return (
+    expectedBytes.length === actual.length &&
+    timingSafeEqual(expectedBytes, actual)
+  );
 }
 
-function sign(taskId: string, accountHash: string, exp: string): string {
+function signDownload(
+  taskId: string,
+  accountHash: string,
+  exp: string,
+): string {
+  return sign(`download:${taskId}:${accountHash}`, exp);
+}
+
+function signInstall(taskId: string, exp: string): string {
+  return sign(`install:${taskId}`, exp);
+}
+
+function sign(scope: string, exp: string): string {
   return createHmac("sha256", accessPasswordHash)
-    .update(`${taskId}:${accountHash}:${exp}`)
+    .update(`${scope}:${exp}`)
     .digest("hex");
 }

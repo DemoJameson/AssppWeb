@@ -46,6 +46,7 @@ import {
   isBuildDownloaded,
 } from "../../utils/downloaded";
 import { versionOptionLabel } from "../../utils/versionLabels";
+import { dateComesFromPackage } from "../../utils/versionMetadataSource";
 import { parsePlatform, PLATFORM_LABELS } from "../../apple/platform";
 import {
   accountSelectLabel,
@@ -248,7 +249,7 @@ export default function ProductDetail() {
   // recorded build's.
   const currentReleaseDate =
     heldBuild?.software.releaseDate ||
-    (currentMeta?.source === 'package' ? currentMeta.releaseDate : '') ||
+    (dateComesFromPackage(currentMeta?.source) ? currentMeta.releaseDate : '') ||
     (recordIsCurrent ? app?.releaseDate ?? '' : '');
 
   const targetDownloaded = !!currentVersionId && isVersionDownloaded(currentVersionId);

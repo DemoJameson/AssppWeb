@@ -56,4 +56,51 @@ describe("versionMetadata store", () => {
     expect(entries["1"].displayVersion).toBe("1.0.0");
     expect(entries["2"].displayVersion).toBe("2.0.0");
   });
+
+  describe("putEntry", () => {
+    const put = (id: string, metadata: VersionMetadata) =>
+      useVersionMetadataStore.getState().putEntry(id, metadata);
+
+    it("lets a package read fill in a version the exchange could only number", () => {
+      // The order the page works in: the fallback puts the exchange's value — a
+      // number, plus a date that dates the app and so is never printed — and the
+      // package read then brings the build's own date as `package-read`.
+      put("1", {
+        displayVersion: "1.0.0",
+        releaseDate: "2026-01-01T00:00:00Z",
+        source: "client",
+      });
+      put("1", {
+        displayVersion: "1.0.0",
+        releaseDate: "2026-06-06T00:00:00Z",
+        source: "package-read",
+      });
+
+      const stored = useVersionMetadataStore.getState().entries["1"];
+      expect(stored.source).toBe("package-read");
+      expect(stored.releaseDate).toBe("2026-06-06T00:00:00Z");
+    });
+
+    it("does not let the exchange's app-level date displace a build's", () => {
+      put("1", { ...entry, source: "package-read" });
+      put("1", {
+        displayVersion: "1.0.0",
+        releaseDate: "2020-01-01T00:00:00Z",
+        source: "client",
+      });
+
+      expect(
+        useVersionMetadataStore.getState().entries["1"].releaseDate,
+      ).toBe("2026-01-01T00:00:00Z");
+    });
+
+    it("keeps the first write when the second is not a package read", () => {
+      put("1", entry);
+      put("1", { ...entry, displayVersion: "9.9.9", source: "client" });
+
+      expect(useVersionMetadataStore.getState().entries["1"].displayVersion).toBe(
+        "1.0.0",
+      );
+    });
+  });
 });

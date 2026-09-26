@@ -52,7 +52,7 @@ The server is a blind TCP proxy. It NEVER sees Apple credentials.
 │                                                      │
 │  Server downloads IPA from CDN, injects SINFs +      │
 │  iTunesMetadata, stores compiled IPA, serves via     │
-│  public install URL (itms-services manifest)         │
+│  signed install URL (itms-services manifest)         │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -1087,4 +1087,4 @@ a.click();
 URL.revokeObjectURL(blobUrl);
 ```
 
-**Exceptions**: Routes that the backend explicitly skips auth for (`/auth/*`, `/install/*`) may use plain links — e.g., `itms-services://` install URLs are fine since `/install/*` is public.
+**Exceptions**: Routes the backend explicitly skips auth for (`/auth/*`, `GET /downloads/:id/icon`) may use plain links. Everything else needs a header — or a *signed link* when the consumer cannot send one, which is what the `itms-services://` install URL is: iOS fetches the manifest, payload and icons itself, so those URLs carry a short-lived `exp`+`sig` pair minted by `GET /install/:id/url` (behind the token) instead of being public. Never build an install or download URL by hand on the client; ask the endpoint that signs it (`api/install`, `api/packages/:id/file-url`).

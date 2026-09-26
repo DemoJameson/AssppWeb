@@ -34,9 +34,9 @@ interface DownloadsState {
 }
 
 let pollInterval: ReturnType<typeof setInterval> | null = null;
-// Aborts the in-flight list request when a newer one starts, so a slow older
-// response can never overwrite fresher state.
-let fetchAbort: AbortController | null = null;
+// The list request currently in flight, which a newer one cancels. It is also
+// what the poll below checks before asking again — see there.
+let inFlight: AbortController | null = null;
 
 export const useDownloadsStore = create<DownloadsState>((set, get) => ({
   tasks: [],
@@ -47,30 +47,41 @@ export const useDownloadsStore = create<DownloadsState>((set, get) => ({
 
   fetchTasks: async () => {
     const { accountHashes } = get();
-    fetchAbort?.abort();
+    // A newer read supersedes this one: it owns the state from here, and the
+    // aborted request must not write anything back (it would be older data, and
+    // it would clear the replacement's loading flag).
+    inFlight?.abort();
     const abort = new AbortController();
-    fetchAbort = abort;
+    inFlight = abort;
     set({ loading: true });
     try {
       const tasks = await downloadsApi.fetchDownloads(accountHashes, {
         signal: abort.signal,
       });
+      if (inFlight !== abort) return;
       set({ tasks, loading: false });
 
       const hasActive = tasks.some(isActiveDownload);
       if (hasActive && !pollInterval) {
         pollInterval = setInterval(() => {
-          get().fetchTasks();
+          // Never while one is still out. The interval is shorter than a slow
+          // response, so asking anyway would have each tick abort the tick
+          // before it and the list would never take an answer at all — the
+          // reported failure was exactly that: a list frozen behind a spinner.
+          // A poll is a refresh, not a deadline, so the next tick asks instead.
+          if (!inFlight) void get().fetchTasks();
         }, 2000);
       } else if (!hasActive && pollInterval) {
         clearInterval(pollInterval);
         pollInterval = null;
       }
-    } catch (err) {
-      // A superseded request must not clear the loading state of its
-      // replacement.
-      if (err instanceof Error && err.name === "AbortError") return;
+    } catch {
+      // Only the current read speaks for the store. A superseded one leaves
+      // both the list and the loading flag to its replacement.
+      if (inFlight !== abort) return;
       set({ loading: false });
+    } finally {
+      if (inFlight === abort) inFlight = null;
     }
   },
 

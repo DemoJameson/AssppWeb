@@ -32,6 +32,13 @@ export const config = {
   publicBaseUrl: process.env.PUBLIC_BASE_URL || "",
   disableHttpsRedirect:
     process.env.UNSAFE_DANGEROUSLY_DISABLE_HTTPS_REDIRECT === "true",
+  // Express's `trust proxy`, off by default. Behind a reverse proxy the socket
+  // address is the proxy's, so every client shares one rate-limit bucket; set
+  // this to the proxy's address (a hop count, `loopback`, or a subnet list) to
+  // key the limiter by the client the proxy reports instead. Off by default
+  // because a client can forge `X-Forwarded-For` when nothing trustworthy sits
+  // in front, which is the one case it must not be trusted.
+  trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   // Auto-cleanup: 0 disables
   autoCleanupDays: parseInt(process.env.AUTO_CLEANUP_DAYS || "0", 10) || 0,
   autoCleanupMaxMB: parseInt(process.env.AUTO_CLEANUP_MAX_MB || "0", 10) || 0,
@@ -52,6 +59,23 @@ export const config = {
   // Access password protection (empty = disabled)
   accessPassword: process.env.ACCESS_PASSWORD || "",
 };
+
+/**
+ * Parses TRUST_PROXY for Express's `trust proxy`. Unset (or "false") keeps the
+ * setting off, which is the right answer when nothing trustworthy sits in front
+ * of the server; "true" trusts every hop, a number trusts that many hops from
+ * the socket, and anything else is passed through as Express's own address list
+ * ("loopback", a subnet, or a comma-separated list of them).
+ */
+export function parseTrustProxy(
+  value: string | undefined,
+): boolean | number | string {
+  const raw = (value ?? "").trim();
+  if (raw === "" || raw.toLowerCase() === "false") return false;
+  if (raw.toLowerCase() === "true") return true;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  return raw;
+}
 
 /**
  * Parses STOREFRONT_FALLBACK_COUNTRIES: comma-separated ISO 3166-1 country
@@ -86,6 +110,11 @@ export function verifyAccessToken(token: string): boolean {
 export const MAX_DOWNLOAD_SIZE = 8 * 1024 * 1024 * 1024; // 8 GB
 export const DOWNLOAD_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours
 export const BAG_TIMEOUT_MS = 15_000; // 15 seconds
+// The iTunes Search/Lookup API, which `/search` and `/lookup` proxy. Node's
+// fetch carries no timeout of its own, so a storefront that accepts the
+// connection and stops answering would hold the request (and, on `/search`, the
+// per-record re-check behind it) open until undici's own ~5 minute default.
+export const ITUNES_TIMEOUT_MS = 15_000;
 export const BAG_MAX_BYTES = 1024 * 1024; // 1 MB
 // Deadline for the HEAD/Range probes that verify an Apple file size before a
 // download task is created. Without it a stalled CDN response hangs the

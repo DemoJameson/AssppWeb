@@ -13,9 +13,27 @@ import type { PackageMetadata } from "./sinfInjector.js";
  * contacts Apple (it holds no credentials). Package-sourced entries are
  * immutable and always win over client-saved ones: the IPA is the authority
  * on the build it contains.
+ *
+ * `source` answers two separate questions, which is why it has three values
+ * rather than two:
+ *
+ *   - **May this be shown as the build's date?** Only a value read out of the
+ *     build's own package may. Apple's exchange dates the *app* — every pinned
+ *     version of one app comes back with the same day — so a `client` entry is
+ *     never printed as a version's date (see the frontend's `versionLabels`).
+ *   - **May it be overwritten?** Everything except `package` may.
+ *
+ * `package` is the download pipeline reading a package *this instance compiled*,
+ * which is the only read the server can attest. `package-read` is the same read
+ * performed at a URL a *client* supplied: displayable, because the bytes did
+ * come out of a package, but not authoritative, because the server cannot prove
+ * that package is the build these ids name. Splitting the two is what lets a
+ * version's real date survive a change browsers while keeping the permanent,
+ * unoverwritable claim only the pipeline can make — a client-writable `package`
+ * entry was a claim about any (app, version) pair that nothing could correct.
  */
 
-export type VersionMetadataSource = "package" | "client";
+export type VersionMetadataSource = "package" | "package-read" | "client";
 
 const MAX_VALUE_LENGTH = 64;
 
@@ -25,6 +43,7 @@ let initialized = false;
 let stmtSelectSource: import("better-sqlite3").Statement<[number, number]> | undefined;
 let stmtSelectEntry: import("better-sqlite3").Statement<[number, number]> | undefined;
 let stmtUpsertPackage: import("better-sqlite3").Statement<[number, number, string, string, number]> | undefined;
+let stmtUpsertPackageRead: import("better-sqlite3").Statement<[number, number, string, string, number]> | undefined;
 let stmtUpsertClient: import("better-sqlite3").Statement<[number, number, string, string, number]> | undefined;
 let stmtSelectForApp: import("better-sqlite3").Statement<[number]> | undefined;
 let stmtCount: import("better-sqlite3").Statement<[]> | undefined;
@@ -45,6 +64,11 @@ export function initVersionMetadataCache(): void {
     `INSERT OR REPLACE INTO version_metadata
        (app_id, version_id, display_version, release_date, source, seeded_at)
      VALUES (?, ?, ?, ?, 'package', ?)`,
+  );
+  stmtUpsertPackageRead = db.prepare<[number, number, string, string, number]>(
+    `INSERT OR REPLACE INTO version_metadata
+       (app_id, version_id, display_version, release_date, source, seeded_at)
+     VALUES (?, ?, ?, ?, 'package-read', ?)`,
   );
   stmtUpsertClient = db.prepare<[number, number, string, string, number]>(
     `INSERT OR REPLACE INTO version_metadata
@@ -75,6 +99,7 @@ export function resetVersionMetadataCacheForTest(): void {
   stmtSelectSource = undefined;
   stmtSelectEntry = undefined;
   stmtUpsertPackage = undefined;
+  stmtUpsertPackageRead = undefined;
   stmtUpsertClient = undefined;
   stmtSelectForApp = undefined;
   stmtCount = undefined;
@@ -84,8 +109,8 @@ export function resetVersionMetadataCacheForTest(): void {
 /**
  * Records what a compiled package knows about the version it contains. Only
  * displayable entries pass the gate (numeric ids plus both display fields);
- * anything else is silently skipped. A package entry is never rewritten, but
- * it does replace a client-saved entry — the IPA is the authority.
+ * anything else is silently skipped. A package entry is never rewritten, but it
+ * does replace anything weaker — the IPA is the authority.
  */
 export function seedVersionMetadata(
   appId: string | number,
@@ -105,7 +130,7 @@ export function seedVersionMetadata(
   const existing = stmtSelectSource!.get(Number(appKey), Number(versionId)) as
     | { source: string }
     | undefined;
-  if (existing?.source === "package") return;
+  if (existing && !mayReplace(existing.source, "package")) return;
 
   stmtUpsertPackage!.run(Number(appKey), Number(versionId), displayVersion, releaseDate, Date.now());
 
@@ -113,19 +138,39 @@ export function seedVersionMetadata(
 }
 
 /**
- * Saves metadata a client fetched live from Apple. It fills gaps and refreshes
- * earlier client-saved values, but never displaces a package entry — callers
- * get `saved: false` plus the entry that stays authoritative instead.
+ * Whether a write from `incoming` may replace an entry held by `existing`.
+ *
+ * A write may refresh its own kind and may improve on a weaker one, and the
+ * pipeline's own compile (`package`) is never replaced — that is the one claim
+ * the server can attest, and nothing a client sends should be able to undo it.
  */
-export function saveClientVersionMetadata(
+function mayReplace(existing: string, incoming: VersionMetadataSource): boolean {
+  if (existing === "package") return false;
+  if (existing === "package-read") {
+    return incoming === "package" || incoming === "package-read";
+  }
+  return true;
+}
+
+interface SavedEntry {
+  versionId: string;
+  displayVersion: string;
+  releaseDate: string;
+  source: VersionMetadataSource;
+}
+
+/**
+ * Saves one entry from a source weaker than the pipeline, under
+ * {@link mayReplace}. Callers get `saved: false` plus the entry that stayed
+ * instead when the write was declined.
+ */
+function saveEntry(
   appId: string | number,
   versionId: string,
   displayVersion: unknown,
   releaseDate: unknown,
-): {
-  saved: boolean;
-  entry?: { versionId: string; displayVersion: string; releaseDate: string; source: VersionMetadataSource };
-} {
+  source: "package-read" | "client",
+): { saved: boolean; entry?: SavedEntry } {
   initVersionMetadataCache();
 
   const appKey = String(appId).trim();
@@ -146,30 +191,60 @@ export function saveClientVersionMetadata(
       }
     | undefined;
 
-  if (existing?.source === "package") {
+  if (existing && !mayReplace(existing.source, source)) {
     return {
       saved: false,
       entry: {
         versionId: String(existing.version_id),
         displayVersion: existing.display_version,
         releaseDate: existing.release_date,
-        source: "package" as VersionMetadataSource,
+        source: existing.source as VersionMetadataSource,
       },
     };
   }
 
-  stmtUpsertClient!.run(Number(appKey), Number(versionKey), display, release, Date.now());
+  const statement =
+    source === "package-read" ? stmtUpsertPackageRead! : stmtUpsertClient!;
+  statement.run(Number(appKey), Number(versionKey), display, release, Date.now());
 
   evictOldest();
   return {
     saved: true,
-    entry: {
-      versionId: versionKey,
-      displayVersion: display,
-      releaseDate: release,
-      source: "client" as VersionMetadataSource,
-    },
+    entry: { versionId: versionKey, displayVersion: display, releaseDate: release, source },
   };
+}
+
+/**
+ * Saves metadata a client fetched live from Apple. It fills gaps and refreshes
+ * earlier client-saved values, but never displaces a value read out of a
+ * package — callers get `saved: false` plus the entry that stayed instead.
+ */
+export function saveClientVersionMetadata(
+  appId: string | number,
+  versionId: string,
+  displayVersion: unknown,
+  releaseDate: unknown,
+): { saved: boolean; entry?: SavedEntry } {
+  return saveEntry(appId, versionId, displayVersion, releaseDate, "client");
+}
+
+/**
+ * Saves metadata read out of a build's own package, at a download URL a client
+ * supplied (`POST /version-metadata/:appId/:versionId/package`).
+ *
+ * It is displayable — the bytes did come out of a package, which is the only
+ * place a per-build date exists — but it is not authoritative, because the
+ * server cannot prove that package is the build these ids name. So it may be
+ * refreshed, and replaced by the pipeline's own compile, but it in turn
+ * outranks a `client` entry (Apple's app-level date).
+ */
+export function savePackageReadVersionMetadata(
+  appId: string | number,
+  versionId: string,
+  displayVersion: unknown,
+  releaseDate: unknown,
+): { saved: boolean; entry?: SavedEntry } {
+  return saveEntry(appId, versionId, displayVersion, releaseDate, "package-read");
 }
 
 /** Read access for the route: storefront-public fields only. */

@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { config } from "../config.js";
 import { MIN_ACCOUNT_HASH_LENGTH } from "../config.js";
-import { getAllTasks } from "../services/downloadManager.js";
+import { deleteTask, getAllTasks } from "../services/downloadManager.js";
 import { getIdParam } from "../utils/route.js";
 import { createDownloadTicket } from "../utils/downloadTicket.js";
 import type { PackageInfo, Platform } from "../types/index.js";
@@ -166,9 +166,6 @@ router.delete("/packages/:id", (req: Request, res: Response) => {
   }
 
   const id = getIdParam(req);
-  const packagesDir = path.join(config.dataDir, "packages");
-  const packagesBase = path.resolve(packagesDir);
-
   const task = getAllTasks().find((t) => t.id === id);
   if (!task || !task.filePath) {
     res.status(404).json({ error: "Package not found" });
@@ -180,27 +177,15 @@ router.delete("/packages/:id", (req: Request, res: Response) => {
     return;
   }
 
-  // Verify file path is within packages directory
-  const resolvedPath = path.resolve(task.filePath);
-  if (!resolvedPath.startsWith(packagesBase + path.sep)) {
-    res.status(403).json({ error: "Access denied" });
+  // Deleting the file through the download manager rather than unlinking it
+  // here is what keeps the two views of a task in step: it drops the task, its
+  // icon and any paused `.part` leftovers too, and persists the removal. A
+  // bare unlink left a `completed` task holding the path of a file that no
+  // longer existed — a row that offered an install and a download that both
+  // 404'd, until a restart swept it up.
+  if (!deleteTask(id)) {
+    res.status(404).json({ error: "Package not found" });
     return;
-  }
-
-  if (fs.existsSync(resolvedPath)) {
-    fs.unlinkSync(resolvedPath);
-
-    // Clean up empty parent directories
-    let dir = path.dirname(resolvedPath);
-    while (dir !== packagesBase && dir.startsWith(packagesBase)) {
-      const contents = fs.readdirSync(dir);
-      if (contents.length === 0) {
-        fs.rmdirSync(dir);
-        dir = path.dirname(dir);
-      } else {
-        break;
-      }
-    }
   }
 
   res.json({ success: true });

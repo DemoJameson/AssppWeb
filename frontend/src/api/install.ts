@@ -1,13 +1,20 @@
+import { apiGet } from './client';
+
 export interface InstallInfo {
   installUrl: string;
   manifestUrl: string;
 }
 
-export function getInstallInfo(id: string): InstallInfo {
-  const baseUrl = window.location.origin;
-  const manifestUrl = `${baseUrl}/api/install/${id}/manifest.plist`;
-  const installUrl = `itms-services://?action=download-manifest&url=${encodeURIComponent(manifestUrl)}`;
-  return { installUrl, manifestUrl };
+/**
+ * Asks the backend for this package's install links.
+ *
+ * They cannot be built here: iOS opens the manifest, the payload and the icons
+ * itself, without the access token, so each URL carries a short-lived signature
+ * the *server* holds the key for (see `middleware/accessAuth`). The endpoint
+ * that mints them is behind the token, which this call carries.
+ */
+export async function getInstallInfo(id: string): Promise<InstallInfo> {
+  return apiGet<InstallInfo>(`/api/install/${encodeURIComponent(id)}/url`);
 }
 
 /**

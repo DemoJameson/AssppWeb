@@ -101,4 +101,9 @@ ARG BUILD_COMMIT=unknown
 ARG BUILD_DATE=unknown
 
 ENV DATA_DIR=/data PORT=8080 BUILD_COMMIT=$BUILD_COMMIT BUILD_DATE=$BUILD_DATE
+# Run as a release build: Express drops its development behaviours (verbose
+# error output, per-request view lookups) and libraries stop assuming a dev
+# tree. The image ships production dependencies only, so nothing here depends
+# on dev mode.
+ENV NODE_ENV=production
 CMD ["node", "dist/index.js"]

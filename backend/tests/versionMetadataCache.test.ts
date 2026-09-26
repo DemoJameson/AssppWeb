@@ -179,4 +179,95 @@ describe("versionMetadataCache", () => {
     expect(byVersion.get("5001")).toBe("package");
     expect(byVersion.get("5002")).toBe("client");
   });
+
+  /**
+   * The write behind `POST /version-metadata/:appId/:versionId/package`. The
+   * date did come out of a package, so it is displayable; the URL was the
+   * client's, so it is not the pipeline's own record.
+   */
+  describe("savePackageReadVersionMetadata", () => {
+    const readApp = 909090909;
+
+    it("stores a package-read entry and refreshes it on a later read", () => {
+      expect(
+        cache.savePackageReadVersionMetadata(
+          readApp,
+          "7001",
+          "7.0.0",
+          "2026-05-05T00:00:00.000Z",
+        ).saved,
+      ).toBe(true);
+      expect(cache.getVersionMetadataForApp(readApp)).toEqual([
+        {
+          versionId: "7001",
+          displayVersion: "7.0.0",
+          releaseDate: "2026-05-05T00:00:00.000Z",
+          source: "package-read",
+        },
+      ]);
+
+      expect(
+        cache.savePackageReadVersionMetadata(
+          readApp,
+          "7001",
+          "7.0.1",
+          "2026-05-06T00:00:00.000Z",
+        ).saved,
+      ).toBe(true);
+      expect(cache.getVersionMetadataForApp(readApp)[0].displayVersion).toBe(
+        "7.0.1",
+      );
+    });
+
+    it("outranks a client entry, and is not displaced by one", () => {
+      cache.saveClientVersionMetadata(
+        readApp,
+        "7002",
+        "1.0.0",
+        "2026-01-01T00:00:00.000Z",
+      );
+      expect(
+        cache.savePackageReadVersionMetadata(
+          readApp,
+          "7002",
+          "2.0.0",
+          "2026-02-02T00:00:00.000Z",
+        ).saved,
+      ).toBe(true);
+      expect(
+        cache
+          .getVersionMetadataForApp(readApp)
+          .find((entry) => entry.versionId === "7002")?.source,
+      ).toBe("package-read");
+
+      // Apple's app-level date must not overwrite a build's own.
+      const declined = cache.saveClientVersionMetadata(
+        readApp,
+        "7002",
+        "3.0.0",
+        "2026-03-03T00:00:00.000Z",
+      );
+      expect(declined.saved).toBe(false);
+      expect(declined.entry?.displayVersion).toBe("2.0.0");
+      expect(declined.entry?.source).toBe("package-read");
+    });
+
+    it("cannot displace what the download pipeline compiled", () => {
+      const compiled = 909090910;
+      cache.seedVersionMetadata(
+        compiled,
+        pkg({ externalVersionId: "8001", version: "8.0.0" }),
+      );
+
+      const declined = cache.savePackageReadVersionMetadata(
+        compiled,
+        "8001",
+        "0.0.1",
+        "2020-01-01T00:00:00.000Z",
+      );
+      expect(declined.saved).toBe(false);
+      expect(declined.entry?.source).toBe("package");
+      expect(declined.entry?.displayVersion).toBe("8.0.0");
+    });
+  });
 });

@@ -1,12 +1,15 @@
 import { Request, Response, NextFunction } from "express";
 import { accessPasswordHash, verifyAccessToken } from "../config.js";
-import { verifyDownloadTicket } from "../utils/downloadTicket.js";
+import {
+  verifyDownloadTicket,
+  verifyInstallTicket,
+} from "../utils/downloadTicket.js";
 
 /**
  * `GET /downloads/:id/icon` is drawn by an `<img>`, which cannot carry the access
- * token header. The image is public app artwork — the very same file is already
- * served without a token under `/install/` for iOS — and reaching a task still
- * requires its id and account hash, so it is exempt.
+ * token header. The image is public app artwork — the same file the install
+ * manifest hands to iOS — and reaching a task still requires its id and account
+ * hash, so it is exempt.
  */
 const ICON_PATH_RE = /^\/downloads\/[^/]+\/icon$/;
 
@@ -18,6 +21,18 @@ const ICON_PATH_RE = /^\/downloads\/[^/]+\/icon$/;
  */
 const DOWNLOAD_FILE_PATH_RE = /^\/packages\/([^/]+)\/file$/;
 
+/**
+ * The install routes are fetched by iOS out of a manifest, with no way to
+ * attach the access token — the manifest itself included, since the
+ * `itms-services://` link handed to the device is a plain navigation. They
+ * carry the same kind of short-lived pair instead, issued by
+ * `GET /install/:id/url` (itself behind this middleware) and scoped to the
+ * task. `GET /install/:id/url` is deliberately *not* listed here: it is read by
+ * the SPA, which does hold the token.
+ */
+const INSTALL_PATH_RE =
+  /^\/install\/([^/]+)\/(?:manifest\.plist|payload\.ipa|icon-small\.png|icon-large\.png)$/;
+
 export function accessAuth(req: Request, res: Response, next: NextFunction) {
   if (!accessPasswordHash) {
     next();
@@ -26,7 +41,6 @@ export function accessAuth(req: Request, res: Response, next: NextFunction) {
 
   if (
     req.path.startsWith("/auth/") ||
-    req.path.startsWith("/install/") ||
     ICON_PATH_RE.test(req.path)
   ) {
     next();
@@ -51,6 +65,16 @@ export function accessAuth(req: Request, res: Response, next: NextFunction) {
       sig &&
       verifyDownloadTicket(fileMatch[1], accountHash, exp, sig)
     ) {
+      next();
+      return;
+    }
+  }
+
+  const installMatch = INSTALL_PATH_RE.exec(req.path);
+  if (installMatch) {
+    const exp = typeof req.query.exp === "string" ? req.query.exp : "";
+    const sig = typeof req.query.sig === "string" ? req.query.sig : "";
+    if (exp && sig && verifyInstallTicket(installMatch[1], exp, sig)) {
       next();
       return;
     }

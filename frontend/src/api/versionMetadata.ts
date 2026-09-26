@@ -6,7 +6,7 @@ interface VersionMetadataResponse {
     versionId?: string;
     displayVersion?: string;
     releaseDate?: string;
-    source?: "package" | "client";
+    source?: "package" | "package-read" | "client";
   }>;
 }
 
@@ -80,8 +80,15 @@ export async function fetchPackageVersionMetadata(
       { downloadURL },
     );
     if (!res?.entry?.displayVersion || !res.entry.releaseDate) return undefined;
-    // Read from the package, so the date is the build's own.
-    return { ...res.entry, source: "package" };
+    // Whatever the server kept: a `package-read` entry when it took the write,
+    // or the pipeline's own `package` record when it declined because one was
+    // already there. Either way the date is a build's, which is what the label
+    // needs (`utils/versionLabels` prints a date only for those).
+    return {
+      displayVersion: res.entry.displayVersion,
+      releaseDate: res.entry.releaseDate,
+      source: res.entry.source,
+    };
   } catch {
     return undefined;
   }

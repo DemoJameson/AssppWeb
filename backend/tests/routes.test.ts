@@ -6,6 +6,7 @@ import settingsRoutes from "../src/routes/settings.js";
 import installRoutes from "../src/routes/install.js";
 import { getBaseUrl } from "../src/routes/install.js";
 import downloadRoutes from "../src/routes/downloads.js";
+import packageRoutes from "../src/routes/packages.js";
 import {
   packageDownloadExtension,
   packageDownloadName,
@@ -18,6 +19,7 @@ function createApp() {
   app.use("/api", settingsRoutes);
   app.use("/api", installRoutes);
   app.use("/api", downloadRoutes);
+  app.use("/api", packageRoutes);
   return app;
 }
 
@@ -183,6 +185,77 @@ describe("Downloads Route", () => {
   it("DELETE /api/downloads/:id should return 404 with valid accountHash", async () => {
     const res = await request(app).delete(
       "/api/downloads/nonexistent-id?accountHash=abcdef1234567890",
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("POST /api/downloads should refuse a sinfs value that is not a list of sinfs", async () => {
+    // `sinfs` is indexed and base64-decoded inside the injector, well past the
+    // point where the caller could be told what was wrong.
+    const base = {
+      software: {
+        id: 1492142120,
+        bundleID: "com.example.utility",
+        name: "Example",
+        version: "1.0",
+      },
+      accountHash: "abcdef1234567890",
+      downloadURL: "https://example.apple.com/app.ipa",
+    };
+
+    for (const sinfs of ["AAAA", [{}], [{ id: 0 }], [null]]) {
+      const res = await request(app)
+        .post("/api/downloads")
+        .send({ ...base, sinfs });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("sinfs");
+    }
+  });
+
+  it("POST /api/downloads should refuse a mistyped software field or metadata", async () => {
+    const base = {
+      software: {
+        id: 1492142120,
+        bundleID: "com.example.utility",
+        name: "Example",
+        version: "1.0",
+      },
+      accountHash: "abcdef1234567890",
+      downloadURL: "https://example.apple.com/app.ipa",
+      sinfs: [],
+    };
+
+    const badMetadata = await request(app)
+      .post("/api/downloads")
+      .send({ ...base, iTunesMetadata: 5 });
+    expect(badMetadata.status).toBe(400);
+    expect(badMetadata.body.error).toContain("iTunesMetadata");
+
+    // A number where a name belongs would only surface when the file is named.
+    const badName = await request(app)
+      .post("/api/downloads")
+      .send({ ...base, software: { ...base.software, name: 7 } });
+    expect(badName.status).toBe(400);
+    expect(badName.body.error).toContain("software.name");
+  });
+});
+
+describe("Packages Route", () => {
+  const app = createApp();
+
+  it("DELETE /api/packages/:id should return 400 without accountHash", async () => {
+    const res = await request(app).delete("/api/packages/nonexistent-id");
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("accountHash");
+  });
+
+  it("DELETE /api/packages/:id should return 404 for a task that is not there", async () => {
+    // The handler hands the deletion to the download manager rather than
+    // unlinking the file itself, which is what keeps a `completed` task from
+    // outliving its package — `downloadManager.test.ts` covers that removal.
+    const res = await request(app).delete(
+      "/api/packages/nonexistent-id?accountHash=abcdef1234567890",
     );
     expect(res.status).toBe(404);
   });

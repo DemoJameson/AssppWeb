@@ -3,7 +3,7 @@ import { appleRequest } from "./request";
 import { buildPlist, parsePlist } from "./plist";
 import { extractAndMergeCookies } from "./cookies";
 import { fetchBag, defaultAuthURL } from "./bag";
-import { authStoreFront } from "./config";
+import { authStoreFront, isAppleHost } from "./config";
 import { AppleUnreachableError } from "./errors";
 import { prepareSigner } from "./sap/client";
 import i18n from "../i18n";
@@ -129,6 +129,12 @@ export async function authenticate(
           throw new Error(i18n.t("errors.auth.redirectLocation"));
         }
         const url = new URL(location);
+        // The retry below carries the session cookies to whatever host the
+        // Location names, so a hop off Apple's own domains is refused rather
+        // than followed with the account's cookies in hand.
+        if (!isAppleHost(url.hostname)) {
+          throw new Error(i18n.t("errors.auth.redirectHost"));
+        }
         requestHost = url.hostname;
         requestPath = url.pathname + url.search;
         currentAttempt--;

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -86,5 +86,125 @@ describe("ChunkedDownloader.abort", () => {
 
     expect(fs.existsSync(`${target}.part0`)).toBe(false);
     expect(fs.existsSync(`${target}.part1`)).toBe(false);
+  });
+});
+
+/**
+ * The downloader over a stubbed CDN. The server answers the HEAD the probe makes
+ * and then serves the body it is given for each `Range`, which is the whole
+ * exchange a real one has.
+ */
+describe("ChunkedDownloader.download", () => {
+  /** 300 distinct bytes, so a merge that reorders or truncates is visible. */
+  const source = Buffer.from(Array.from({ length: 300 }, (_, i) => i % 251));
+
+  /** A one-shot body, so the stream's length is independent of any header. */
+  function streamOf(bytes: Buffer): ReadableStream<Uint8Array> {
+    return new ReadableStream({
+      start(controller) {
+        if (bytes.length > 0) controller.enqueue(new Uint8Array(bytes));
+        controller.close();
+      },
+    });
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * A destination inside a directory that exists. The downloader writes beside
+   * the file it is given and assumes that directory is there — the pipeline
+   * that owns a task creates it before the transfer starts.
+   */
+  function preparedDest(name: string): string {
+    const target = destPath(name);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    return target;
+  }
+
+  function serve(options: { ranges?: boolean; body?: Buffer; declared?: number }) {
+    const body = options.body ?? source;
+    const declared = options.declared ?? source.length;
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "HEAD") {
+        return new Response(null, {
+          status: 200,
+          headers: {
+            "content-length": String(declared),
+            ...(options.ranges === false ? {} : { "accept-ranges": "bytes" }),
+          },
+        });
+      }
+
+      const range = /bytes=(\d+)-(\d+)/.exec(
+        String((init?.headers as Record<string, string> | undefined)?.Range ?? ""),
+      );
+      if (!range) {
+        // The whole-file answer. Its header states `declared` while the stream
+        // carries whatever `body` holds — which is how a transfer that stops
+        // early looks, and the case the size check exists for.
+        return new Response(streamOf(body), {
+          status: 200,
+          headers: { "content-length": String(declared) },
+        });
+      }
+
+      const start = Number(range[1]);
+      const end = Math.min(Number(range[2]), body.length - 1);
+      const slice = body.subarray(start, Math.max(end + 1, start));
+      return new Response(streamOf(slice), {
+        status: 206,
+        headers: { "content-range": `bytes ${start}-${end}/${body.length}` },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("assembles the chunks into the whole file and clears the parts", async () => {
+    const target = preparedDest("download-complete");
+    serve({});
+
+    await new ChunkedDownloader("https://example.com/app.ipa", target, {
+      threads: 3,
+    }).download(new AbortController().signal);
+
+    expect(fs.readFileSync(target).equals(source)).toBe(true);
+    for (let i = 0; i < 3; i++) {
+      expect(fs.existsSync(`${target}.part${i}`)).toBe(false);
+    }
+  });
+
+  it("refuses a chunk that answered short, and leaves no package behind", async () => {
+    // Nothing else notices: a short chunk ends its stream normally, so the part
+    // is written, the merge succeeds and the file is simply too small.
+    const target = preparedDest("download-short-chunk");
+    // Two chunks of 150; the second one stops 100 bytes early.
+    const short = source.subarray(0, 200);
+    serve({ body: short });
+
+    await expect(
+      new ChunkedDownloader("https://example.com/app.ipa", target, {
+        threads: 2,
+      }).download(new AbortController().signal),
+    ).rejects.toThrow(/not the 300 Apple announced/);
+
+    expect(fs.existsSync(target)).toBe(false);
+  });
+
+  it("refuses a single-stream transfer that ended early", async () => {
+    const target = preparedDest("download-short-stream");
+    // No `accept-ranges`, so the downloader falls back to one stream — and the
+    // body stops after a third of what the header promised.
+    serve({ ranges: false, body: source.subarray(0, 100) });
+
+    await expect(
+      new ChunkedDownloader("https://example.com/app.ipa", target).download(
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/not the 300 Apple announced/);
+
+    expect(fs.existsSync(target)).toBe(false);
   });
 });
