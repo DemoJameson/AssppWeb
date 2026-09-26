@@ -1089,15 +1089,6 @@ export default function ProductDetail() {
                 : displayVersionId || "—"}
             </dd>
             <dt className="text-gray-500 dark:text-gray-400">
-              {t("search.product.seller")}
-            </dt>
-            <dd className="text-gray-900 dark:text-gray-200">
-              {/* A delisted record has no seller name — the package it was
-                  recalled from never carried one — so the artist name stands in
-                  for it, exactly as the package detail view does. */}
-              {app.sellerName || app.artistName || "—"}
-            </dd>
-            <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.released")}
             </dt>
             <dd className="text-gray-900 dark:text-gray-200">

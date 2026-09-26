@@ -997,15 +997,14 @@ describe('ProductDetail download action', () => {
     });
     // The tag lives on the search card only — the detail header stays clean.
     expect(screen.queryByText('downloads.add.localRecordTag')).toBeNull();
-    // Missing values hold their spot with an em dash — except the developer,
-    // which the package does name: it is the artist behind the app.
+    // Missing values hold their spot with an em dash, and the table names the
+    // app and its build: the developer is not one of its rows.
     expect(detailsTable()).toEqual({
       'search.product.appId': String(app.id),
       'search.product.bundleId': app.bundleID,
       'search.product.version': '—',
       'search.product.size': '—',
       'search.product.minOs': 'iOS 16.0',
-      'search.product.seller': app.artistName,
       'search.product.released': '—',
     });
     // No platform rating on the local record — the stars stay hidden.
@@ -1036,7 +1035,6 @@ describe('ProductDetail download action', () => {
       'search.product.version': '1.3.19 (889244416)',
       'search.product.size': formatBytes('155759893'),
       'search.product.minOs': 'iOS 17.0',
-      'search.product.seller': app.artistName,
       'search.product.released': '2026-08-02',
     });
     expect(screen.queryByText('—')).toBeNull();
@@ -1207,7 +1205,6 @@ describe('ProductDetail download action', () => {
       'search.product.version': '3.4.4 (888)',
       'search.product.size': formatBytes('12345678'),
       'search.product.minOs': 'iOS 15.0',
-      'search.product.seller': app.sellerName,
       'search.product.released': '2026-06-01',
     });
     expect(screen.getByText('search.product.alreadyDownloaded')).toBeTruthy();
@@ -1290,7 +1287,6 @@ describe('ProductDetail download action', () => {
       'search.product.version': '3.4.5 (900)',
       'search.product.size': formatBytes('5242880'),
       'search.product.minOs': 'iOS 16.0',
-      'search.product.seller': app.sellerName,
       'search.product.released': '2026-08-01',
     });
   });
@@ -1404,7 +1400,6 @@ describe('ProductDetail download action', () => {
       'search.product.version': '9.9.9 (777)',
       'search.product.size': '—',
       'search.product.minOs': '—',
-      'search.product.seller': app.sellerName,
       'search.product.released': '2026-05-01',
     });
     // Nothing holds that build, so the download is back on offer.
@@ -1522,7 +1517,6 @@ describe('ProductDetail download action', () => {
       'search.product.version': '3.4.5',
       'search.product.size': formatBytes('5242880'),
       'search.product.minOs': 'iOS 16.0',
-      'search.product.seller': app.sellerName,
       'search.product.released': '2026-08-01',
     });
     expect(screen.queryByText('search.product.alreadyDownloaded')).toBeNull();

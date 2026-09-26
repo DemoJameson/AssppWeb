@@ -81,7 +81,6 @@
       "version": "버전",
       "size": "크기",
       "minOs": "최소 OS",
-      "seller": "개발자",
       "released": "출시일",
       "description": "설명",
       "releaseNotes": "릴리스 노트",
