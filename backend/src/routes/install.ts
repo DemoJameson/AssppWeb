@@ -9,18 +9,119 @@ import { getIdParam } from "../utils/route.js";
 
 const router = Router();
 
+/**
+ * The base URL install links are built from.
+ *
+ * A configured public origin wins — the one whose hostname the request arrived
+ * under, so a deployment reachable by several hostnames links each visitor to
+ * the hostname they are using. With nothing configured, the request's own view
+ * of itself is used (unchanged auto-detection), which is why `PUBLIC_BASE_URL`
+ * stays optional: a deployment whose upstreams declare the public scheme needs
+ * no configuration at all.
+ */
 export function getBaseUrl(req: Request): string {
-  const configured = normalizeBaseUrl(config.publicBaseUrl);
-  if (configured) return configured;
+  if (config.publicBaseUrls.length > 0) {
+    return matchConfiguredBaseUrl(config.publicBaseUrls, requestHost(req));
+  }
+  return detectedBaseUrl(req);
+}
 
+/**
+ * Picks the configured origin to build links from for a request that arrived
+ * under `host`.
+ *
+ * Matching is on the hostname alone. The port in a request's `Host` is not an
+ * address this app can trust: a proxy that terminates on 443 but dials the
+ * origin on another port forwards that port in `Host`, which is how a manifest
+ * ends up pointing at a `:12345` no device can reach. The configured entry is
+ * the authority on what the public address is, so its whole origin — scheme
+ * and port included — is what gets emitted.
+ *
+ * An unlisted host gets the first entry. A request's port only ever chooses
+ * between entries listed for the same hostname, so one hostname listed twice
+ * on different ports resolves to the port actually in use; it can never
+ * introduce a port of its own. With no candidates at all there is no origin to
+ * offer and the empty string comes back — `getBaseUrl` never calls it that way.
+ */
+export function matchConfiguredBaseUrl(
+  candidates: string[],
+  host: string,
+): string {
+  const hostname = requestHostname(host);
+  const matching = candidates.filter(
+    (candidate) => configuredHostname(candidate) === hostname,
+  );
+  if (matching.length <= 1) return matching[0] ?? candidates[0] ?? "";
+
+  const port = requestPort(host);
+  return (
+    matching.find((candidate) => configuredPort(candidate) === port) ??
+    matching[0]
+  );
+}
+
+function configuredHostname(origin: string): string {
+  try {
+    return new URL(origin).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/** The port an origin names, "" when it leaves the scheme's default implied. */
+function configuredPort(origin: string): string {
+  try {
+    // URL parsing already drops `:443` for https and `:80` for http.
+    return new URL(origin).port;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Splits a `Host` value into its hostname and the port it names, if any. A
+ * bracketed IPv6 literal carries colons of its own, so its port is only what
+ * follows the closing bracket; a literal written bare has no port to speak of.
+ */
+function splitHostPort(host: string): { hostname: string; port: string } {
+  const bracketed = /^\[([^\]]*)\](?::(\d+))?$/.exec(host);
+  if (bracketed) {
+    return { hostname: `[${bracketed[1]}]`, port: bracketed[2] ?? "" };
+  }
+  const plain = /^([^:]*)(?::(\d+))?$/.exec(host);
+  if (plain) return { hostname: plain[1], port: plain[2] ?? "" };
+  return { hostname: host, port: "" };
+}
+
+function requestHostname(host: string): string {
+  return splitHostPort(host).hostname.toLowerCase();
+}
+
+function requestPort(host: string): string {
+  return splitHostPort(host).port;
+}
+
+/**
+ * The address a request arrived under, read from `Host` and sanitized for
+ * inlining into a URL. Brackets survive, so an IPv6 literal stays the authority
+ * it is rather than collapsing into a colon run that matches nothing.
+ */
+function requestHost(req: Request): string {
+  const host = req.headers["host"] || "localhost";
+  // Validate host header to prevent injection
+  return host.replace(/[^\w.\-:\[\]]/g, "");
+}
+
+/**
+ * The request's own view of the address it reached the app by, used when no
+ * public origin is configured.
+ */
+function detectedBaseUrl(req: Request): string {
   // Trust x-forwarded-proto for protocol (safe — only affects URL scheme)
   // but use host header directly (not x-forwarded-host) to prevent open redirects
   const forwardedProto = req.headers["x-forwarded-proto"];
   const proto = forwardedProto === "https" || req.secure ? "https" : "http";
-  const host = req.headers["host"] || "localhost";
-
-  // Validate host header to prevent injection
-  const sanitizedHost = host.replace(/[^\w.\-:]/g, "");
+  const sanitizedHost = requestHost(req);
 
   // Support X-Forwarded-Port for reverse proxies that strip port from Host header.
   // Common when deploying HTTPS on non-443 ports (e.g., nginx with $host instead of $http_host).
@@ -39,11 +140,6 @@ export function getBaseUrl(req: Request): string {
   }
 
   return `${proto}://${sanitizedHost}`;
-}
-
-function normalizeBaseUrl(value?: string): string {
-  if (!value) return "";
-  return value.trim().replace(/\/+$/, "");
 }
 
 function joinUrl(baseUrl: string, path: string): string {
@@ -126,9 +222,9 @@ router.get("/install/:id/manifest.plist", (req: Request, res: Response) => {
   );
 
   res.setHeader("Content-Type", "application/xml");
-  // The plist inlines the request's Host (via getBaseUrl, when PUBLIC_BASE_URL
-  // is unset). Do not let an edge cache — or a CDN — persist a poisoned plist
-  // built from an attacker-supplied Host header.
+  // The plist inlines the request's Host when no public origin is configured
+  // (via getBaseUrl). Do not let an edge cache — or a CDN — persist a poisoned
+  // plist built from an attacker-supplied Host header.
   res.setHeader("Cache-Control", "no-store");
   res.send(manifest);
 });

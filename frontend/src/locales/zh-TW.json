@@ -275,8 +275,7 @@
       "offline": "無法連線至伺服器。",
       "configuration": "伺服器配置",
       "enabled": "已啟用",
-      "disabled": "已停用",
-      "notSet": "未設定（自動偵測）"
+      "disabled": "已停用"
     },
     "data": {
       "title": "資料",

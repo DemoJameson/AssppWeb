@@ -26,10 +26,16 @@ function readGitRevision(): { commit: string; date: string } {
   return gitRevision;
 }
 
+const publicBaseUrls = parsePublicBaseUrls(process.env.PUBLIC_BASE_URL);
+
 export const config = {
   port: parseInt(process.env.PORT || "8080"),
   dataDir: process.env.DATA_DIR || "./data",
-  publicBaseUrl: process.env.PUBLIC_BASE_URL || "",
+  // Public origins install links may be built from, most preferred first. The
+  // first entry answers for any request whose host is not itself listed.
+  // Not reported through `/api/settings` — the deployment's own addresses are
+  // nobody else's business, and nothing in the UI needs them.
+  publicBaseUrls,
   disableHttpsRedirect:
     process.env.UNSAFE_DANGEROUSLY_DISABLE_HTTPS_REDIRECT === "true",
   // Express's `trust proxy`, off by default. Behind a reverse proxy the socket
@@ -59,6 +65,56 @@ export const config = {
   // Access password protection (empty = disabled)
   accessPassword: process.env.ACCESS_PASSWORD || "",
 };
+
+/**
+ * Parses PUBLIC_BASE_URL: one or more public origins, comma-separated, most
+ * preferred first. The first entry answers for any request whose own host is
+ * not listed, so a single value behaves exactly like the plain single-URL
+ * form.
+ *
+ * Entries are reduced to a canonical origin — hostname lowercased, a default
+ * port (`:80` / `:443`) dropped, trailing slashes trimmed — so that what the
+ * deployment wrote and what the request's `Host` is later matched against mean
+ * the same thing. Anything that is not an absolute http(s) URL is dropped: a
+ * value that drops everything degrades to host auto-detection rather than
+ * producing an install link no device can follow, and `publicBaseUrlWarning`
+ * is what turns that silence into something an operator can see.
+ */
+export function parsePublicBaseUrls(value: string | undefined): string[] {
+  const entries = (value ?? "").split(",").map(normalizePublicBaseUrl);
+  return [...new Set(entries.filter((entry) => entry !== ""))];
+}
+
+function normalizePublicBaseUrl(value: string): string {
+  try {
+    const { protocol, host, pathname } = new URL(value.trim());
+    if (protocol !== "https:" && protocol !== "http:") return "";
+    // A configured `https://X.example.com:443/app/` and a request's bare
+    // `x.example.com` have to end up as the same string to be comparable.
+    return `${protocol}//${host}${pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * What to log when `PUBLIC_BASE_URL` is set but contributes no origin — a
+ * scheme-less hostname, a typo'd scheme, a stray comma. The deployment then
+ * goes on serving install links off whatever `Host` arrives, which is easy to
+ * mistake for the configuration having worked. Null when there is nothing to
+ * say, which is both the unset case and the working one.
+ */
+export function publicBaseUrlWarning(
+  value: string | undefined,
+): string | null {
+  const raw = (value ?? "").trim();
+  if (raw === "" || parsePublicBaseUrls(raw).length > 0) return null;
+  return (
+    `PUBLIC_BASE_URL=${JSON.stringify(raw)} holds no absolute http(s) URL, so ` +
+    `install links will fall back to the request Host. Expected a comma-separated ` +
+    `list of origins, e.g. https://asspp.example.com,https://asspp.example.net`
+  );
+}
 
 /**
  * Parses TRUST_PROXY for Express's `trust proxy`. Unset (or "false") keeps the

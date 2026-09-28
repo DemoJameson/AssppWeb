@@ -275,8 +275,7 @@
       "offline": "Unable to connect to server.",
       "configuration": "Configuration",
       "enabled": "Enabled",
-      "disabled": "Disabled",
-      "notSet": "Not set (auto-detect)"
+      "disabled": "Disabled"
     },
     "data": {
       "title": "Data",

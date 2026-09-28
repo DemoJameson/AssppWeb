@@ -275,8 +275,7 @@
       "offline": "无法连接到服务器。",
       "configuration": "服务器配置",
       "enabled": "已启用",
-      "disabled": "已禁用",
-      "notSet": "未设置（自动检测）"
+      "disabled": "已禁用"
     },
     "data": {
       "title": "数据",

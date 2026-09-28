@@ -275,8 +275,7 @@
       "offline": "サーバーに接続できません。",
       "configuration": "サーバー設定",
       "enabled": "有効",
-      "disabled": "無効",
-      "notSet": "未設定（自動検出）"
+      "disabled": "無効"
     },
     "data": {
       "title": "データ",

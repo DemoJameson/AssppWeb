@@ -72,7 +72,7 @@ docker compose up -d
 | ------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------- |
 | `PORT`                                      | `8080`          | Server listen port                                                                          |
 | `DATA_DIR`                                  | `./data`        | Data directory: compiled IPAs plus the SQLite database (`asspp.db` with `-wal`/`-shm` sidecars) |
-| `PUBLIC_BASE_URL`                           | _(auto-detect)_ | Public URL for generating install manifests (e.g. `https://asspp.example.com`)              |
+| `PUBLIC_BASE_URL`                           | _(auto-detect)_ | Public origin(s) install links are built from. Comma-separated for several hostnames, most preferred first — the entry whose hostname matches the request is used, any other host gets the first (e.g. `https://asspp.example.com,https://asspp-v6.example.net`). Entries are canonicalised (hostname lowercased, a `:80`/`:443` dropped); a value holding no absolute URL is reported at startup and ignored |
 | `UNSAFE_DANGEROUSLY_DISABLE_HTTPS_REDIRECT` | `false`         | Disable HTTPS redirect (see warning below)                                                  |
 | `AUTO_CLEANUP_DAYS`                         | `0`             | Automatically delete cached IPA files older than specified days (0 to disable)              |
 | `AUTO_CLEANUP_MAX_MB`                       | `0`             | Automatically delete oldest cached IPA files when size exceeds this MB limit (0 to disable) |
@@ -94,6 +94,8 @@ The following is an example Caddyfile configuration:
 ```
 asspp.example.com { reverse_proxy 127.0.0.1:8080 }
 ```
+
+> **⚠️ Install links pointing at a port iOS cannot reach?** A CDN or proxy that terminates on 443 but dials this app on another port may forward that port in `Host` (e.g. `asspp.example.com:12345`). The manifest is built from `Host`, so it then points at a port no device can reach. Set `PUBLIC_BASE_URL` to the public origin(s) to take `Host` out of the equation — list several hostnames if the deployment answers on more than one, and each hostname links to itself.
 
 **⚠️ Make Sure WebSocket Works**
 

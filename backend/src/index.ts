@@ -2,7 +2,7 @@ import express from "express";
 import { createServer } from "http";
 import path from "path";
 import fs from "fs";
-import { config } from "./config.js";
+import { config, publicBaseUrlWarning } from "./config.js";
 import { httpsRedirect } from "./middleware/httpsRedirect.js";
 import { securityHeaders } from "./middleware/securityHeaders.js";
 import { accessAuth } from "./middleware/accessAuth.js";
@@ -85,6 +85,11 @@ fs.mkdirSync(config.dataDir, { recursive: true });
 server.listen(config.port, () => {
   console.log(`Server listening on port ${config.port}`);
   console.log(`Data directory: ${path.resolve(config.dataDir)}`);
+  // A PUBLIC_BASE_URL that set nothing usable is worth saying out loud: from
+  // the outside it is indistinguishable from having configured it and having
+  // the install links quietly come out of the request Host instead.
+  const baseUrlWarning = publicBaseUrlWarning(process.env.PUBLIC_BASE_URL);
+  if (baseUrlWarning) console.warn(baseUrlWarning);
 });
 
 export { app, server };

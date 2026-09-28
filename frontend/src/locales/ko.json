@@ -275,8 +275,7 @@
       "offline": "서버에 연결할 수 없습니다.",
       "configuration": "서버 구성",
       "enabled": "활성화됨",
-      "disabled": "비활성화됨",
-      "notSet": "미설정 (자동 감지)"
+      "disabled": "비활성화됨"
     },
     "data": {
       "title": "데이터",

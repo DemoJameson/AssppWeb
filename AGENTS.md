@@ -847,6 +847,14 @@ The settings endpoint (`/api/settings`) must never reflect request headers (`x-f
 
 The one carve-out is the install manifest (`routes/install.ts`): with `PUBLIC_BASE_URL` unset it inlines the request `Host` (the documented "auto-detect") so iOS can reach the payload. The response is `Cache-Control: no-store` precisely so a poisoned `Host` cannot be cached — prefer setting `PUBLIC_BASE_URL` in production.
 
+`PUBLIC_BASE_URL` may list several origins, comma-separated, most preferred first. Each request is then answered with the entry whose **hostname** matches the one it arrived under (anything unlisted gets the first entry), which is what lets one deployment serve several hostnames — a Cloudflare tunnel and a CDN origin, say — with each hostname linking to itself. Entries are canonicalised on parse (hostname lowercased, `:80`/`:443` dropped, trailing slashes trimmed) so a configured origin and a request's `Host` compare equal.
+
+Matching deliberately ignores the port in `Host` when deciding what the public address is: an upstream that terminates on 443 but dials this app on another port forwards that port in `Host` (a manifest built from it points at a port no device can reach), so the configured entry stays the authority on what the public address is. A port is consulted only to choose between entries listed for the *same* hostname — which is what lets one hostname on two ports resolve to the port actually in use — and can never put a port of its own into the link. A listed hostname is still the only way a `Host` can influence the link, so this stays a whitelist rather than the open redirect `x-forwarded-host` would be.
+
+Auto-detection (no `PUBLIC_BASE_URL`) is deliberately left exactly as it was: it reads the scheme off `X-Forwarded-Proto` / `req.secure`, so an upstream that fetches over plain http without declaring the public scheme yields http links. Declaring the scheme is the deployment's job, and `PUBLIC_BASE_URL` is how it does so — the app does not guess. One consequence is that a malformed value fails quietly: entries that are not absolute http(s) URLs are dropped, and a value that drops everything falls back to auto-detection as if it had never been set. `publicBaseUrlWarning` — logged at startup by `index.ts` — is the only thing that makes that silence visible, so keep it wired up.
+
+Neither `PUBLIC_BASE_URL` nor the origins it resolves to are reported by `/api/settings`, and the settings page has no row for them: a deployment's own addresses are not something the UI — or anyone reading it — needs.
+
 ## Error Handling
 
 - Early returns to reduce nesting

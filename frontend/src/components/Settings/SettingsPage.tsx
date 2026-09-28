@@ -20,7 +20,6 @@ interface ServerInfo {
   buildDate?: string;
   port?: number;
   dataDir?: string;
-  publicBaseUrl?: string;
   disableHttpsRedirect?: boolean;
   autoCleanupDays?: number;
   autoCleanupMaxMB?: number;
@@ -266,17 +265,6 @@ export default function SettingsPage() {
                     valueTitle={serverInfo.dataDir}
                   >
                     {serverInfo.dataDir}
-                  </SettingsInfoRow>
-                  <SettingsInfoRow
-                    label="PUBLIC_BASE_URL"
-                    mono
-                    valueTitle={serverInfo.publicBaseUrl || undefined}
-                  >
-                    {serverInfo.publicBaseUrl || (
-                      <span className="italic text-gray-400 dark:text-gray-500">
-                        {t("settings.server.notSet")}
-                      </span>
-                    )}
                   </SettingsInfoRow>
                   <SettingsInfoRow
                     label="UNSAFE_DANGEROUSLY_DISABLE_HTTPS_REDIRECT"

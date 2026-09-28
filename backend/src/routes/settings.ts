@@ -11,7 +11,6 @@ router.get("/settings", (_req: Request, res: Response) => {
     buildDate: config.buildDate,
     port: config.port,
     dataDir: config.dataDir,
-    publicBaseUrl: config.publicBaseUrl,
     disableHttpsRedirect: config.disableHttpsRedirect,
     autoCleanupDays: config.autoCleanupDays,
     autoCleanupMaxMB: config.autoCleanupMaxMB,

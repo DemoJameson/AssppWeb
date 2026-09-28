@@ -4,7 +4,8 @@ import request from "supertest";
 import { createServer, Server } from "http";
 import settingsRoutes from "../src/routes/settings.js";
 import installRoutes from "../src/routes/install.js";
-import { getBaseUrl } from "../src/routes/install.js";
+import { getBaseUrl, matchConfiguredBaseUrl } from "../src/routes/install.js";
+import { config } from "../src/config.js";
 import downloadRoutes from "../src/routes/downloads.js";
 import packageRoutes from "../src/routes/packages.js";
 import {
@@ -375,5 +376,136 @@ describe("getBaseUrl", () => {
       }),
     );
     expect(url).toBe("https://example.com");
+  });
+
+  it("uses the configured origins instead once they are set", () => {
+    // The list is read per request, so a test can stand one up and hand the
+    // real value back without going near the environment. Restored in a
+    // `finally` because the rest of this describe expects the unconfigured
+    // path.
+    const original = config.publicBaseUrls;
+    config.publicBaseUrls = ["https://asspp.example.com"];
+    try {
+      expect(getBaseUrl(fakeReq({ host: "asspp.example.com" }))).toBe(
+        "https://asspp.example.com",
+      );
+      // Including the port a CDN may have put in Host.
+      expect(getBaseUrl(fakeReq({ host: "asspp.example.com:12345" }))).toBe(
+        "https://asspp.example.com",
+      );
+      // And the scheme now comes from the configuration, whatever the proxy
+      // declares — which is the point of setting it.
+      expect(
+        getBaseUrl(
+          fakeReq({ host: "asspp.example.com", "x-forwarded-proto": "http" }),
+        ),
+      ).toBe("https://asspp.example.com");
+    } finally {
+      config.publicBaseUrls = original;
+    }
+  });
+
+  it("keeps an IPv6 literal intact on the way into the match", () => {
+    // The Host sanitizer used to strip the brackets, collapsing the literal
+    // into a colon run that could never equal a configured origin.
+    const original = config.publicBaseUrls;
+    config.publicBaseUrls = ["https://[2001:db8::1]:8443"];
+    try {
+      expect(getBaseUrl(fakeReq({ host: "[2001:db8::1]:8443" }))).toBe(
+        "https://[2001:db8::1]:8443",
+      );
+    } finally {
+      config.publicBaseUrls = original;
+    }
+  });
+});
+
+describe("matchConfiguredBaseUrl", () => {
+  const both = [
+    "https://asspp.demojameson.cn",
+    "https://asspp.demojameson.de5.net",
+  ];
+
+  it("links each hostname to itself", () => {
+    expect(matchConfiguredBaseUrl(both, "asspp.demojameson.cn")).toBe(
+      "https://asspp.demojameson.cn",
+    );
+    expect(matchConfiguredBaseUrl(both, "asspp.demojameson.de5.net")).toBe(
+      "https://asspp.demojameson.de5.net",
+    );
+  });
+
+  it("ignores the port a proxy put in Host", () => {
+    // A CDN that terminates on 443 but dials the origin on another port
+    // forwards that port in Host; the configured origin stays authoritative.
+    expect(matchConfiguredBaseUrl(both, "asspp.demojameson.cn:12345")).toBe(
+      "https://asspp.demojameson.cn",
+    );
+    expect(matchConfiguredBaseUrl(both, "asspp.demojameson.de5.net:8080")).toBe(
+      "https://asspp.demojameson.de5.net",
+    );
+  });
+
+  it("matches hostnames case-insensitively", () => {
+    expect(matchConfiguredBaseUrl(both, "Asspp.DemoJameson.CN")).toBe(
+      "https://asspp.demojameson.cn",
+    );
+  });
+
+  it("falls back to the first entry for an unlisted host", () => {
+    expect(matchConfiguredBaseUrl(both, "192.168.50.3:28080")).toBe(
+      "https://asspp.demojameson.cn",
+    );
+    expect(matchConfiguredBaseUrl(both, "localhost")).toBe(
+      "https://asspp.demojameson.cn",
+    );
+  });
+
+  it("keeps a configured non-standard port in the emitted origin", () => {
+    expect(
+      matchConfiguredBaseUrl(["https://asspp.example.com:8443"], "asspp.example.com"),
+    ).toBe("https://asspp.example.com:8443");
+  });
+
+  it("does not let an unlisted hostname in a subdomain match", () => {
+    expect(matchConfiguredBaseUrl(both, "evil-asspp.demojameson.cn")).toBe(
+      "https://asspp.demojameson.cn",
+    );
+  });
+
+  it("uses the request's port to choose between entries for one hostname", () => {
+    const ports = ["https://x.example.com", "https://x.example.com:8443"];
+    expect(matchConfiguredBaseUrl(ports, "x.example.com:8443")).toBe(
+      "https://x.example.com:8443",
+    );
+    expect(matchConfiguredBaseUrl(ports, "x.example.com")).toBe(
+      "https://x.example.com",
+    );
+    // Neither port is listed: the first entry still wins rather than inventing
+    // a port the deployment never named.
+    expect(matchConfiguredBaseUrl(ports, "x.example.com:9999")).toBe(
+      "https://x.example.com",
+    );
+  });
+
+  it("matches an IPv6 literal, brackets and all", () => {
+    const candidates = ["https://[2001:db8::1]:8443", "https://x.example.com"];
+    expect(matchConfiguredBaseUrl(candidates, "[2001:db8::1]:8443")).toBe(
+      "https://[2001:db8::1]:8443",
+    );
+    // A literal with no port still matches its bracketed form.
+    expect(matchConfiguredBaseUrl(candidates, "[2001:db8::1]")).toBe(
+      "https://[2001:db8::1]:8443",
+    );
+    // A colon run the request wrote without brackets is not a port either.
+    expect(matchConfiguredBaseUrl(both, "2001:db8::1")).toBe(
+      "https://asspp.demojameson.cn",
+    );
+  });
+
+  it("offers nothing when no candidate is configured", () => {
+    // `getBaseUrl` guards the empty list; the function stays total anyway
+    // rather than handing back an undefined typed as a string.
+    expect(matchConfiguredBaseUrl([], "x.example.com")).toBe("");
   });
 });
