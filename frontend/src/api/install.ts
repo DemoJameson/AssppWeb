@@ -24,3 +24,14 @@ export async function getInstallInfo(id: string): Promise<InstallInfo> {
 export function openInstallUrl(url: string): void {
   window.location.assign(url);
 }
+
+/**
+ * Hands a download URL to the browser — the same navigation as an install link,
+ * and a seam for the same reason: jsdom does not navigate at all, so without
+ * one the tests cannot tell "the browser was sent to the package" from "nothing
+ * happened". Kept apart from `openInstallUrl` so a test asserting a download
+ * cannot be satisfied by an install.
+ */
+export function openDownloadUrl(url: string): void {
+  window.location.assign(url);
+}

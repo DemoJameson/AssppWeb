@@ -7,6 +7,7 @@ import { apiGet } from '../../api/client';
 import {
   getInstallInfo,
   openInstallUrl,
+  openDownloadUrl,
   type InstallInfo,
 } from '../../api/install';
 import Modal from '../common/Modal';
@@ -215,26 +216,32 @@ export default function PackageQuickActions({
       return;
     }
 
-    addToast(
-      task.software.name,
-      'info',
-      t('toast.title.downloadIpaStarted'),
-    );
-
-    // If the URL was prefetched on hover and is still valid, let the browser
-    // navigate — IDM and other download extensions intercept the <a> click.
-    if (downloadUrl && !isUrlExpired(downloadUrl)) return;
-
-    // URL missing, expired, or no prior hover: fetch a fresh one and navigate.
-    // res.download sets Content-Disposition: attachment, so the browser
-    // downloads rather than leaves the page.
+    // A URL hover prefetched is not proof the package is still there: the file
+    // can be gone while the row still reads as ready, and the browser obeys
+    // `download` even for an error response — it would save the server's
+    // `{"error":"Package not found"}` as if it were the package. So the click is
+    // always held until the server hands back a URL for a package it still has.
+    //
+    // This guards the left click only. The prefetched href and name stay on the
+    // link, so the paths that never reach this handler — right-click "save link
+    // as", middle-click (an `auxclick`), an extension reading the href — can
+    // still fetch a URL whose package is gone and save the error under a
+    // package name. Accepted: closing it means not publishing the URL at all,
+    // which is the very thing the hover exists for (download managers).
     event.preventDefault();
     try {
       const params = new URLSearchParams({ accountHash: task.accountHash });
       const { url } = await apiGet<{ url: string }>(
         `/api/packages/${task.id}/file-url?${params}`,
       );
-      window.location.assign(resolveDownloadUrl(url));
+      addToast(
+        task.software.name,
+        'info',
+        t('toast.title.downloadIpaStarted'),
+      );
+      // res.download sets Content-Disposition: attachment, so the browser
+      // downloads rather than leaves the page.
+      openDownloadUrl(resolveDownloadUrl(url));
     } catch {
       addToast(
         t('downloads.package.downloadFailed'),
@@ -386,10 +393,21 @@ async function copyText(value: string) {
   textArea.remove();
 }
 
+/**
+ * The name the browser saves the package under, mirroring the backend's
+ * `packageDownloadName`: same platform suffix, same extension. The two sides
+ * have to agree because either can name the file — the `download` attribute
+ * when the browser handles the link, the `Content-Disposition` header when the
+ * click navigates — and a macOS package saved as `.ipa` is one the Mac refuses
+ * to open, whatever its bytes are.
+ */
 function packageFileName(task: DownloadTask): string {
-  const unsafeName = `${task.software.name}_${task.software.version}`;
-  const safeName = unsafeName.replace(/[\\/:*?"<>|]/g, '-');
-  return `${safeName}.ipa`;
+  const platform = task.software.platform ?? 'ios';
+  const base =
+    `${task.software.name}_${task.software.version}_${PLATFORM_LABELS[platform]}`
+      .replace(/[\\/:*?"<>|\x00-\x1f\x7f]/g, '-')
+      .slice(0, 170);
+  return `${base}${platform === 'macos' ? '.pkg' : '.ipa'}`;
 }
 
 function isUrlExpired(url: string): boolean {

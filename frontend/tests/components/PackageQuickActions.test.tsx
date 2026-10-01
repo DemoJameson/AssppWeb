@@ -5,7 +5,7 @@ import PackageQuickActions from '../../src/components/Download/PackageQuickActio
 import { previewDownloadTasks } from '../../src/components/Download/previewTasks';
 import { useToastStore } from '../../src/store/toast';
 import { detectInstallDevice, isAppleSiliconMac } from '../../src/utils/device';
-import { openInstallUrl, getInstallInfo } from '../../src/api/install';
+import { openInstallUrl, openDownloadUrl, getInstallInfo } from '../../src/api/install';
 import type { DownloadTask } from '../../src/types';
 
 // The install links are minted by the server (they carry a signature this side
@@ -36,7 +36,12 @@ vi.mock('../../src/utils/device', async (importOriginal) => {
 
 vi.mock('../../src/api/install', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/api/install')>();
-  return { ...actual, getInstallInfo: vi.fn(), openInstallUrl: vi.fn() };
+  return {
+    ...actual,
+    getInstallInfo: vi.fn(),
+    openInstallUrl: vi.fn(),
+    openDownloadUrl: vi.fn(),
+  };
 });
 
 const originalClipboard = Object.getOwnPropertyDescriptor(
@@ -77,6 +82,15 @@ function createTask(
   };
 }
 
+/**
+ * Where the browser was sent to fetch the package. The component navigates
+ * through `api/install`'s seam (jsdom does not navigate), so this is the mock
+ * the download assertions read.
+ */
+function navigationSpy() {
+  return vi.mocked(openDownloadUrl);
+}
+
 function restoreProperty(
   target: object,
   key: PropertyKey,
@@ -105,6 +119,8 @@ describe('PackageQuickActions', () => {
     });
     vi.mocked(openInstallUrl).mockClear();
     vi.mocked(openInstallUrl).mockImplementation(() => {});
+    vi.mocked(openDownloadUrl).mockClear();
+    vi.mocked(openDownloadUrl).mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -222,11 +238,40 @@ describe('PackageQuickActions', () => {
         new URL(downloadUrl, 'http://localhost:8080').href,
       );
     });
-    expect(link).toHaveAttribute('download', 'Utility-App_3.4.5.ipa');
+    expect(link).toHaveAttribute('download', 'Utility-App_3.4.5_iOS.ipa');
   });
 
-  it('refetches when the prefetched link has expired', async () => {
+  it('names a macOS package .pkg, as the server would', async () => {
     const user = userEvent.setup();
+    const downloadUrl =
+      '/api/packages/real-download-task/file?accountHash=account-hash-123&exp=123&sig=abc';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ url: downloadUrl }),
+    } as Response);
+    sessionStorage.setItem('auth-token', 'test-access-token');
+
+    const base = createTask();
+    render(
+      <PackageQuickActions
+        task={{
+          ...base,
+          software: { ...base.software, platform: 'macos' },
+        }}
+      />,
+    );
+
+    const link = screen.getByRole('link', { name: 'downloads.package.downloadIpa' });
+    await user.hover(link);
+
+    await waitFor(() => {
+      expect(link).toHaveAttribute('download', 'Utility-App_3.4.5_macOS.pkg');
+    });
+  });
+
+  it('refetches on click instead of reusing the prefetched link', async () => {
+    const user = userEvent.setup();
+    const navigate = navigationSpy();
     const expiredUrl =
       '/api/packages/real-download-task/file?accountHash=account-hash-123&exp=1&sig=abc';
     const freshUrl =
@@ -257,6 +302,9 @@ describe('PackageQuickActions', () => {
     await waitFor(() => {
       expect(callCount).toBe(2);
     });
+    expect(navigate).toHaveBeenCalledWith(
+      new URL(freshUrl, 'http://localhost:8080').href,
+    );
     expect(useToastStore.getState().toasts).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -266,7 +314,58 @@ describe('PackageQuickActions', () => {
     );
   });
 
+  it('does not trust a prefetched link the server no longer serves', async () => {
+    const user = userEvent.setup();
+    const navigate = navigationSpy();
+    // Still inside its window, so the old code reused it without asking again —
+    // and the browser would have saved the 404 body as the package.
+    const freshUrl =
+      '/api/packages/real-download-task/file?accountHash=account-hash-123&exp=9999999999999&sig=abc';
+    let callCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      callCount++;
+      return Promise.resolve(
+        callCount === 1
+          ? ({
+              ok: true,
+              json: () => Promise.resolve({ url: freshUrl }),
+            } as Response)
+          : ({
+              ok: false,
+              text: () => Promise.resolve('{"error":"Package not found"}'),
+            } as Response),
+      );
+    });
+    sessionStorage.setItem('auth-token', 'test-access-token');
+
+    render(<PackageQuickActions task={createTask()} />);
+
+    const link = screen.getByRole('link', { name: 'downloads.package.downloadIpa' });
+    await user.hover(link);
+    await waitFor(() => {
+      expect(link).toHaveAttribute(
+        'href',
+        new URL(freshUrl, 'http://localhost:8080').href,
+      );
+    });
+
+    await user.click(link);
+
+    await waitFor(() => {
+      expect(useToastStore.getState().toasts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            message: 'downloads.package.downloadFailed',
+          }),
+        ]),
+      );
+    });
+    // The stale link is never followed: that is what used to save the error.
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('fetches the download URL on click without a prior hover', async () => {
+    const navigate = navigationSpy();
     const downloadUrl =
       '/api/packages/real-download-task/file?accountHash=account-hash-123&exp=123&sig=abc';
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
@@ -295,10 +394,14 @@ describe('PackageQuickActions', () => {
         ]),
       );
     });
+    expect(navigate).toHaveBeenCalledWith(
+      new URL(downloadUrl, 'http://localhost:8080').href,
+    );
   });
 
   it('surfaces a toast when the download URL cannot be issued', async () => {
     const user = userEvent.setup();
+    const navigate = navigationSpy();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: false,
       text: () => Promise.resolve('nope'),
@@ -319,6 +422,7 @@ describe('PackageQuickActions', () => {
         ]),
       );
     });
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it('blocks a package the device cannot take, and does not navigate', async () => {
