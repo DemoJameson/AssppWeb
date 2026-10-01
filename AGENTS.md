@@ -209,7 +209,8 @@ it on:
 2. **redownload** — the bag's `redownloadProduct` URL. Names the version `appExtVrsId`.
 3. **updateProduct** — the bag's `updateProduct` URL. Same version key as redownload.
 
-Fallback triggers, exactly as in ipatool:
+Fallback triggers (the reply shapes are ipatool's; the transport trigger below is
+this project's addition):
 
 - volumeStore → redownload when the reply is **empty** (HTTP 200, no
   `failureType`, no `customerMessage`, no `songList` — the purchase receipt Apple
@@ -217,7 +218,9 @@ Fallback triggers, exactly as in ipatool:
   no `failureType`, no items, `customerMessage` ending in "No Longer Available").
 - redownload → updateProduct when the request fails with an **empty HTTP 500**, or
   when redownload answers with the same availability message. Only reached with a
-  pinned version id, since updateProduct needs one.
+  pinned version id, since updateProduct needs one. ipatool gates this hop on the
+  platform as well (iOS/iPad/tvOS/macOS, tvOS since `acd9e7a`); this project does
+  not, so visionOS is served the same fallback.
 - A reply carrying a `failureType` is a real answer and is never retried on
   another host. `5002` is grouped with the password-token failures (`2034`,
   `2042`, `1008`) and reported as a session problem; `9610` means the license is
@@ -252,8 +255,17 @@ host/path pair (`downloadDispatchEndpoint` in `config.ts`) before use.
 The version id for the redownload hop is pinned from
 `uclient-api.itunes.apple.com` before the first attempt, because the reply that
 would normally carry it — the volumeStore document — is what came back empty. A
-lookup failure is fatal, matching ipatool: an unpinned redownload can answer with
-a tvOS build for a universal app.
+lookup failure is fatal: an unpinned redownload can answer with a tvOS build for a
+universal app.
+
+ipatool relaxes this for tvOS alone (`387d1a4`): when the catalogue reports no app
+or no offers — a delisted tvOS app — it proceeds unpinned and leans on its own
+`validatePackagePlatform(path, requestedPlatform)` to reject a package that is not
+the requested platform. This project does not take that path, because its
+`validatePackagePlatform` (`backend/src/services/packagePlatform.ts`) only
+requires *some* known platform and rewrites the task's platform rather than
+rejecting; an unpinned tvOS attempt here could therefore come back as the iOS
+build relabelled iOS. Keeping the lookup fatal is deliberate.
 
 ### Platform Version Pinning (Frontend)
 
