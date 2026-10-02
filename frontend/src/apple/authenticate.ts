@@ -122,8 +122,11 @@ export async function authenticate(
       const pod = podHeader || undefined;
 
       // Handle redirect. The native /fast auth host can answer with 301 as
-      // well as the usual 302, so follow the full set of redirect statuses.
-      if ([301, 302, 303, 307, 308].includes(response.status)) {
+      // well as the usual 302, so the set covers the statuses that mean "a pod
+      // answered — replay the signed POST there". 303 is deliberately not one
+      // of them: it asks for a GET, so re-posting the sign-in would not be the
+      // request Apple described (ipatool's `IsAuthenticationRedirect`).
+      if ([301, 302, 307, 308].includes(response.status)) {
         const location = response.headers["location"];
         if (!location) {
           throw new Error(i18n.t("errors.auth.redirectLocation"));

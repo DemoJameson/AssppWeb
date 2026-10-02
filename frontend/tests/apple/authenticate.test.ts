@@ -233,4 +233,80 @@ describe("apple/authenticate", () => {
     expect(hosts).not.toContain("auth.itunes.apple.com");
     expect(new Set(hosts)).toEqual(new Set(["buy.itunes.apple.com"]));
   });
+
+  it("replays the signed sign-in at the pod a redirect names", async () => {
+    vi.mocked(fetchBag).mockResolvedValue({
+      authURL:
+        "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate",
+    });
+    vi.mocked(appleRequest)
+      .mockResolvedValueOnce({
+        status: 302,
+        statusText: "Found",
+        headers: {
+          location:
+            "https://p30-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate?guid=aabbccddeeff",
+        },
+        rawHeaders: [],
+        body: "",
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        rawHeaders: [],
+        body: buildPlist({
+          accountInfo: { appleId: "test@example.com", address: {} },
+          passwordToken: "token",
+          dsPersonId: "123",
+        }),
+      });
+
+    await authenticate(
+      "test@example.com",
+      "password",
+      undefined,
+      undefined,
+      "aabbccddeeff",
+    );
+
+    expect(appleRequest).toHaveBeenCalledTimes(2);
+    const [first, second] = vi.mocked(appleRequest).mock.calls;
+    expect(second[0].host).toBe("p30-buy.itunes.apple.com");
+    // The pod hand-off belongs to the same attempt, so the signed body travels
+    // unchanged and the signature still covers what Apple receives.
+    expect(second[0].body).toBe(first[0].body);
+  });
+
+  it("does not re-post the sign-in for a 303", async () => {
+    vi.mocked(fetchBag).mockResolvedValue({
+      authURL:
+        "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate",
+    });
+    // 303 asks for a GET, which is not a request the sign-in can be replayed
+    // as, so it must not be mistaken for a pod hand-off.
+    vi.mocked(appleRequest).mockResolvedValue({
+      status: 303,
+      statusText: "See Other",
+      headers: { location: "https://p30-buy.itunes.apple.com/elsewhere" },
+      rawHeaders: [],
+      body: "",
+    });
+
+    await expect(
+      authenticate(
+        "test@example.com",
+        "password",
+        undefined,
+        undefined,
+        "aabbccddeeff",
+      ),
+    ).rejects.toBeInstanceOf(Error);
+
+    // It may be retried as a fresh attempt, but never as a re-post to the 303's
+    // Location — that would be the GET Apple actually asked for.
+    for (const [call] of vi.mocked(appleRequest).mock.calls) {
+      expect(call.host).toBe("buy.itunes.apple.com");
+    }
+  });
 });
