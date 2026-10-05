@@ -2,7 +2,7 @@ import type { Account, Cookie } from "../types";
 import { appleRequest } from "./request";
 import { buildPlist, parsePlist } from "./plist";
 import { extractAndMergeCookies } from "./cookies";
-import { fetchBag, defaultAuthURL } from "./bag";
+import { fetchBag, defaultAuthURL, normalizeAuthURL } from "./bag";
 import { authStoreFront, isAppleHost } from "./config";
 import { AppleUnreachableError } from "./errors";
 import { prepareSigner } from "./sap/client";
@@ -138,8 +138,11 @@ export async function authenticate(
         if (!isAppleHost(url.hostname)) {
           throw new Error(i18n.t("errors.auth.redirectHost"));
         }
-        requestHost = url.hostname;
-        requestPath = url.pathname + url.search;
+        // A pod hands back the same sign-in endpoint the bag did, and it wants
+        // the same trailing slash, so the hop goes through the normalizer too.
+        const target = new URL(normalizeAuthURL(url.toString()));
+        requestHost = target.hostname;
+        requestPath = `${target.pathname}${target.search}`;
         currentAttempt--;
         redirectAttempt++;
         continue;

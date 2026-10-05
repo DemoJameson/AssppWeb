@@ -29,7 +29,7 @@ describe("apple/bag", () => {
     const result = await fetchBag("aabbccddeeff");
 
     expect(result.authURL).toBe(
-      "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate",
+      "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate/",
     );
   });
 
@@ -133,10 +133,40 @@ describe("apple/bag", () => {
       ).toBe("https://auth.itunes.apple.com/auth/v1/native/fast/");
     });
 
-    it("leaves legacy endpoints on other hosts unchanged", () => {
-      const legacy =
-        "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate";
-      expect(normalizeAuthURL(legacy)).toBe(legacy);
+    it("adds the trailing slash to the legacy storefront endpoint", () => {
+      expect(
+        normalizeAuthURL(
+          "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate",
+        ),
+      ).toBe(
+        "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate/",
+      );
+    });
+
+    it("keeps a query string behind the trailing slash", () => {
+      expect(
+        normalizeAuthURL(
+          "https://p30-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate?guid=aabbccddeeff",
+        ),
+      ).toBe(
+        "https://p30-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate/?guid=aabbccddeeff",
+      );
+    });
+
+    it("is idempotent on an already-slashed legacy endpoint", () => {
+      expect(
+        normalizeAuthURL(
+          "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate/",
+        ),
+      ).toBe(
+        "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate/",
+      );
+    });
+
+    it("leaves every other endpoint unchanged", () => {
+      const other =
+        "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/buyProduct";
+      expect(normalizeAuthURL(other)).toBe(other);
     });
   });
 });

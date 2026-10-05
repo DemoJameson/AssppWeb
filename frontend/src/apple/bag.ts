@@ -22,7 +22,12 @@ const NATIVE_AUTH_HOST = "auth.itunes.apple.com";
 
 // The bag advertises the native auth endpoint without the /fast/ sub-path that
 // the login flow requires; the no-trailing-slash variant 301s to an HTML page.
-// Legacy endpoints on other hosts pass through unchanged.
+// The legacy storefront endpoint (.../MZFinance.woa/wa/authenticate) wants the
+// same thing: Apple answers the sign-in only when its path ends in a slash,
+// and hands back an HTML page — not a plist — for the bare form. Anything that
+// is not one of these two sign-in endpoints passes through unchanged.
+const LEGACY_AUTH_PATH = "/wa/authenticate";
+
 export function normalizeAuthURL(rawURL: string): string {
   let url: URL;
   try {
@@ -30,15 +35,19 @@ export function normalizeAuthURL(rawURL: string): string {
   } catch {
     return rawURL;
   }
-  if (url.hostname !== NATIVE_AUTH_HOST) {
-    return rawURL;
+  if (url.hostname === NATIVE_AUTH_HOST) {
+    let path = url.pathname.replace(/\/+$/, "");
+    if (!path.endsWith("/fast")) {
+      path += "/fast";
+    }
+    url.pathname = `${path}/`;
+    return url.toString();
   }
-  let path = url.pathname.replace(/\/+$/, "");
-  if (!path.endsWith("/fast")) {
-    path += "/fast";
+  if (url.pathname.endsWith(LEGACY_AUTH_PATH)) {
+    url.pathname = `${url.pathname}/`;
+    return url.toString();
   }
-  url.pathname = `${path}/`;
-  return url.toString();
+  return rawURL;
 }
 
 // Fetches the bag via the backend proxy.
