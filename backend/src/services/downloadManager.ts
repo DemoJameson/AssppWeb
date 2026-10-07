@@ -118,7 +118,6 @@ export function applyPackageMetadata(
   fill("bundleID", metadata.bundleID);
   fill("version", metadata.version);
   fill("artistName", metadata.artistName);
-  fill("minimumOsVersion", metadata.minimumOsVersion);
   fill("primaryGenreName", metadata.primaryGenreName);
   fill("releaseDate", metadata.releaseDate);
   fill("artworkUrl", metadata.artworkURL);
@@ -127,9 +126,26 @@ export function applyPackageMetadata(
   // The package's own CFBundleSupportedPlatforms is the authority over the
   // platform the search or download request named: a universal app searched as
   // tvOS may have served its iOS build, and the package knows which.
-  if (metadata.platform && software.platform !== metadata.platform) {
+  const platformChanged =
+    !!metadata.platform && software.platform !== metadata.platform;
+  if (platformChanged) {
     software.platform = metadata.platform;
     changed = true;
+  }
+
+  // A minimum OS version belongs to the platform that declared it, so a record
+  // corrected to another platform cannot keep the value it was quoted: the row
+  // would pair one platform's name with another's floor (an iOS build shown as
+  // "iOS 17.0" because the record carried the tvOS build's 17.0). The package's
+  // own value replaces it, and the field goes back to unknown when the package
+  // declared none — a dash beats a confidently wrong floor.
+  if (platformChanged) {
+    if (software.minimumOsVersion !== (metadata.minimumOsVersion ?? "")) {
+      changed = true;
+    }
+    software.minimumOsVersion = metadata.minimumOsVersion ?? "";
+  } else {
+    fill("minimumOsVersion", metadata.minimumOsVersion);
   }
 
   return changed;

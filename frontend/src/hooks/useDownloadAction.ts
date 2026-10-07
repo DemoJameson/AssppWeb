@@ -267,7 +267,14 @@ export function useDownloadAction() {
           (quotedForServedBuild ? app.externalVersionId : undefined),
         ...(quotedForServedBuild
           ? {}
-          : { releaseDate: "", fileSizeBytes: undefined }),
+          : {
+              releaseDate: "",
+              fileSizeBytes: undefined,
+              // The floor belongs to the build the record quoted, not to the
+              // older one Apple served, so it drops with the rest of that
+              // build's facts and the package supplies this build's own.
+              minimumOsVersion: "",
+            }),
       },
       accountHash: hash,
       downloadURL: output.downloadURL,

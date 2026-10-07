@@ -242,6 +242,49 @@ describe("applyPackageMetadata", () => {
     expect(target.artworkUrl).toBe("https://cdn.apple.com/store.jpg");
   });
 
+  // A universal app searched as tvOS can be served its iOS build: the record
+  // arrives carrying tvOS's floor, and the package corrects the platform. The
+  // floor has to follow the platform, or the row pairs one platform's name with
+  // another's minimum (Forward shown as "iOS 17.0" when iOS is 16.0).
+  it("takes the package's minimum OS when it corrects the platform", () => {
+    const target = software({
+      platform: "tvos",
+      minimumOsVersion: "17.0",
+    });
+
+    expect(
+      applyPackageMetadata(target, {
+        ...fromPackage,
+        platform: "ios",
+        minimumOsVersion: "16.0",
+      }),
+    ).toBe(true);
+    expect(target.platform).toBe("ios");
+    expect(target.minimumOsVersion).toBe("16.0");
+  });
+
+  it("drops a quoted minimum OS the corrected platform cannot vouch for", () => {
+    const target = software({ platform: "tvos", minimumOsVersion: "17.0" });
+
+    expect(
+      applyPackageMetadata(target, {
+        ...fromPackage,
+        platform: "ios",
+        minimumOsVersion: undefined,
+      }),
+    ).toBe(true);
+    expect(target.platform).toBe("ios");
+    // A dash beats a floor that belonged to the platform the record misnamed.
+    expect(target.minimumOsVersion).toBe("");
+  });
+
+  it("keeps the quoted minimum OS when the platform is not corrected", () => {
+    const target = software({ platform: "ios", minimumOsVersion: "17.0" });
+
+    applyPackageMetadata(target, { ...fromPackage, platform: "ios" });
+    expect(target.minimumOsVersion).toBe("17.0");
+  });
+
   it("reports whether it changed anything", () => {
     // The startup repair relies on this to know what to persist.
     expect(applyPackageMetadata(software({}), {})).toBe(false);

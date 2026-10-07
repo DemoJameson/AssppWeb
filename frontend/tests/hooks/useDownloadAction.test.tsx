@@ -288,6 +288,10 @@ describe("useDownloadAction", () => {
     expect(body.software.releaseDate).toBe("");
     expect(body.software.fileSizeBytes).toBeUndefined();
     expect(body.software.externalVersionId).toBeUndefined();
+    // The floor is the current build's too: an app may raise its minimum OS
+    // between versions, so it drops with the date rather than travelling along
+    // with a build it was never quoted for.
+    expect(body.software.minimumOsVersion).toBe("");
   });
 
   it("does not purchase for unrelated failures", async () => {
