@@ -3,9 +3,8 @@ import type { Account } from "../../types";
 import { gravatarUrl } from "../../utils/avatar";
 
 /**
- * The account's avatar — the gravatar registered for its email when there is
- * one, the initial-letter gradient otherwise. The image is probed first, so
- * accounts without one look exactly like before.
+ * The account's avatar: the email's gravatar when one exists, the initial-letter
+ * gradient otherwise. The image is probed first, so accounts without one are unchanged.
  */
 export function AccountAvatar({
   account,

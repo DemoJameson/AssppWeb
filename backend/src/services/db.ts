@@ -4,17 +4,11 @@ import Database from "better-sqlite3";
 import { config } from "../config.js";
 
 /**
- * Single SQLite database backing every persistent store in the backend.
- *
- * Replaces the JSON files (tasks.json, and on the improve branch also
- * version-metadata.json, version-pins.json, package-apps.json) with one ACID,
- * WAL-mode database. Binary payloads (IPA, icons, SAP assets) stay on the
- * filesystem — only metadata and indexes live here.
- *
- * The DB is opened synchronously at first use and kept open for the process
- * lifetime. The first open migrates any leftover legacy JSON files into the
- * tables (then renames them aside). Tests reset the singleton via `closeDb()`
- * and re-import this module (its file paths bind to `config.dataDir` at load).
+ * Single SQLite database backing every persistent store: one ACID, WAL-mode DB replacing the JSON
+ * files (tasks + version-metadata/version-pins/package-apps). Binary payloads (IPA, icons, SAP
+ * assets) stay on the filesystem; only metadata and indexes live here. Opened synchronously at
+ * first use and kept for the process lifetime; the first open migrates leftover legacy JSON aside.
+ * Tests reset the singleton via `closeDb()` and re-import (paths bind to `config.dataDir` at load).
  */
 
 const DB_FILE = path.join(config.dataDir, "asspp.db");
@@ -83,8 +77,8 @@ CREATE TABLE IF NOT EXISTS package_app_builds (
 `;
 
 /**
- * The schema version this build expects. Bump it whenever ADDED_COLUMNS grows:
- * a database below it is upgraded in place on open, a fresh one is born at it.
+ * The schema version this build expects. Bump whenever ADDED_COLUMNS grows: a
+ * database below it is upgraded in place on open.
  */
 const SCHEMA_VERSION = 3;
 
@@ -94,21 +88,17 @@ PRAGMA user_version = ${SCHEMA_VERSION};
 `;
 
 /**
- * Columns added after the first SQLite release. A fresh database already has
- * them from {@link SCHEMA_SQL}; an instance created by an earlier release gets
- * them here. Each entry is applied only when the column is really missing, so a
- * re-run (or a database that already carries some of them) is a no-op instead
- * of an error.
+ * Columns added after the first SQLite release. A fresh database has them from
+ * {@link SCHEMA_SQL}; an older one gets them here. Applied only when really
+ * missing, so a re-run is a no-op rather than an error.
  */
 const ADDED_COLUMNS: ReadonlyArray<{
   table: string;
   column: string;
   type: string;
 }> = [
-  // What a delisted app's detail page can only learn from its own package: the
-  // id of the build Apple served, how large it is on disk, and when it was
-  // built. Per build, like `version` and `minimum_os` — an iOS and a tvOS
-  // package of the same app differ in all of them.
+  // Per build (like `version`/`minimum_os`): the served build id, on-disk size,
+  // and build date, all only readable from a delisted app's own package.
   { table: "package_app_builds", column: "version_id", type: "TEXT" },
   { table: "package_app_builds", column: "file_size", type: "TEXT" },
   { table: "package_app_builds", column: "release_date", type: "TEXT" },
@@ -152,14 +142,9 @@ export function closeDb(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Legacy JSON migration
-//
-// Every pre-SQLite store persisted a single JSON file under DATA_DIR. The
-// first DB open imports each of them into the matching table and renames the
-// file so the migration runs exactly once. A missing or already-migrated file
-// is a no-op; a corrupted file is renamed aside (tolerated, like the stores
-// always did). This is the shared migration — tasks.json is handled here
-// alongside the three improve-branch stores.
+// Legacy JSON migration: each pre-SQLite store persisted one JSON file under DATA_DIR; the
+// first DB open imports it into the matching table and renames the file (so it runs once).
+// Missing/already-migrated is a no-op; a corrupt file is renamed aside; tasks.json included.
 // ---------------------------------------------------------------------------
 
 const LEGACY_FILES = {

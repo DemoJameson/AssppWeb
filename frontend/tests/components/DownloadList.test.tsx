@@ -55,9 +55,8 @@ vi.mock("../../src/api/search", () => ({
   lookupApp: mocks.lookupApp,
 }));
 
-// The version labels of the update picker come from a cache fed by Apple's
-// answers; the list only needs the shape of it here. (Importing the real hook
-// would drag libcurl into jsdom, which aborts on import.)
+// The update picker's version labels come from a cache fed by Apple's answers; the
+// list only needs its shape here. (The real hook would drag libcurl into jsdom.)
 vi.mock("../../src/hooks/useVersionMetadata", () => ({
   useVersionMetadataMap: () => ({
     versionMeta: {},
@@ -71,12 +70,9 @@ vi.mock("../../src/store/toast", () => ({
     selector({ addToast: mocks.addToast }),
 }));
 
-// The list's own item is heavy; the filter only needs to show what it renders.
-// The flags travel on it, so the mock echoes the highlight — and the two
-// affordances render under the same conditions the real item applies (a failed
-// row with an owner to retry under; a settled row with an owner to ask the
-// storefront with), which keeps the text-only assertions of the other tests
-// honest.
+// The list's own item is heavy, so the filter only shows what it renders; the mock
+// echoes the highlight and the two affordances (failed/retry, settled/ask-storefront)
+// under the same conditions the real item applies, keeping the text assertions honest.
 vi.mock("../../src/components/Download/DownloadItem", () => ({
   default: ({
     task,
@@ -265,9 +261,8 @@ describe("DownloadList highlight hop", () => {
   });
 
   it("consumes the hop, so reloading that entry highlights nothing", () => {
-    // The entry that carried the hop is rewritten on arrival: what a reload
-    // re-reads — and what stepping back onto the entry finds — names no
-    // package any more.
+    // The entry that carried the hop is rewritten on arrival: what a reload re-reads,
+    // and what stepping back finds, names no package any more.
     const { unmount } = renderList({ highlightTaskId: "1" }, true);
 
     // This mount still marks the package it was pointed at.
@@ -393,9 +388,8 @@ describe("DownloadList update check", () => {
   });
 
   it("takes a delisted app's newest build from the version exchange", async () => {
-    // The package-app index can only ever describe the build already here, so
-    // the storefront's fallback is not a comparison: the exchange is what names
-    // the build the app has moved on to.
+    // The package-app index can only describe the build already here, so the storefront's
+    // fallback is no comparison: the exchange names the build the app has moved on to.
     mocks.lookupApp.mockResolvedValue(recalledApp);
     mocks.lookupNewestServableVersion.mockResolvedValue({
       versionId: "2",
@@ -424,9 +418,8 @@ describe("DownloadList update check", () => {
   });
 
   it("fetches the build the user picked by its id", async () => {
-    // Unpinned, the request would resolve the pin a past download recorded —
-    // the build already on disk — so a delisted app's update must name the
-    // build it wants.
+    // Unpinned, the request would resolve the pin a past download recorded — the build
+    // already on disk — so a delisted app's update must name the build it wants.
     mocks.lookupApp.mockResolvedValue(recalledApp);
     mocks.lookupNewestServableVersion.mockResolvedValue({
       versionId: "2",
@@ -494,9 +487,8 @@ describe("DownloadList update check", () => {
   });
 
   it("does not call a build it cannot compare an update", async () => {
-    // A package compiled before the version id was recorded: without a number
-    // and without an id of its own, a newest build that is merely *different*
-    // could be an older one — offering it would replace a newer package with it.
+    // A package compiled before version ids were recorded: with no number and no id of its
+    // own, a newest build that is merely *different* could be older — offering it is unsafe.
     mocks.tasks = [completedTask(null)];
     mocks.lookupApp.mockResolvedValue(recalledApp);
     mocks.lookupNewestServableVersion.mockResolvedValue({
@@ -517,10 +509,9 @@ describe("DownloadList update check", () => {
   });
 
   it("keeps the row when the update picks the build it already holds", async () => {
-    // The list a recalled record offers is the app's own, so it can name the
-    // build this row holds — and asking for that one is refused as a duplicate.
-    // Deleting the row on that would take away the only handle on a package
-    // nothing replaced.
+    // The list a recalled record offers is the app's own, so it can name the build this
+    // row holds — asking for that one is refused as a duplicate, and deleting the row
+    // on that would remove the only handle on a package nothing replaced.
     mocks.lookupApp.mockResolvedValue(recalledApp);
     mocks.lookupNewestServableVersion.mockResolvedValue({
       versionId: "1",

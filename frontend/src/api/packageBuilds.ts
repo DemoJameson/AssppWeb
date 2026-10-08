@@ -9,17 +9,10 @@ interface PackageBuildsResponse {
 }
 
 /**
- * Every build the package-app index holds of an app, one entry per platform
- * (the platform a compiled package belongs to, with the external version id it
- * carried).
- *
- * It answers what the pin store cannot: a pin holds the newest id per platform,
- * while the index holds every build ever compiled on this instance — so a caller
- * that has to rule *another platform's build* out (the neighbour-id guess) sees
- * all of them, not just the latest.
- *
- * Best effort like the other backend stores: a failure resolves to an empty
- * list, which only means the caller has one less id it can rule out.
+ * Every build the package-app index holds of an app, one entry per platform with
+ * the external version id it carried. Unlike the pin store (newest id per
+ * platform), it holds every build ever compiled, so a caller ruling another
+ * platform's build out sees all of them. Best effort: failure resolves to [].
  */
 export async function fetchPackageBuilds(
   appId: string | number,

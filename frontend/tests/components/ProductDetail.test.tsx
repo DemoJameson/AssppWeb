@@ -137,9 +137,8 @@ const account: Account = {
   deviceIdentifier: '001122aabbcc',
 };
 
-// The key the download list files a package under: a package belongs to the
-// account that fetched it, so a fixture task is one of this account's only when
-// it wears this account's digest (see `utils/downloaded`).
+// A package is filed under the account that fetched it, so a fixture counts as
+// this account's own only when it wears this account's digest (see `utils/downloaded`).
 const accountKey = await accountHash(account);
 
 /** A numeric App ID nothing knows: the version exchange is what decides it. */
@@ -611,9 +610,8 @@ describe('ProductDetail download action', () => {
   });
 
   it('folds the shared cache in before asking Apple for version numbers', async () => {
-    // The silent policy: what the instance already knows costs no request, so
-    // the cache is merged before the fill starts. The entries carry package
-    // dates — the only kind a label prints.
+    // Silent policy: the instance's own cache is merged before the fill and costs
+    // no request. The entries carry package dates — the only kind a label prints.
     vi.mocked(fetchVersionMetadata).mockResolvedValue({
       '890964826': {
         displayVersion: '8.2.1',
@@ -694,8 +692,7 @@ describe('ProductDetail download action', () => {
   });
 
   it('says so when the platform Apple was asked about has no build', async () => {
-    // An iOS-only app opened as macOS: the exchange named no build for the
-    // platform — no offer, no recorded pin, no neighbour that belongs to it.
+    // An iOS-only app opened as macOS: the exchange named no build for the platform.
     // The app is real, so the record stays; what is out is the download.
     mocks.listVersions.mockRejectedValue(
       new PlatformVersionUnavailableError('no build for platform'),
@@ -725,9 +722,9 @@ describe('ProductDetail download action', () => {
   });
 
   it('puts the download back on offer when the picker names a build', async () => {
-    // The automatic probe found nothing for this platform, but the manual
-    // 选择版本 run is a fresh ask — a session can recover, and a version id
-    // entered by hand is a real pin. Versions arriving must undo the verdict.
+    // The probe found nothing for this platform, but the manual 选择版本 run is a
+    // fresh ask — a version id entered by hand is a real pin — so versions arriving
+    // must undo the verdict.
     mocks.listVersions
       .mockRejectedValueOnce(
         new PlatformVersionUnavailableError('no build for platform'),
@@ -763,9 +760,9 @@ describe('ProductDetail download action', () => {
   });
 
   it('looks the version numbers up when the auto-fetch switch is on', async () => {
-    // The switch is what the silent fill answers to: opening the picker runs
-    // the same lookup the manual 查版本号 button would — one pinned exchange
-    // per version, whose package the backend reads the real date out of.
+    // The switch drives the silent fill: opening the picker runs the same lookup the
+    // manual 查版本号 button would — one pinned exchange per version, whose package the
+    // backend reads the real date out of.
     useSettingsStore.setState({ autoFetchVersionInfo: true });
     vi.mocked(getDownloadInfo).mockResolvedValue({
       output: {
@@ -1012,9 +1009,8 @@ describe('ProductDetail download action', () => {
   });
 
   it("shows the size and release date a delisted record's package carried", async () => {
-    // What the package-app index records per platform build: the size the
-    // package occupies on disk and the date that build was released. Without
-    // them the detail view a package opens onto had nothing but dashes.
+    // What the package-app index records per build — its on-disk size and release
+    // date — without which the detail view a package opens onto had only dashes.
     renderProductDetail(undefined, {
       metadataSource: 'local',
       version: '1.3.19',
@@ -1120,9 +1116,8 @@ describe('ProductDetail download action', () => {
     });
     await waitFor(() => expect(accountSelect).toHaveTextContent(account.email));
 
-    // The build the button would ask for is on the server: it is out, and the
-    // page says so instead of leaving a dead button behind — with the button
-    // that leads to the package on the downloads page.
+    // The build the button would ask for is already on the server, so the page says so
+    // and offers the button that leads to that package on the downloads page.
     expect(screen.getByText('search.product.alreadyDownloaded')).toBeTruthy();
     expect(
       screen.getByRole('button', { name: 'search.product.goToDownloads' }),
@@ -1163,9 +1158,8 @@ describe('ProductDetail download action', () => {
   });
 
   it('opens on the package the downloads hop came from', async () => {
-    // The 应用详情 link hands over the package's own version id, so the page
-    // describes *that* build — its numbers, not the record's and not the list's
-    // newest — and says it is already here.
+    // The 应用详情 link hands over the package's own version id, so the page describes
+    // *that* build — its numbers, not the record's or the list's newest.
     const held: DownloadTask = {
       id: 'held-888',
       software: {
@@ -1325,10 +1319,9 @@ describe('ProductDetail download action', () => {
   });
 
   it('follows the picked version in the details table', async () => {
-    // Rows answer for whichever build the picker shows: the carried package
-    // first (kept, not skipped as a held build), then the picked one — whose
-    // size and minimum OS nobody here knows, so they stay as dashes rather
-    // than borrowing the held package's numbers.
+    // Rows answer for whichever build the picker shows: the carried package first
+    // (kept, not skipped as held), then the picked one, whose size and minimum OS
+    // nobody knows — dashes, not the held package's numbers.
     const held: DownloadTask = {
       id: 'held-888',
       software: {
@@ -1410,9 +1403,8 @@ describe('ProductDetail download action', () => {
   });
 
   it('leads the 已下载 chip in the picker to the held package', async () => {
-    // The chip in a held build's option row is the way back to that package:
-    // it opens the downloads page highlighting it, while picking the row
-    // itself stays a no-op.
+    // The chip in a held build's option row is the way back to that package; picking
+    // the row itself stays a no-op.
     const held: DownloadTask = {
       id: 'held-888',
       software: { ...app, version: '3.4.4', externalVersionId: '888' },
@@ -1455,9 +1447,8 @@ describe('ProductDetail download action', () => {
   });
 
   it('drops a carried build when the page moves to another platform', async () => {
-    // The hop's version id names a tvOS package. Asking the same app as iOS
-    // must not keep describing it — the id is a build of the platform you came
-    // from, and the iOS record is the one that answers here.
+    // The hop's version id names a tvOS package; asking the same app as iOS must not
+    // keep describing it — the iOS record is the one that answers here.
     const held: DownloadTask = {
       id: 'held-tvos',
       software: {
@@ -1554,9 +1545,9 @@ describe('ProductDetail download action', () => {
   });
 
   it('lets another account download a build this one already holds', async () => {
-    // A package belongs to the account that fetched it: the same build under a
-    // second account is a package of its own, so the first account's copy
-    // neither marks it here nor keeps the download button out.
+    // A package belongs to the account that fetched it: the same build under a second
+    // account is a package of its own, so the first account's copy neither marks it
+    // here nor keeps the download button out.
     mocks.accounts = [
       account,
       {
@@ -1754,9 +1745,8 @@ describe('ProductDetail download action', () => {
   });
 
   it('does not snap back after an explicit account move misses', async () => {
-    // The user chose to leave: a storefront without the app is the truth to
-    // show, not a mistake to undo — the old snap-back made a single account
-    // inescapable.
+    // The user chose to leave: a storefront without the app is the truth to show, not
+    // a mistake to undo — the old snap-back made a single account inescapable.
     mocks.accounts = [account];
     mocks.lookupApp.mockImplementation((_id: string, c: string) =>
       Promise.resolve(c === 'JP' ? app : null),
@@ -1920,9 +1910,9 @@ describe('ProductDetail download action', () => {
     expect(screen.getByText('search.bareRecordTag')).toBeTruthy();
     expect(screen.getByText('search.bareRecordNote')).toBeTruthy();
 
-    // And the header holds no chip the data cannot fill: a delisted record has
-    // no price, so neither a dash nor a "free" nobody reported stands in for
-    // one. (The details table below still marks its unknown fields with a dash.)
+    // The header holds no chip the data cannot fill: a delisted record has no price,
+    // so neither a dash nor an unreported "free" stands in for one. (The details table
+    // below still dashes its unknown fields.)
     const header = screen.getByRole('heading', { level: 1 }).closest('section');
     expect(header).not.toBeNull();
     expect(within(header as HTMLElement).queryByText('—')).toBeNull();
@@ -1930,9 +1920,9 @@ describe('ProductDetail download action', () => {
   });
 
   it('verifies a package-index record that has no build for this platform', async () => {
-    // An iOS build was downloaded here; this page asks for tvOS, so the record
-    // proves the app exists and nothing more — Apple's answer decides whether
-    // anything is fetchable, and a not-found page would be a lie.
+    // An iOS build was downloaded here but this page asks for tvOS: the record proves
+    // only that the app exists, and Apple's answer decides what is fetchable — a
+    // not-found page would be a lie.
     const localNoTvosBuild = {
       ...app,
       version: '',
@@ -2107,9 +2097,8 @@ describe('ProductDetail download action', () => {
   });
 
   it('does not probe a region that has no account of its own', async () => {
-    // The exchange sends the *account's* storefront, so a foreign account would
-    // both earn "Account Not In This Store" and cache its answer under this
-    // region's key — where the search page reads a settled verdict.
+    // The exchange sends the *account's* storefront, so a foreign account would both
+    // earn "Account Not In This Store" and cache that under this region's key.
     mocks.accounts = [
       { ...account, email: 'jp@example.test', store: '143462', firstName: 'Jp' },
     ];
@@ -2137,9 +2126,9 @@ describe('ProductDetail download action', () => {
   });
 
   it('takes a note from an exchange that is no longer asked off the screen', async () => {
-    // The failure ran while this region had an account of its own. The account
-    // is gone, so nothing is being asked any more — and a line naming a verdict
-    // that a later storefront cannot repeat comes off with it.
+    // The failure ran while this region had its own account; that account is gone, so
+    // nothing is being asked — and a verdict line the current storefront cannot repeat
+    // comes off with it.
     const tree = () => (
       <MemoryRouter
         initialEntries={[
@@ -2170,12 +2159,10 @@ describe('ProductDetail download action', () => {
   });
 
   it('reads the shared version cache once, however often the page re-renders', async () => {
-    // A cached version list makes the probe effect fold the shared cache in.
-    // That read lands in the store this page subscribes to, and the account
-    // store hands out a new array every time an exchange writes its cookies
-    // back — so an unguarded read comes round again on the next render, which
-    // is the request loop the page showed after switching to another
-    // region's account.
+    // A cached version list makes the probe effect fold the shared cache in. That read
+    // lands in a store this page subscribes to, and the account store hands out a new
+    // array whenever an exchange writes its cookies back — so an unguarded read comes
+    // round again next render, the request loop seen after switching region accounts.
     vi.mocked(fetchVersionMetadata).mockResolvedValue({
       '890964826': {
         displayVersion: '9.9.9',
@@ -2216,9 +2203,9 @@ describe('ProductDetail download action', () => {
   });
 
   it('fills the version labels from an account of the page region', async () => {
-    // The silent fill drives the same authenticated exchange as the probe, so
-    // it goes out under a region account too. The selection opened on the first
-    // account here — one that serves another storefront.
+    // The silent fill drives the same authenticated exchange as the probe, so it also
+    // goes out under a region account — here the first account, one serving another
+    // storefront.
     const foreignAccount = {
       ...account,
       email: 'jp@example.test',
@@ -2276,9 +2263,9 @@ describe('ProductDetail download action', () => {
     ];
     renderProductDetailDirect('6503940939');
 
-    // A reload carries no region in its state: the page takes the storefront it
-    // can actually act in, so the region and the account answering for it are
-    // the same pair from the first request.
+    // A reload carries no region in its state: the page takes the storefront it can act
+    // in, so the region and the account answering for it are the same pair from the
+    // first request.
     await waitFor(() =>
       expect(mocks.lookupApp).toHaveBeenCalledWith('6503940939', 'CN', 'ios'),
     );

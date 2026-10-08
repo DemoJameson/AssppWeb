@@ -9,9 +9,8 @@ interface BadgeProps {
     | 'completed'
     | 'failed';
   /**
-   * Overrides the text the status carries by default. `injecting` reads
-   * differently depending on what the package is: an IPA is compiled into,
-   * while a macOS package is decrypted.
+   * Overrides the default status text. `injecting` reads differently per package:
+   * an IPA is compiled into, a macOS package is decrypted.
    */
   label?: string;
 }

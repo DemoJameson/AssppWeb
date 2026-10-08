@@ -1,11 +1,7 @@
 /**
- * Compare two dot-separated version strings numerically.
- * Missing segments are treated as 0 (e.g., "5" == "5.0" == "5.0.0").
- *
- * Returns:
- *   positive if a > b
- *   negative if a < b
- *   0        if a == b
+ * Compare two dot-separated version strings numerically; missing segments count
+ * as 0 ("5" == "5.0" == "5.0.0"). Returns positive if a > b, negative if a < b,
+ * 0 if equal.
  */
 export function compareVersions(a: string, b: string): number {
   const partsA = a.split(".").map((s) => parseInt(s, 10) || 0);

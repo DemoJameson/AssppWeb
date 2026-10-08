@@ -79,9 +79,8 @@ describe("apple/cookies", () => {
     });
 
     it("confines a cookie with no domain to Apple's hosts", () => {
-      // Apple's session cookies arrive without a `Domain` attribute often
-      // enough that they have to be carried across Apple's own hosts — but
-      // nowhere else, or a redirect would hand the session to its target.
+      // Apple's session cookies often arrive without a `Domain` attribute, so they must be
+      // carried across Apple's hosts — nowhere else, or a redirect would hand on the session.
       const cookies = [makeCookie({ name: "myacinfo", value: "session" })];
 
       expect(buildCookieHeader(cookies, "https://buy.itunes.apple.com/")).toContain(

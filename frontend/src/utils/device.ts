@@ -1,11 +1,10 @@
 import type { Platform } from "../types";
 
 /**
- * What the browser can plausibly be installing for, inferred from its user
- * agent. iPhone and iPad share one family (an iPadOS package installs on
- * either); a Mac's eligibility additionally depends on its CPU — see
- * `installDecision` — and everything else is "desktop": none of our web
- * install flow runs there.
+ * What the browser can plausibly install for, inferred from its user agent.
+ * iPhone and iPad share one family (an iPadOS package installs on either); a
+ * Mac's eligibility also depends on its CPU (see `installDecision`); everything
+ * else is "desktop", where none of the web install flow runs.
  */
 export type InstallDeviceFamily =
   | "iphone"
@@ -42,15 +41,15 @@ export function readDeviceSignals(): DeviceSignals {
 }
 
 /**
- * Classify a browser. Order matters: visionOS Safari reports a Macintosh UA,
- * and iPadOS in desktop mode looks like a Macintosh *and* a touch device —
- * both must be caught before the plain-Mac branch.
+ * Classify a browser. Order matters: visionOS Safari reports a Macintosh UA, and
+ * iPadOS in desktop mode looks like a Macintosh *and* a touch device — both must
+ * be caught before the plain-Mac branch.
  */
 export function classifyInstallDevice(signals: DeviceSignals): InstallDevice {
   const { userAgent, platform, maxTouchPoints } = signals;
   const macLike = /\(Macintosh;/.test(userAgent) || platform === "MacIntel";
-  // visionOS: Macintosh UA + WebXR + touch. macOS Safari has no WebXR,
-  // iPadOS has none either, and macOS browsers with WebXR have no touch.
+  // visionOS: Macintosh UA + WebXR + touch. macOS Safari has no WebXR, iPadOS
+  // has neither, and macOS browsers with WebXR have no touch.
   const visionOS = macLike && signals.hasXR && signals.hasTouchEvents;
 
   if (/iPhone|iPod/.test(userAgent)) return { family: "iphone", name: "iPhone" };
@@ -74,12 +73,10 @@ interface NavigatorWithUAData {
 }
 
 /**
- * Best-effort probe for an Apple-silicon Mac. Chromium exposes the CPU through
- * UA client hints; Safari has no such API, so the WebGL renderer stands in
- * ("Apple GPU" / "Apple M…" vs Intel/AMD renderers). Anything short of a
- * positive signal counts as "not confirmed" and the caller falls back to the
- * download route — the machines let through are exactly the ones the probe
- * can recognise.
+ * Best-effort probe for an Apple-silicon Mac. Chromium exposes the CPU via UA
+ * client hints; Safari has none, so the WebGL renderer stands in ("Apple GPU" /
+ * "Apple M…" vs Intel/AMD). Anything short of a positive signal counts as "not
+ * confirmed" and the caller falls back to the download route.
  */
 export async function isAppleSiliconMac(): Promise<boolean> {
   try {
@@ -115,10 +112,9 @@ export type InstallDecision =
 /**
  * Whether this browser may hand the package to its OS. iPhone/iPad take
  * iOS/iPadOS packages; a Vision Pro takes visionOS; an Apple-silicon Mac takes
- * iOS/iPadOS (those Macs can install them, and only when the silicon probe
- * confirms — otherwise the download route is the honest answer). A tvOS
- * package has no browser anywhere (Apple TV carries none), and any other
- * mismatch gets a next-step hint instead of a hop into a broken install.
+ * iOS/iPadOS (only when the silicon probe confirms). A tvOS package has no
+ * browser anywhere (Apple TV carries none), and any other mismatch gets a
+ * next-step hint instead of a hop into a broken install.
  */
 export function installDecision(
   device: InstallDevice,

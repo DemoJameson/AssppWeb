@@ -4,12 +4,9 @@ import type { Account } from "../types";
 
 /**
  * The download list's own key for each account, by email. A package is filed
- * under the digest of the account that fetched it, so everything that asks what
- * one account already holds needs that account's hash — and the digest is only
- * ever agreed asynchronously (`utils/account.accountHash`).
- *
- * Empty until the digests are ready; an account the map does not name holds
- * nothing yet (see `utils/downloaded`).
+ * under the account's digest, which is only agreed asynchronously
+ * (`utils/account.accountHash`). Empty until the digests are ready; an account
+ * the map does not name holds nothing yet (see `utils/downloaded`).
  */
 /** Whether two digest maps name the same accounts with the same digests. */
 function sameHashes(
@@ -35,11 +32,9 @@ export function useAccountHashes(accounts: Account[]): Record<string, string> {
         ),
       );
       if (cancelled) return;
-      // The same digests make the same map: the account store hands over a new
-      // array every time a session writes fresh cookies back — during a version
-      // fill that is once per build — and a new map each time would re-render
-      // the page for nothing (see AGENTS.md on the read → write → re-render
-      // loop).
+      // Same digests make the same map: the account store hands over a new array
+      // on every cookie write-back (once per build during a version fill), and a
+      // new map would re-render the page for nothing (see AGENTS.md).
       const next = Object.fromEntries(pairs);
       setByEmail((previous) => (sameHashes(previous, next) ? previous : next));
     })();

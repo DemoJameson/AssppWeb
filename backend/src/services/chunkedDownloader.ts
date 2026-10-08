@@ -63,10 +63,8 @@ export function removePartFiles(destPath: string): void {
   }
 }
 
-/**
- * Multi-threaded HTTP downloader using Range requests.
- * Falls back to single-stream when the server doesn't support Range.
- */
+/** Multi-threaded HTTP downloader using Range requests; falls back to
+ * single-stream when the server does not support Range. */
 export class ChunkedDownloader {
   private readonly url: string;
   private readonly destPath: string;
@@ -135,8 +133,8 @@ export class ChunkedDownloader {
     const partPath = `${this.destPath}.part${chunk.index}`;
     const expectedBytes = chunk.end - chunk.start + 1;
 
-    // A pause leaves completed .part files behind; a chunk that is already
-    // fully on disk is skipped, which is what makes resume a resume.
+    // A pause leaves completed .part files behind; skipping an already complete
+    // chunk is what makes resume work.
     try {
       if (
         fs.existsSync(partPath) &&
@@ -223,9 +221,8 @@ export class ChunkedDownloader {
     const ws = fs.createWriteStream(this.destPath);
     for (let i = 0; i < chunkCount; i++) {
       const partPath = `${this.destPath}.part${i}`;
-      // A chunk that answered with nothing at all leaves no file behind, and
-      // reading it would fail with an ENOENT from inside the stream machinery —
-      // a reason that says nothing about what went wrong.
+      // A chunk that answered with nothing leaves no file behind; reading it
+      // would fail with a misleading ENOENT from inside the stream machinery.
       if (!fs.existsSync(partPath)) {
         ws.destroy();
         throw new Error(`chunk ${i} of ${chunkCount} produced no data`);
@@ -244,15 +241,10 @@ export class ChunkedDownloader {
   }
 
   /**
-   * Refuses a transfer that did not produce the whole file.
-   *
-   * Nothing else catches this. A chunk that answers with fewer bytes than the
-   * range asked for ends its stream normally, so the part file is written,
-   * `pipeline` resolves and the merge succeeds — the package would simply be
-   * short, and a truncated IPA fails later as a package that cannot be read.
-   * `Apple`'s own `content-length` from the HEAD is the size every part was
-   * cut against, so it is what the assembled file has to match. A file that
-   * does not is removed rather than left where a retry could resume from it.
+   * Refuses a transfer that did not produce the whole file. A short chunk ends
+   * its stream normally, so nothing else catches it — only the HEAD's
+   * content-length can tell a whole file from a truncated IPA. A mismatch is
+   * removed rather than left where a retry could resume from it.
    */
   private async assertComplete(): Promise<void> {
     if (this.totalSize <= 0) return;
@@ -356,17 +348,14 @@ export class ChunkedDownloader {
       clearInterval(progressInterval);
     }
 
-    // A stream that ends early ends *cleanly* here too, so the length Apple
-    // announced is the only thing that can tell a whole file from a short one.
+    // A stream that ends early ends cleanly here too, so the length Apple
+    // announced is the only completeness check.
     await this.assertComplete();
     this.onProgress?.({ downloaded, total: this.totalSize, speed: "0 B/s" });
   }
 
-  /**
-   * Execute the download.
-   * Probes for Range support, then either downloads in parallel chunks
-   * or falls back to single-stream.
-   */
+  /** Probes for Range support, then downloads in parallel chunks or falls
+   * back to single-stream. */
   async download(signal: AbortSignal): Promise<void> {
     let supportsRange = false;
     let contentLength = 0;
@@ -441,9 +430,8 @@ export class ChunkedDownloader {
       });
     } catch (err) {
       clearInterval(progressInterval);
-      // An abort() already made its keep-or-clean decision (pause keeps the
-      // parts for resume; delete/timeout cleaned them), so only a genuine
-      // failure cleans up here.
+      // An abort() already made its keep-or-clean decision (pause keeps the parts
+      // for resume; delete/timeout cleaned them), so only a genuine failure does.
       if (!this.aborted) {
         this.cleanPartFiles(chunks.length);
       }
@@ -452,9 +440,9 @@ export class ChunkedDownloader {
   }
 
   /**
-   * Abort all active connections. `keepParts` leaves completed `.part` files
-   * on disk so a subsequent download of the same destination can skip the
-   * chunks it already holds — this is what pause/resume rides on.
+   * Abort all active connections. `keepParts` leaves completed `.part` files on
+   * disk so a later download can skip the chunks it already holds — what
+   * pause/resume rides on.
    */
   abort(keepParts = false): void {
     this.aborted = true;

@@ -7,9 +7,8 @@ import { getAccountContext } from "../../utils/toast";
 import type { DownloadTask } from "../../types";
 
 /**
- * Invisible component mounted at App root.
- * Monitors background download tasks and pushes toast notifications
- * when a task transitions to completed or failed.
+ * Invisible component at App root that pushes toast notifications when a
+ * background download task transitions to completed or failed.
  */
 export default function GlobalDownloadNotifier() {
   const { tasks, hashToEmail } = useDownloads();

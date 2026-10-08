@@ -1,7 +1,6 @@
-// SAP signer: sequences the emulated CommerceKit entry points through the
-// Apple setup key exchange and per-request signing. The machine driver can be
-// the in-process SapMachine (tests) or a Web Worker proxy (production); setup
-// network calls run on the caller's thread so they ride the wisp tunnel.
+// SAP signer: sequences the emulated CommerceKit entry points through the Apple
+// setup key exchange and per-request signing. The driver is the in-process
+// SapMachine (tests) or a worker proxy; setup calls run on the caller's thread.
 
 import {
   validateSapSignerOptions,

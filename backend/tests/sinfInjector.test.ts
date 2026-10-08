@@ -355,10 +355,9 @@ describe("sinfInjector icon extraction", () => {
   });
 
   it("should not mistake an alternate icon for the app icon", async () => {
-    // One shipping app registers hundreds of theme icons as `CFBundleIconFiles`
-    // under `CFBundleAlternateIcons`, naming the files after numbers. Treating
-    // those as declarations would let any numbered resource image pass for the
-    // icon, which is exactly the wrong answer.
+    // One shipping app registers hundreds of theme icons as `CFBundleIconFiles` under
+    // `CFBundleAlternateIcons`, named after numbers. Treating those as declarations
+    // would let any numbered resource image pass for the icon — exactly the wrong answer.
     const ipaPath = createMockIPA("AlternateIconApp", {
       icons: ["176.png", "185.png"],
       alternateIcons: ["176", "185"],
@@ -370,9 +369,9 @@ describe("sinfInjector icon extraction", () => {
   });
 
   it("should not guess from a resource image that merely mentions an icon", async () => {
-    // The icon lives in Assets.car for this shape of bundle, and the root is
-    // full of unrelated art. Nothing here is the app icon, and a wrong icon is
-    // worse than none: the caller still has the storefront's.
+    // The icon lives in Assets.car for this bundle shape and the root is full of unrelated
+    // art. Nothing here is the app icon, and a wrong icon is worse than none — the caller
+    // still has the storefront's.
     const ipaPath = createMockIPA("CatalogueOnlyApp", {
       icons: ["cm6_playpage_live_icon.png", "cm8_homepage_live_icon@2x.png"],
     });

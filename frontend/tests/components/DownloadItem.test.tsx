@@ -363,10 +363,9 @@ describe('DownloadItem information tiles', () => {
   }
 
   it('names the build first and closes with whose download it is', () => {
-    // What the app is and what it takes to run it (App ID, Bundle ID, minimum
-    // OS, size), then the build itself (version with its id, release date),
-    // then the two facts that tell two downloads of one build apart — whose it
-    // is, and when it arrived.
+    // What the app is and what it takes to run it (App ID, Bundle ID, minimum OS, size),
+    // then the build itself (version with its id, release date), then the two facts that
+    // tell two downloads of one build apart — whose it is, and when it arrived.
     const { container } = renderItem(createTask());
 
     expect(Object.keys(tiles(container))).toEqual([
@@ -456,9 +455,8 @@ describe('DownloadItem processing badge', () => {
   afterEach(cleanup);
 
   it('says a macOS package is being decrypted, not injected', () => {
-    // The phase after the transfer is decryption for a Mac package, and the
-    // row is at the download's 100% while it runs: the badge is what says the
-    // task is still working rather than stuck.
+    // For a Mac package the phase after the transfer is decryption, and the row sits at 100%
+    // while it runs: the badge says the task is still working, not stuck.
     renderItem(
       createTask({
         status: 'injecting',

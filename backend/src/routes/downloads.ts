@@ -99,11 +99,9 @@ router.post("/downloads", async (req: Request, res: Response) => {
     return;
   }
 
-  // These arrive straight off the wire and are used well below the point where a
-  // mistake would be obvious: `sinfs` is indexed and base64-decoded inside the
-  // injector, and `software.name` is turned into a file name. A wrong type here
-  // would surface as a `TypeError` inside a running download, so it is refused
-  // at the boundary where the caller can still be told what was wrong.
+  // These arrive off the wire and are used far below where a mistake would be
+  // obvious (`sinfs` is indexed and base64-decoded in the injector; `software.name`
+  // becomes a file name), so wrong types are refused here at the boundary.
   if (
     !Array.isArray(sinfs) ||
     sinfs.some(
@@ -136,8 +134,8 @@ router.post("/downloads", async (req: Request, res: Response) => {
     }
   }
 
-  // The app id is the one piece of software metadata a download cannot work
-  // without: Apple is asked for it and it names the package directory.
+  // The app id is required: Apple is asked for it and it names the package
+  // directory.
   if (!Number.isInteger(software.id) || software.id <= 0) {
     res.status(400).json({
       error: "Invalid software.id: a positive app id is required",
@@ -278,9 +276,8 @@ router.get("/downloads/:id/progress", (req: Request, res: Response) => {
 });
 
 // The icon lifted out of the compiled package (requires accountHash). A task
-// created from a bare app id has no storefront artwork, so this is the only
-// place its icon can come from. Missing files 404 so the caller can fall back
-// to its own placeholder.
+// from a bare app id has no storefront artwork, so this is its only icon source;
+// missing files 404 so the caller can fall back to its own placeholder.
 router.get("/downloads/:id/icon", (req: Request, res: Response) => {
   const accountHash = requireAccountHash(req, res);
   if (!accountHash) return;
@@ -304,9 +301,8 @@ router.get("/downloads/:id/icon", (req: Request, res: Response) => {
     "Content-Type",
     iconPath.endsWith(".jpg") ? "image/jpeg" : "image/png",
   );
-  // Revalidate rather than serve a stored copy blind: a browser that cached an
-  // icon from an older pipeline would otherwise keep the version it cannot
-  // decode. The file is a few kilobytes and revalidation mostly answers 304.
+  // Revalidate rather than cache blind: a browser holding an icon from an older
+  // pipeline must not keep a version it cannot decode.
   res.setHeader("Cache-Control", "private, no-cache");
   res.sendFile(path.resolve(iconPath));
 });

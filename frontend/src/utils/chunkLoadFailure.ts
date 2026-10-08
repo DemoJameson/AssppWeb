@@ -1,18 +1,8 @@
-/**
- * Recognising a failed dynamic `import()`.
- *
- * Lives in its own module because two places need the same answer and must
- * never disagree: `lazyWithRetry` uses it to decide whether a reload is worth
- * attempting, and `AppErrorBoundary` uses it to decide whether offering a
- * "try again" button would be honest. A boundary that disagreed with the retry
- * logic would either show a dead button or hide the only action that works.
- *
- * The match is deliberately narrow. A bare `/failed to fetch/i` would also
- * catch the app's own `fetch()` failures — `appleRequest` rejects with a
- * TypeError carrying exactly that wording — and reloading the page because a
- * request to Apple failed would discard the user's in-flight downloads for no
- * reason. Only the messages the browser produces for a module script that never
- * arrived count.
+/** Recognising a failed dynamic `import()`, shared by `lazyWithRetry` (whether to
+ * reload) and `AppErrorBoundary` (whether "try again" would be honest), so the two
+ * must never disagree. The match is deliberately narrow: a bare `/failed to fetch/i`
+ * would also catch `appleRequest`'s TypeError and reload away the user's in-flight
+ * downloads.
  */
 
 /** V8/Chromium wording for a module script that failed to load. */

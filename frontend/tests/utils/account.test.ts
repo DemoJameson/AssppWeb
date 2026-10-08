@@ -69,9 +69,8 @@ describe("accountHardwareId", () => {
   });
 
   it("refuses an id that is not hex", () => {
-    // An imported serial number cannot be the hardware id a macOS package is
-    // decrypted with, and the caller has to say so before fetching a package
-    // nothing could open.
+    // An imported serial number cannot be the hardware id a macOS package is decrypted
+    // with, and the caller must say so before fetching a package nothing could open.
     expect(accountHardwareId({ ...account, deviceIdentifier: "C02XK1AB" })).toBeUndefined();
     expect(accountHardwareId({ ...account, deviceIdentifier: "" })).toBeUndefined();
     expect(accountHardwareId({ ...account, deviceIdentifier: "abc" })).toBeUndefined();

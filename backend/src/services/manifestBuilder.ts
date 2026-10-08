@@ -60,8 +60,7 @@ function escapeXml(str: string): string {
     .replace(/'/g, "&apos;");
 }
 
-// Minimal valid 1x1 white PNG (hardcoded)
-// This is the smallest valid PNG: 8-byte signature + IHDR + IDAT + IEND
+// Minimal valid 1x1 white PNG: 8-byte signature + IHDR + IDAT + IEND.
 const MINIMAL_WHITE_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12P4////DwAJBgMBMHREuwAAAABJRU5ErkJggg==",
   "base64",

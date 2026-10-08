@@ -1,16 +1,11 @@
 import zlib from "zlib";
 
 /**
- * Apple repacks iOS app icons with `pngcrush -iphone`, which produces a PNG
- * flavour the rest of the world calls CgBI. Compared with a standard PNG:
- *
- * - a `CgBI` chunk sits between the signature and IHDR,
- * - IDAT holds a **raw** deflate stream (no zlib header, no Adler-32),
- * - pixels are **BGRA with premultiplied alpha** rather than RGBA.
- *
- * Safari reads them; Chrome, Firefox and Node do not, so an icon served
- * untouched simply fails to decode and the UI falls back to a placeholder. This
- * module turns one back into an ordinary PNG.
+ * Rewrites Apple's CgBI icons into ordinary PNGs. CgBI (from `pngcrush
+ * -iphone`) puts a `CgBI` chunk before IHDR, stores a raw deflate IDAT with no
+ * zlib header/Adler-32, and keeps pixels as BGRA premultiplied. Chrome,
+ * Firefox and Node cannot decode it, so an untouched icon fails and the UI
+ * falls back to a placeholder.
  */
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -21,8 +16,7 @@ const PASSTHROUGH_CHUNKS = new Set(["gAMA", "cHRM", "sRGB", "pHYs"]);
 /**
  * Cap on the decompressed IDAT. Icons are at most a few MiB; a hostile entry can
  * declare anything, and inflating a tiny idat into it must not balloon memory.
- * Capping the output also bounds the pixel buffer `decodeRows` allocates, since
- * that is sized from the same width/height (via a lower-bound check).
+ * It also bounds the pixel buffer `decodeRows` allocates from the same w/h.
  */
 const MAX_INFLATE_OUTPUT = 32 * 1024 * 1024;
 
@@ -36,8 +30,8 @@ export function isCgbiPng(data: Buffer): boolean {
 
 /**
  * Rewrites a CgBI PNG as a standard one. Returns null when the input is not
- * CgBI, or is a shape this does not handle (only 8-bit truecolour is produced
- * by Apple's packer, and interlaced data is not worth supporting).
+ * CgBI, or is a shape this does not handle (only 8-bit truecolour,
+ * non-interlaced is produced by Apple's packer).
  */
 export function convertCgbiToPng(data: Buffer): Buffer | null {
   if (!isCgbiPng(data)) return null;
@@ -91,8 +85,8 @@ export function convertCgbiToPng(data: Buffer): Buffer | null {
 }
 
 /**
- * Re-emits the pixels with the per-row filter byte a standard PNG expects. Every
- * row is written unfiltered, which is what makes this the easy direction.
+ * Re-emits the pixels with the per-row filter byte a standard PNG expects; every
+ * row is written unfiltered, which makes this the easy direction.
  */
 function encodeRows(pixels: Buffer, stride: number, height: number): Buffer {
   const out = Buffer.alloc((stride + 1) * height);
@@ -131,7 +125,7 @@ function readChunks(data: Buffer): PngChunk[] | null {
 }
 
 /**
- * Reverses the per-scanline filters, which CgBI keeps as they are. The result is
+ * Reverses the per-scanline filters (which CgBI keeps as they are), returning
  * the raw pixel buffer the rest of the conversion works on.
  */
 function decodeRows(

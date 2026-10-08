@@ -70,9 +70,8 @@ describe("downloads store polling", () => {
   });
 
   afterEach(async () => {
-    // The poll is started by a list that holds an active task and stopped by one
-    // that does not, so answering with a settled list ends it — otherwise the
-    // interval outlives the test and the next one starts from a live store.
+    // The poll starts with a list holding an active task and stops with one that does not, so
+    // answering with a settled list ends it — otherwise the interval outlives the test.
     fetchDownloads.mockResolvedValue([task("settled", "completed")]);
     await useDownloadsStore.getState().fetchTasks();
     vi.useRealTimers();
@@ -90,9 +89,8 @@ describe("downloads store polling", () => {
   });
 
   it("does not let the poll abort the read it is still waiting on", async () => {
-    // The regression: with a response slower than the interval, every tick
-    // aborted the tick before it, no answer was ever taken, and the list sat
-    // behind a spinner that never cleared.
+    // The regression: a response slower than the interval made every tick abort the one
+    // before it, so no answer was taken and the list sat behind a spinner that never cleared.
     useDownloadsStore.getState().setAccountHashes(["account-hash-123"]);
     const read = deferredRead();
 

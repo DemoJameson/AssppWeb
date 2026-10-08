@@ -29,32 +29,26 @@ export async function authenticate(
   let storeFront = "";
   let lastError: Error | null = null;
 
-  // A sign-in goes to the storefront endpoint the bag advertises. fetchBag
-  // answers with Apple's native endpoint whenever the bag cannot be read, so
-  // there is always one to call.
+  // Sign-in goes to the storefront endpoint the bag advertises; fetchBag falls
+  // back to Apple's native endpoint, so there is always one to call.
   const bag = await fetchBag(deviceId);
   const bagEndpoint = new URL(bag.authURL);
   bagEndpoint.searchParams.set("guid", deviceId);
   let requestHost = bagEndpoint.hostname;
   let requestPath = `${bagEndpoint.pathname}${bagEndpoint.search}`;
 
-  // Apple answers sign-ins on two equivalent endpoints: the storefront one
-  // above, and the native one. They do not fail together — measured from one
-  // network, the storefront host's address pool went silent for minutes at a
-  // time while the native endpoint answered every request — so a request that
-  // never reached Apple is worth repeating on the other one before the sign-in
-  // is called off.
+  // Apple answers sign-ins on two equivalent endpoints (storefront and native)
+  // that do not fail together, so a request that never reached Apple is retried
+  // on the other before the sign-in is called off.
   const altAuthEndpoint = new URL(defaultAuthURL);
   altAuthEndpoint.searchParams.set("guid", deviceId);
   let triedAltEndpoint =
     altAuthEndpoint.hostname === bagEndpoint.hostname &&
     altAuthEndpoint.pathname === bagEndpoint.pathname;
 
-  // When the bag advertises the SAP signing protocol, every request to the
-  // auth endpoint must carry X-Apple-ActionSignature over its body bytes.
-  // The signer sees only the hardware ID and public Apple assets — never the
-  // password — because signing happens here in the browser. It is kept as a
-  // singleton between attempts (2FA retries reuse the same session).
+  // When the bag advertises SAP signing, every auth request must carry
+  // X-Apple-ActionSignature over its body. The signer sees only the hardware ID
+  // and public assets — never the password. Singleton so 2FA retries reuse it.
   let sapSigner = null as Awaited<ReturnType<typeof prepareSigner>> | null;
   if (bag.sapEndpoints) {
     sapSigner = await prepareSigner(deviceId, bag.sapEndpoints);
@@ -121,25 +115,22 @@ export async function authenticate(
       const podHeader = response.headers["pod"];
       const pod = podHeader || undefined;
 
-      // Handle redirect. The native /fast auth host can answer with 301 as
-      // well as the usual 302, so the set covers the statuses that mean "a pod
-      // answered — replay the signed POST there". 303 is deliberately not one
-      // of them: it asks for a GET, so re-posting the sign-in would not be the
-      // request Apple described (ipatool's `IsAuthenticationRedirect`).
+      // Handle redirect. 301/302/307/308 mean "a pod answered — replay the
+      // signed POST there"; 303 is excluded because it asks for a GET
+      // (ipatool's `IsAuthenticationRedirect`).
       if ([301, 302, 307, 308].includes(response.status)) {
         const location = response.headers["location"];
         if (!location) {
           throw new Error(i18n.t("errors.auth.redirectLocation"));
         }
         const url = new URL(location);
-        // The retry below carries the session cookies to whatever host the
-        // Location names, so a hop off Apple's own domains is refused rather
-        // than followed with the account's cookies in hand.
+        // The retry carries session cookies to whatever host Location names, so
+        // a hop off Apple's domains is refused rather than followed with them.
         if (!isAppleHost(url.hostname)) {
           throw new Error(i18n.t("errors.auth.redirectHost"));
         }
-        // A pod hands back the same sign-in endpoint the bag did, and it wants
-        // the same trailing slash, so the hop goes through the normalizer too.
+        // A pod hands back the same sign-in endpoint (same trailing slash), so
+        // the hop goes through the normalizer too.
         const target = new URL(normalizeAuthURL(url.toString()));
         requestHost = target.hostname;
         requestPath = `${target.pathname}${target.search}`;
@@ -157,9 +148,8 @@ export async function authenticate(
 
       const dict = parsePlist(response.body) as Record<string, any>;
 
-      // Check for 2FA requirement. Apple answers with the same message both
-      // when it wants a code and when it refused the one it was sent — only
-      // whether the caller supplied one tells the two apart.
+      // Check for 2FA requirement. Apple answers the same whether it wants a
+      // code or refused one — only whether the caller supplied one differs.
       if (
         dict.failureType === "" &&
         dict.customerMessage === "MZFinance.BadLogin.Configurator_message"
@@ -210,10 +200,9 @@ export async function authenticate(
         throw e;
       }
       lastError = e instanceof Error ? e : new Error(String(e));
-      // Only a request that never reached Apple is worth repeating somewhere
-      // else — Apple refusing the sign-in answers with a response, not an
-      // error. Keeping the try count means the other endpoint gets the same
-      // two tries this one had.
+      // Only a request that never reached Apple is worth retrying elsewhere —
+      // a refusal answers with a response, not an error. Keeping the try count
+      // gives the other endpoint the same two tries.
       if (!triedAltEndpoint && e instanceof AppleUnreachableError) {
         triedAltEndpoint = true;
         requestHost = altAuthEndpoint.hostname;

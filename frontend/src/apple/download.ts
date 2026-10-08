@@ -36,13 +36,9 @@ export async function getDownloadInfo(
 }
 
 /**
- * Failure handling of the resolved reply, mirroring ipatool's `Download`.
- * Order matters: a session-level failure type is reported before Apple's own
- * message, which in turn is preferred over the raw failure type.
- *
- * `5002` is grouped with the password-token failures here (ipatool's
- * `Download` does the same) — it is a real answer from the endpoint, not a
- * signal to try another host.
+ * Failure handling of the resolved reply, mirroring ipatool's `Download`. Order
+ * matters: session-level failure type, then Apple's message, then the raw failure
+ * type. `5002` counts as a password-token failure (a real answer, not "try another host").
  */
 function assertDownloadReply(reply: DownloadReply): void {
   const failureType = failureTypeOf(reply);
@@ -91,13 +87,9 @@ async function interpretReply(
     throw new DownloadError(i18n.t("errors.download.missingUrl"));
   }
 
-  // A macOS package is never what another platform asked for. Which build Apple
-  // serves is decided by the version pin — and that pin may have been *guessed*
-  // (see `versionFinder`, which probes the newest iOS version id's neighbours) —
-  // so refusing a `.pkg` in the reply is what keeps a tvOS/visionOS/iOS request
-  // from turning into a download the IPA pipeline cannot use. The backend
-  // repeats this check; here it can also say so in the user's language, before a
-  // task exists at all.
+  // A macOS package is never what another platform asked for, and the pin may have
+  // been guessed (see `versionFinder`), so refusing a `.pkg` keeps a tvOS/visionOS/iOS
+  // request from an IPA-incompatible download (the backend repeats this check).
   if (
     session.app.platform !== "macos" &&
     /\.pkg$/i.test(url.split(/[?#]/)[0])
@@ -117,11 +109,9 @@ async function interpretReply(
   }
 
   const sinfs: Sinf[] = [];
-  // A macOS download is decrypted rather than injected, so Apple sends the key
-  // material for it here instead of a sinf to replicate — and, for a Mac
-  // package, sometimes with no `sinf` in the entry at all. Two different values
-  // would mean the reply describes two builds, and neither can be trusted to
-  // decrypt the package that arrives; ipatool refuses that too.
+  // A macOS download is decrypted, so Apple sends key material (dpInfo) instead of
+  // a sinf to replicate. Conflicting dpInfo values would mean the reply describes
+  // two builds, neither trusted to decrypt the arriving package; ipatool refuses that too.
   let dpInfo: string | undefined;
   const sinfData = item.sinfs as Record<string, any>[] | undefined;
   if (sinfData) {
@@ -156,7 +146,6 @@ async function interpretReply(
     throw new DownloadError(i18n.t("errors.download.noSinf"));
   }
 
-  // Build iTunesMetadata plist
   const metadataDict: Record<string, any> = { ...metadata };
   metadataDict["apple-id"] = session.account.email;
   metadataDict["userName"] = session.account.email;
@@ -191,9 +180,8 @@ async function interpretReply(
 }
 
 /**
- * The reply is the only thing that identifies what happened, so name the
- * endpoint, status and content type alongside Apple's answer, and log the whole
- * response for the console — with credentials redacted first.
+ * Names the endpoint, status and content type alongside Apple's answer, and logs
+ * the whole reply to the console — credentials redacted first.
  */
 function unexpectedReply(reply: DownloadReply): string {
   const headers: Record<string, string> = {};
@@ -222,10 +210,8 @@ function base64FromString(value: string): string {
 }
 
 /**
- * Reads what our plist parser made of a `<data>` field: bytes, which is what a
- * binary plist yields, or the string Apple already encoded. Anything else is
- * not a value this pipeline can carry, and the caller decides what to say
- * about it.
+ * Reads a `<data>` field from the plist parser: bytes (binary plist) or the
+ * string Apple already encoded; anything else is undefined for the caller to handle.
  */
 function base64FromField(value: unknown): string | undefined {
   if (value instanceof Uint8Array) return base64FromBytes(value);

@@ -40,9 +40,8 @@ describe("useAccountHashes", () => {
   });
 
   it("keeps the same map when a fresh array carries the same accounts", async () => {
-    // The account store hands over a new array every time a session writes its
-    // cookies back. Refreshing the map then would re-render the page for
-    // nothing — the page is the one that wrote the cookies.
+    // The account store hands over a new array whenever a session writes its cookies back;
+    // refreshing the map then would re-render the page for nothing — the page wrote them.
     const { result, rerender } = renderHook(
       ({ accounts }: { accounts: Account[] }) => useAccountHashes(accounts),
       { initialProps: { accounts: [account] } },

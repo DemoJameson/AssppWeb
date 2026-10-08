@@ -1,7 +1,6 @@
-// SAP asset routes: status/prepare for the extraction job and authenticated
-// downloads of the four cached Apple binaries. The files are public Apple
-// content (extracted from a public software update package, digest-pinned),
-// placing them in the same trust class as the bag proxy.
+// SAP asset routes: status/prepare for the extraction job and downloads of the
+// four cached Apple binaries — public content, digest-pinned, same trust class
+// as the bag proxy.
 
 import { Router, Request, Response } from "express";
 import zlib from "node:zlib";
@@ -60,8 +59,7 @@ router.get("/sap-assets/:name", async (req: Request, res: Response) => {
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader("ETag", `"${spec.strippedSha256}"`);
   res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
-  // gzip cuts the ~22.5 MiB bundle to ~14 MiB on the wire (CoreFP's obfuscated
-  // __TEXT compresses at ~50%, the icxs data blob at ~13% of its size).
+  // gzip cuts the ~22.5 MiB bundle to ~14 MiB on the wire.
   if (req.headers["accept-encoding"]?.includes("gzip") && data.length > 65536) {
     res.setHeader("Content-Encoding", "gzip");
     res.setHeader("Vary", "Accept-Encoding");

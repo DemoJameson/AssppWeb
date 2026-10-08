@@ -38,9 +38,8 @@ describe("packageAppStore", () => {
   });
 
   afterAll(async () => {
-    // Close the DB handle so the WAL files settle. The temp directory is left
-    // for the OS to reap — on Windows the SQLite WAL files can stay locked
-    // briefly after close, and `fs.rmSync` would EPERM.
+    // Close the DB handle so the WAL files settle; the temp directory is left for the OS
+    // to reap — on Windows the WAL files can stay locked, and `fs.rmSync` would EPERM.
     const { closeDb } = await import("../src/services/db.js");
     closeDb();
   });
@@ -105,9 +104,8 @@ describe("packageAppStore", () => {
   });
 
   it("records the build's size and release date, per platform", () => {
-    // The two details a delisted app's detail page can only get from its own
-    // package: how big that build is on disk, and when it was released. Both
-    // belong to the build, like its version and minimum OS.
+    // The two details a delisted app's detail page can only get from its own package: the
+    // build's on-disk size and release date — both belong to the build, like its version.
     store.rememberPackageApp(
       software({
         platform: "tvos",
@@ -164,9 +162,8 @@ describe("packageAppStore", () => {
   });
 
   it("skips the rewrite when a fresh read carries nothing new", () => {
-    // SQLite writes are immediate; the no-op is observed via the DB row staying
-    // the same. A second remember with no changed fields must not throw and the
-    // record must be unchanged.
+    // SQLite writes are immediate; the no-op is observed via the DB row staying the same.
+    // A second remember with no changed fields must not throw and must leave the record unchanged.
     store.rememberPackageApp(software());
     const before = store.findPackageAppByAppId(6503940939);
     store.rememberPackageApp(software());

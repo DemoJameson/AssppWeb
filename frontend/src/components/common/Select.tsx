@@ -15,10 +15,8 @@ export interface SelectOption {
   /** Optional section header rendered above the first option of each group. */
   group?: string;
   /**
-   * A control rendered at the row's end, beside the label — a clickable mark
-   * (e.g. a 已下载 chip) that belongs to the row but must not pick the option.
-   * The row stops the propagation of a click inside it, so the trigger keeps
-   * the selection; the trigger button still shows the plain `label`.
+   * A control at the row's end (e.g. a clickable 已下载 chip) that must not pick
+   * the option; the trigger still shows the plain `label`.
    */
   trailing?: ReactNode;
 }
@@ -39,14 +37,9 @@ interface SelectProps {
 }
 
 /**
- * The app's dropdown: a styled popover standing in for the native <select>,
- * so the menu follows the app's design instead of the OS. The trigger keeps
- * the combobox role — assistive tech (and the test suite) treat it like the
- * control it replaces — and the full keyboard pattern works on it: Enter/
- * Space or ArrowDown/ArrowUp opens the menu, Arrow keys move the highlight
- * (Home/End jump to the ends), Enter picks, Escape or an outside click closes
- * and returns focus. The menu inherits the trigger's computed font size so
- * list and field always read at the same size.
+ * The app's dropdown: a styled popover in place of the native <select>. The
+ * trigger keeps the combobox role and the full keyboard pattern (arrows,
+ * Home/End, Enter, Escape). The menu inherits the trigger's computed font size.
  */
 export default function Select({
   value,
@@ -101,10 +94,8 @@ export default function Select({
 
   function openMenu(preferLast: boolean) {
     let index = options.findIndex((option) => option.value === value);
-    // Nothing matches the value (an empty selection): leave the list
-    // unhighlighted so no option wears the focus tint before the user points
-    // at one. ArrowUp still opens at the last option, and the first arrow key
-    // picks up from the right end.
+    // Nothing matches the value (empty selection): leave the list unhighlighted.
+    // ArrowUp still opens at the last option.
     if (index < 0) index = preferLast ? options.length - 1 : -1;
     setActiveIndex(index);
     // The menu mirrors the trigger's real rendered font size.
@@ -263,9 +254,8 @@ export default function Select({
                         }`
                   } ${option.disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
                 >
-                  {/* The dimming sits on the label alone: a parent opacity
-                      cannot be undone inside, and the trailing mark (e.g. a
-                      clickable 已下载) must stay fully readable. */}
+                  {/* Dimming sits on the label alone — a parent opacity cannot
+                      be undone, and the trailing mark must stay readable. */}
                   <span
                     className={`min-w-0 flex-1 truncate ${
                       option.disabled ? "opacity-50" : ""
@@ -273,8 +263,7 @@ export default function Select({
                   >
                     {option.label}
                   </span>
-                  {/* A click inside the trailing control must stay with it —
-                      the row's own pick is not what the user aimed at. */}
+                  {/* A click in the trailing control must not pick the row. */}
                   {option.trailing ? (
                     <span
                       className="shrink-0"

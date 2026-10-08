@@ -3,9 +3,8 @@ import { createHash } from "crypto";
 import { timingSafeEqual } from "crypto";
 
 /**
- * Local-dev fallback for the build info below: when BUILD_COMMIT/BUILD_DATE
- * are not injected (plain `npm run dev`), identify the checked-out revision so
- * local builds identify themselves. Containers have no .git, so this quietly
+ * Local-dev fallback for the build info: when BUILD_COMMIT/BUILD_DATE are not
+ * injected, identify the checked-out revision. Containers have no .git, so this
  * yields an empty result and the caller falls back to "unknown".
  */
 let gitRevision: { commit: string; date: string } | null = null;
@@ -31,19 +30,16 @@ const publicBaseUrls = parsePublicBaseUrls(process.env.PUBLIC_BASE_URL);
 export const config = {
   port: parseInt(process.env.PORT || "8080"),
   dataDir: process.env.DATA_DIR || "./data",
-  // Public origins install links may be built from, most preferred first. The
-  // first entry answers for any request whose host is not itself listed.
-  // Not reported through `/api/settings` — the deployment's own addresses are
-  // nobody else's business, and nothing in the UI needs them.
+  // Public origins install links may be built from, most preferred first; the
+  // first answers for any host not itself listed. Not reported through
+  // `/api/settings` — the deployment's own addresses are nobody else's business.
   publicBaseUrls,
   disableHttpsRedirect:
     process.env.UNSAFE_DANGEROUSLY_DISABLE_HTTPS_REDIRECT === "true",
   // Express's `trust proxy`, off by default. Behind a reverse proxy the socket
   // address is the proxy's, so every client shares one rate-limit bucket; set
-  // this to the proxy's address (a hop count, `loopback`, or a subnet list) to
-  // key the limiter by the client the proxy reports instead. Off by default
-  // because a client can forge `X-Forwarded-For` when nothing trustworthy sits
-  // in front, which is the one case it must not be trusted.
+  // this to key the limiter by the reported client instead. Off by default
+  // because `X-Forwarded-For` is forgeable when nothing trustworthy sits in front.
   trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   // Auto-cleanup: 0 disables
   autoCleanupDays: parseInt(process.env.AUTO_CLEANUP_DAYS || "0", 10) || 0,
@@ -51,9 +47,8 @@ export const config = {
   // Max download file size in MB (0 disables)
   maxDownloadMB: parseInt(process.env.MAX_DOWNLOAD_MB || "0", 10) || 0,
   // Storefronts a macOS/visionOS version lookup consults after the account's
-  // own one. Defaults to "cn" — the storefront reachable from a mainland-
-  // China network, where every non-CN storefront is answered with a redirect;
-  // empty disables the fallback.
+  // own. Defaults to "cn" — the storefront reachable from a mainland-China
+  // network, where every other one answers with a redirect; empty disables it.
   storefrontFallbackCountries: parseStorefrontFallbackCountries(
     process.env.STOREFRONT_FALLBACK_COUNTRIES,
   ),
@@ -67,18 +62,11 @@ export const config = {
 };
 
 /**
- * Parses PUBLIC_BASE_URL: one or more public origins, comma-separated, most
- * preferred first. The first entry answers for any request whose own host is
- * not listed, so a single value behaves exactly like the plain single-URL
- * form.
- *
- * Entries are reduced to a canonical origin — hostname lowercased, a default
- * port (`:80` / `:443`) dropped, trailing slashes trimmed — so that what the
- * deployment wrote and what the request's `Host` is later matched against mean
- * the same thing. Anything that is not an absolute http(s) URL is dropped: a
- * value that drops everything degrades to host auto-detection rather than
- * producing an install link no device can follow, and `publicBaseUrlWarning`
- * is what turns that silence into something an operator can see.
+ * Parses PUBLIC_BASE_URL: comma-separated public origins, most preferred first; the first answers
+ * for any host not itself listed (a single value behaves like the plain single-URL form). Entries
+ * are canonicalized — hostname lowercased, a default port dropped, trailing slashes trimmed — so a
+ * configured value and a request `Host` compare equal. Anything not an absolute http(s) URL is
+ * dropped, degrading to host auto-detection; `publicBaseUrlWarning` surfaces that.
  */
 export function parsePublicBaseUrls(value: string | undefined): string[] {
   const entries = (value ?? "").split(",").map(normalizePublicBaseUrl);
@@ -99,10 +87,9 @@ function normalizePublicBaseUrl(value: string): string {
 
 /**
  * What to log when `PUBLIC_BASE_URL` is set but contributes no origin — a
- * scheme-less hostname, a typo'd scheme, a stray comma. The deployment then
- * goes on serving install links off whatever `Host` arrives, which is easy to
- * mistake for the configuration having worked. Null when there is nothing to
- * say, which is both the unset case and the working one.
+ * scheme-less hostname, a typo'd scheme, a stray comma. The deployment then goes
+ * on serving install links off whatever `Host` arrives, easily mistaken for the
+ * configuration having worked. Null when unset or working.
  */
 export function publicBaseUrlWarning(
   value: string | undefined,
@@ -117,11 +104,10 @@ export function publicBaseUrlWarning(
 }
 
 /**
- * Parses TRUST_PROXY for Express's `trust proxy`. Unset (or "false") keeps the
- * setting off, which is the right answer when nothing trustworthy sits in front
- * of the server; "true" trusts every hop, a number trusts that many hops from
- * the socket, and anything else is passed through as Express's own address list
- * ("loopback", a subnet, or a comma-separated list of them).
+ * Parses TRUST_PROXY for Express's `trust proxy`: unset (or "false") keeps it
+ * off, "true" trusts every hop, a number trusts that many hops from the socket,
+ * and anything else is passed through as Express's own address list ("loopback",
+ * a subnet, or a comma-separated list of them).
  */
 export function parseTrustProxy(
   value: string | undefined,
@@ -134,9 +120,9 @@ export function parseTrustProxy(
 }
 
 /**
- * Parses STOREFRONT_FALLBACK_COUNTRIES: comma-separated ISO 3166-1 country
- * codes (lowercased; entries that are not two letters are dropped). Unset
- * keeps the "cn" default, empty disables the fallback.
+ * Parses STOREFRONT_FALLBACK_COUNTRIES: comma-separated ISO 3166-1 country codes
+ * (lowercased; entries that are not two letters are dropped). Unset keeps the
+ * "cn" default, empty disables the fallback.
  */
 export function parseStorefrontFallbackCountries(
   value: string | undefined,
@@ -167,14 +153,12 @@ export const MAX_DOWNLOAD_SIZE = 8 * 1024 * 1024 * 1024; // 8 GB
 export const DOWNLOAD_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours
 export const BAG_TIMEOUT_MS = 15_000; // 15 seconds
 // The iTunes Search/Lookup API, which `/search` and `/lookup` proxy. Node's
-// fetch carries no timeout of its own, so a storefront that accepts the
-// connection and stops answering would hold the request (and, on `/search`, the
-// per-record re-check behind it) open until undici's own ~5 minute default.
+// fetch has no timeout, so a stalled storefront would hold the request (and, on
+// `/search`, the re-check behind it) to undici's ~5 min default.
 export const ITUNES_TIMEOUT_MS = 15_000;
 export const BAG_MAX_BYTES = 1024 * 1024; // 1 MB
 // Deadline for the HEAD/Range probes that verify an Apple file size before a
-// download task is created. Without it a stalled CDN response hangs the
-// POST /downloads request until undici's default (~5 min) fires.
+// download task is created; without it a stalled CDN hangs POST /downloads.
 export const SIZE_PROBE_TIMEOUT_MS = 15_000;
 export const MIN_ACCOUNT_HASH_LENGTH = 8;
 

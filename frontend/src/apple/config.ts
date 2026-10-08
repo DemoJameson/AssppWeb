@@ -140,10 +140,8 @@ export const countryCodeMap: Record<string, string> = {
 
 /**
  * Apple accounts in China mainland and India may sign in with a phone number
- * instead of an email address (https://support.apple.com/en-hk/105034). Such
- * an identifier names no storefront, and Apple only sends the verification
- * code once the request asks as that region's store — so the auth request
- * carries X-Apple-Store-Front for it. Mirrors ipatool's authStoreFront.
+ * (support.apple.com/en-hk/105034). Such an ID names no storefront, so Apple
+ * needs X-Apple-Store-Front to send the code (see ipatool authStoreFront).
  */
 const phoneAppleIDRegions: {
   country: string;
@@ -163,12 +161,9 @@ const phoneAppleIDRegions: {
 ];
 
 /**
- * The forms one region's number may have been dialled in: as written, without a
- * trunk prefix, with the country code, or with `00` before it. All of them are
- * tried against the region's national rule, because stripping the country code
- * blindly is what misread a valid Indian number — `9187654321` is an Indian
- * mobile (9, then 1) as much as it is `91` followed by eight digits, and the
- * stripped form failed the ten-digit test while the number itself passed it.
+ * The forms a region's number may have been dialled in (as written, without a
+ * trunk prefix, with the country code, or with `00` before it), all tested
+ * against the region's rule — stripping the country code can misread a number.
  */
 function nationalForms(digits: string, dialing: string): string[] {
   const forms = [digits];
@@ -195,11 +190,9 @@ export function authStoreFront(identifier: string): string {
 }
 
 /**
- * Whether a host belongs to Apple. Every request this app makes to Apple carries
- * the account's session cookies (and, on the download exchange, its DSID), so
- * the answer is what decides where those may go: a cookie Apple set without a
- * `Domain` attribute is host-only by RFC 6265, and a redirect is only worth
- * following when it stays on Apple's own domains.
+ * Whether a host belongs to Apple. Requests to Apple carry session cookies
+ * (and, on download exchange, the DSID), so this decides where they may go:
+ * a cookie without a `Domain` attribute is host-only (RFC 6265).
  */
 const APPLE_HOST_RE = /(^|\.)apple\.com$/i;
 
@@ -220,10 +213,9 @@ export function storeAPIHost(pod?: string): string {
   return "p25-buy.itunes.apple.com";
 }
 
-// The volumeStore endpoint answers with failureType 5002 for apps the account
-// already owns. The legacy redownload dispatch endpoint serves those, and is
-// used as a fallback by the version flows. The two endpoints name the external
-// version id differently in the request payload.
+// The volumeStore endpoint answers failureType 5002 for apps the account already
+// owns; the legacy redownload dispatch endpoint serves those (fallback for
+// version flows). The two endpoints name the external version id differently.
 export const RETRYABLE_FAILURE_TYPE = "5002";
 
 /** Host serving both download fallbacks advertised by the bag. */
@@ -271,11 +263,9 @@ export function redownloadEndpoint(deviceId: string): StoreDownloadEndpoint {
 }
 
 /**
- * Builds an endpoint from a URL the bag advertises. ipatool's
- * `newDownloadEndpoint` accepts only an exact host/path pair with nothing else
- * appended (no query, fragment or credentials) and treats anything else as a
- * hard error rather than a download attempt, so the same check applies here.
- * Returns null when the URL does not match.
+ * Builds an endpoint from a bag URL. ipatool's `newDownloadEndpoint` accepts
+ * only an exact host/path pair (no query, fragment or credentials) and treats
+ * anything else as a hard error, so the same check applies; null on mismatch.
  */
 export function downloadDispatchEndpoint(
   bagURL: string,

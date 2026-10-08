@@ -16,7 +16,7 @@ export default function PageContainer({
   const location = useLocation();
   const clearSearch = useSearch((state) => state.clear);
 
-  // 监听路由变化，如果当前路径不在 /search 下，则清空之前的搜索内容
+  // 路由变化时，离开 /search 就清空之前的搜索内容
   useEffect(() => {
     if (!location.pathname.startsWith('/search')) {
       clearSearch();

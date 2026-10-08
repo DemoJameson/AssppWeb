@@ -120,9 +120,8 @@ describe("Lookup Route — package-app fallback", () => {
   });
 
   it("answers with the recorded build's id, size and release date", async () => {
-    // What the package knew: the id of the build Apple served, measured on
-    // disk, and the date it was built. The detail view has no other source for
-    // any of them once the app is delisted.
+    // What the package knew: the id of the build Apple served, its measured size on disk,
+    // and the date it was built — the detail view has no other source once delisted.
     seedApp({
       externalVersionId: "888154623",
       fileSizeBytes: "155759893",

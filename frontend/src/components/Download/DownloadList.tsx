@@ -31,9 +31,8 @@ import { storeIdToCountry } from "../../apple/config";
 import type { Account, DownloadTask, Software } from "../../types";
 
 /**
- * What the filter picks. `active` is the bucket the Downloads tab badge
- * counts — queued, transferring or compiling — so the menu never offers a
- * status the rest of the UI treats separately. The row badge stays exact.
+ * What the filter picks. `active` is the Downloads badge's bucket (queued,
+ * transferring, compiling), not a status the rest of the UI treats separately.
  */
 type StatusFilter = "all" | "active" | "paused" | "completed" | "failed";
 
@@ -47,21 +46,16 @@ function matchesFilter(task: DownloadTask, pick: StatusFilter): boolean {
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * What a row's update check found. `unknown` is deliberately not `current`: an
- * app nothing can name, or one whose version list names no build, has not been
- * shown to be up to date — the check could not be made at all, and reporting it
- * as an answer would be a lie. (That conflation is what hid a delisted app's
- * updates: the storefront has nothing for it, and the fallback only ever
- * describes the build already on disk.)
+ * What a row's update check found. `unknown` is deliberately not `current`: a
+ * check that could not be made must not be reported as "up to date".
  */
 type UpdateCheck =
   | {
       status: "newer";
       app: Software;
       /**
-       * The build to fetch, when one had to be named. A recalled record is
-       * reached only through a pin, so its newest build travels explicitly;
-       * absent when the storefront's current version is the one to fetch.
+       * The build to fetch when one had to be named: a recalled record is
+       * reached only through a pin; absent when the current version is fetched.
        */
       pin?: string;
       /** The version number the update message reports. */
@@ -73,16 +67,11 @@ type UpdateCheck =
   | { status: "unknown" };
 
 /**
- * Whether the newest build an app still serves is an update on the one a row
- * holds. The exchange names the newest build's version number whenever it can,
- * and that number decides — the same comparison the storefront path makes.
- *
- * When no number came back, the list's order is all there is to go on: the held
- * build's own place in it says whether anything sits above it. Two ways that
- * answer is not available, and both are left unanswered rather than guessed at:
- * the row holds no id, or the list does not carry the build it holds — a build
- * that is merely *different* could be an older one, and offering that as an
- * update would replace a newer package with it.
+ * Whether the newest build an app still serves updates the row's build. Decided
+ * by the version number from the exchange, else by the held build's position in
+ * the list. Returns undefined (not "no update") when undecidable — no held id,
+ * or the build missing from the list — rather than risk replacing a newer
+ * package with an older one.
  */
 function isNewerServable(
   newest: ServableVersion,
@@ -102,15 +91,10 @@ function isNewerServable(
 
 /**
  * Asks what an app still serves for a row's platform and whether it is newer
- * than the build the row holds.
- *
- * Two sources, in order. The storefront, by bundle id: its `version` is the
- * current one, and for a listed app that is the whole answer. When the
- * storefront has forgotten the app — a delisted one, answered from the package
- * index instead — that record describes only the build already on disk, so the
- * comparison has to come from the version exchange, the one channel delisting
- * leaves open (`lookupNewestServableVersion`), pinned to a build recorded for
- * the app.
+ * than the row's build. Two sources: the storefront (its `version` is current,
+ * the whole answer for a listed app), and when that record is a delisted one
+ * describing only the build on disk, the version exchange
+ * (`lookupNewestServableVersion`) pinned to a recorded build.
  */
 async function checkForUpdate(
   account: Account,
@@ -122,9 +106,8 @@ async function checkForUpdate(
     recordedVersionId?: string,
   ) => Promise<ServableVersion | undefined>,
 ): Promise<UpdateCheck> {
-  // The platform travels with the lookup: the backend answers a delisted app
-  // from the package index per platform, and without it an id search would only
-  // ever see the iOS build (see `lookupEntityFor`).
+  // The platform travels with the lookup: the backend answers a delisted app per
+  // platform, else an id search would only see the iOS build (see `lookupEntityFor`).
   const app = await lookupApp(
     task.software.bundleID,
     country,
@@ -169,10 +152,8 @@ export default function DownloadList() {
     deleteDownload,
     hashToEmail,
   } = useDownloads();
-  // A 「前往下载页」 hop names the package to point at — once. The history
-  // entry is rewritten without it right away, so neither a reload nor a later
-  // step back onto this entry highlights anything again; the list keeps the
-  // package marked for as long as this mount lasts.
+  // A 「前往下载页」 hop names the package to point at — once. The history entry is
+  // rewritten without it right away, so no reload or step back re-highlights anything.
   const hoppedTaskId =
     (location.state as { highlightTaskId?: string } | null)?.highlightTaskId ??
     null;
@@ -220,9 +201,8 @@ export default function DownloadList() {
 
   const filtered = displayTasks.filter((task) => matchesFilter(task, filter));
 
-  // Take the hop off the entry that carried it. Nothing may read it a second
-  // time: a reload re-reads the entry from the browser, and so would a step
-  // back onto it — both must find the list unmarked.
+  // Take the hop off the entry that carried it; a reload or step back must find
+  // the list unmarked.
   useEffect(() => {
     if (!hoppedTaskId) return;
     navigate(`${location.pathname}${location.search}`, {
@@ -231,8 +211,7 @@ export default function DownloadList() {
     });
   }, [hoppedTaskId, location.pathname, location.search, navigate]);
 
-  // Scroll the target into view once it is rendered, then let the highlight
-  // fade so the page reads normal again.
+  // Scroll the target into view once rendered, then fade the highlight.
   useEffect(() => {
     if (!highlightId || (loading && displayTasks.length === 0)) return;
     if (!displayTasks.some((task) => task.id === highlightId)) return;
@@ -283,17 +262,15 @@ export default function DownloadList() {
 
   function handleDelete(id: string) {
     const task = displayTasks.find((item) => item.id === id);
-    // A queued second click (e.g. a double-click where the first deletion
-    // already finished) finds no task — there is nothing left to confirm.
+    // A queued second click finds no task — nothing left to confirm.
     if (!task) return;
     if (isPreviewDownloadTask(task)) {
       showPreviewNotice();
       return;
     }
 
-    // Native confirm() is not blocking in embedded browsers (Trae's built-in
-    // browser returns true immediately while still drawing the dialog), so
-    // deletion is confirmed through the in-app modal instead.
+    // Native confirm() is not blocking in embedded browsers (Trae's returns true
+    // immediately while still drawing the dialog), so deletion uses the in-app modal.
     setDeleteTarget(task);
   }
 
@@ -347,16 +324,10 @@ export default function DownloadList() {
   }
 
   /**
-   * Retries a failed download: the same app, the same build, the same account.
-   * Apple is asked for the download info again — which is also what acquires the
-   * license the failed attempt never got to use — rather than replaying the URL
-   * that attempt was handed.
-   *
-   * Once the retry is under way, the row it replaces is gone: a failed task is
-   * terminal and cannot reuse the attempt that now runs for the same build, so
-   * keeping it would leave the user to delete it by hand. A failed deletion
-   * costs nothing — the stale row stays until it is deleted manually — and is
-   * not worth reporting beside the success.
+   * Retries a failed download: same app, build and account. Apple is asked again
+   * (also re-acquiring the license the failed attempt never used), not the handed
+   * URL replayed. The replaced row is deleted: a failed task is terminal, so
+   * keeping it would only leave it for the user to remove by hand.
    */
   async function handleRetry(id: string) {
     if (previewEnabled) {
@@ -387,14 +358,10 @@ export default function DownloadList() {
   }
 
   /**
-   * Asks the storefront for this app's latest version and, when it is newer
-   * than the build the row holds, offers to fetch it. The question is the
-   * owning account's to ask — the new build is redeemed against its license,
-   * and its storefront is the one worth asking — which is why the row only
-   * offers the check while that account is still here.
-   *
-   * This is the same question `检查更新` asks of every finished row at once;
-   * here the answer is one row's, and the newer build is the user's to pick.
+   * Asks for this app's latest version and offers to fetch it when newer. The
+   * owning account must ask — the new build is redeemed against its license — so
+   * the row only offers the check while that account is here. Same question as
+   * `检查更新`, answered for one row.
    */
   async function handleCheckUpdate(id: string) {
     if (previewEnabled) {
@@ -416,8 +383,7 @@ export default function DownloadList() {
         lookupNewestServableVersion,
       );
 
-      // A check that could not be made is not an answer: it says so rather than
-      // joining "已经是最新版本" and dressing a failure up as a verdict.
+      // A check that could not be made is not an answer — report failure, not "already latest".
       if (found.status === "unknown") {
         addToast(t("downloads.package.checkUpdateFailed"), "error");
         return;
@@ -427,9 +393,7 @@ export default function DownloadList() {
         return;
       }
 
-      // The storefront path opens the picker on the exchange's own list — what
-      // the account may pick from — while the version-exchange path already
-      // carries the list it read.
+      // The storefront path opens on the exchange's list; the exchange path already carries it.
       const versions =
         found.versions ??
         (await listVersionsWithLicense(account, found.app)).versions;
@@ -450,9 +414,8 @@ export default function DownloadList() {
   }
 
   /**
-   * Fetches the build the user picked and drops the row it replaces: a task is
-   * terminal once it is finished, and the same app cannot be held twice by one
-   * account, so the old package would only linger as a duplicate.
+   * Fetches the picked build and drops the row it replaces: the same app cannot
+   * be held twice by one account, so the old package would only linger as a duplicate.
    */
   async function handleConfirmUpdate() {
     if (!updateTarget || updating) return;
@@ -464,20 +427,16 @@ export default function DownloadList() {
     setUpdating(true);
     try {
       const isLatest = versions.length > 0 && selected === versions[0];
-      // A recalled record is reached only through a pin, so the picked build
-      // travels even when it is the newest: left unpinned, the request would
-      // resolve the pin a past download recorded — the build already on disk,
-      // not the one being asked for. A storefront record keeps the historical
-      // unpinned request for the current version.
+      // A recalled record is reached only through a pin, so the picked build travels even
+      // when newest: left unpinned, the request would resolve the pin a past download
+      // recorded (the build on disk, not the one asked for). A storefront record stays unpinned.
       const pin = needsVersionExchange(app)
         ? selected
         : isLatest
           ? undefined
           : selected;
-      // A recalled record's list is the app's own, so it can name the build this
-      // very row holds. Asking for that one is refused as a duplicate — and the
-      // row must then stay, or the deletion would take away the only handle on
-      // a package that nothing replaced.
+      // A recalled record's list can name the build this row holds; asking for it is
+      // refused as a duplicate, so the row must stay — nothing replaced that package.
       const picksHeldBuild =
         selected !== "" && selected === (task.software.externalVersionId ?? "");
       await startDownload(account, app, pin || undefined);
@@ -534,9 +493,8 @@ export default function DownloadList() {
           lookupNewestServableVersion,
         );
 
-        // A row whose check could not be made is left as it is: neither the
-        // storefront nor the version exchange could name a newer build, and
-        // starting a download on that basis is not this loop's to guess.
+        // A row whose check could not be made is left as it is: starting a download
+        // on a guess is not this loop's to do.
         if (found.status === "newer") {
           await startDownload(account, found.app, found.pin);
           await deleteDownload(task.id);

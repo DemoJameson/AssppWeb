@@ -2,28 +2,10 @@ import { getDb } from "./db.js";
 import type { Platform, Software } from "../types/index.js";
 
 /**
- * The instance-wide package-app index: what past downloads' compiled packages
- * know about the apps they contain — `appId -> { bundleID, name, builds }`.
- *
- * Backed by the `package_apps` + `package_app_builds` SQLite tables. The App
- * Store forgets apps once they are delisted: a lookup by bundle id comes back
- * empty even though the app was downloaded before. The compiled package still
- * remembers what the storefront knew at download time (the iTunesMetadata the
- * package carries), so this index is what lets a delisted app be found by its
- * bundle id again. It complements the version-pin store: pins keep a delisted
- * app's version list alive, this keeps the app itself findable.
- *
- * Builds are tracked per platform: the same app ships different versions for
- * different platforms (`Forward` was 1.3.18 on iOS and 1.3.19 on tvOS), so a
- * lookup answers with the build of the platform it asked for — and says
- * nothing about the version when that platform has no recorded package. Each
- * build carries everything the package could tell about itself: Apple's
- * external version id, its version, minimum OS, release date, and the size it
- * occupies on disk.
- *
- * Server-written only (no client write-back): entries come from
- * `rememberPackageApp` call sites in downloadManager — the compile pipeline
- * and the startup repair pass.
+ * Instance-wide package-app index (`appId -> { bundleID, name, builds }`) over the `package_apps`
+ * + `package_app_builds` tables, recording what compiled packages knew about their apps. Makes a
+ * delisted app findable by bundle id (complements the pin store), builds per-platform. Server-
+ * written only, from downloadManager's `rememberPackageApp` sites — no client write-back.
  */
 
 const PLATFORM_SET: ReadonlySet<string> = new Set([
@@ -36,25 +18,23 @@ const PLATFORM_SET: ReadonlySet<string> = new Set([
 
 export interface PackageBuild {
   /**
-   * Apple's external version identifier for this build — the id a version list
-   * is keyed by, read out of the package's store metadata. It is what lets a
-   * detail view tie the record to one build of the list instead of guessing
-   * from a version number two builds can share.
+   * Apple's external version identifier for this build, read out of the package's store
+   * metadata — the id a version list is keyed by, letting a detail view tie the record to
+   * one build instead of guessing from a version number two builds can share.
    */
   externalVersionId?: string;
   version?: string;
   minimumOsVersion?: string;
   /**
-   * The compiled package's size on disk, as the user would download it. Apple's
-   * `fileSizeBytes` is the installed size instead, so this is the only field
-   * here the package cannot declare — the download pipeline measures it.
+   * The compiled package's size on disk, as the user would download it — the only field
+   * here the package cannot declare (Apple's `fileSizeBytes` is the installed size), so the
+   * download pipeline measures it.
    */
   fileSizeBytes?: string;
   /**
-   * When this build was released, read out of the package (its Info.plist, or
-   * the archive entry's timestamp when that carries no date). Per build, not
-   * per app: Apple's own `releaseDate` in the download reply is app-level and
-   * can be stale, which is why the package is the source.
+   * When this build was released, read out of the package (its Info.plist, or the archive
+   * entry's timestamp when that carries no date). Per build, not per app — Apple's own
+   * `releaseDate` in the download reply is app-level and can be stale.
    */
   releaseDate?: string;
   updatedAt: number;
@@ -135,9 +115,8 @@ export function initPackageAppStore(): void {
 }
 
 /**
- * Drops the cached connection-bound statements and un-initializes the store.
- * Call after the DB has been reset/closed and before the next
- * `initPackageAppStore`, which re-prepares against the fresh connection.
+ * Drops the cached connection-bound statements and un-initializes the store, so the next
+ * `initPackageAppStore` re-prepares against the fresh connection.
  */
 export function resetPackageAppStoreForTest(): void {
   initialized = false;
@@ -150,15 +129,10 @@ export function resetPackageAppStoreForTest(): void {
 }
 
 /**
- * Records what a compiled package said about its app and platform. Packages
- * without a bundle id are skipped: they could never answer a bundle-id lookup.
- * Values from the new read win when present; the previous build fills the
- * gaps, and the placeholder label `App <id>` never counts as a name.
- *
- * The size is the caller's on-disk measurement rather than anything the package
- * declares, so it only reaches the index when the completed task carries it —
- * like the external version id, which a task learns from the download reply and
- * the package's store metadata.
+ * Records what a compiled package said about its app and platform. Packages without a bundle id
+ * are skipped (they could never answer a bundle-id lookup). New values win, the previous build
+ * fills gaps, `App <id>` is never a name. The size is the caller's on-disk measurement (not
+ * package-declared), reaching the index only when the completed task carries it — like the ext id.
  */
 export function rememberPackageApp(software: Software): void {
   initPackageAppStore();
@@ -251,9 +225,8 @@ export function findPackageAppByAppId(
 }
 
 /**
- * Name search for the catalogue merge: case-insensitive substring over the
- * records' names, most recently updated first. Records without a real name
- * have nothing to match.
+ * Name search for the catalogue merge: case-insensitive substring over the records' names,
+ * most recently updated first. Records without a real name have nothing to match.
  */
 export function searchPackageAppsByName(term: string): PackageAppRecord[] {
   initPackageAppStore();
@@ -274,9 +247,9 @@ export function searchPackageAppsByName(term: string): PackageAppRecord[] {
 }
 
 /**
- * The build a lookup should answer with: the requested platform's when it has
- * one, otherwise nothing — a tvOS build must not pass for an iOS one. With no
- * platform requested, any recorded build will do.
+ * The build a lookup should answer with: the requested platform's when it has one,
+ * otherwise nothing — a tvOS build must not pass for an iOS one. With no platform
+ * requested, any recorded build will do.
  */
 export function buildForPlatform(
   record: PackageAppRecord,

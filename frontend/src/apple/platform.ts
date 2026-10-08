@@ -1,11 +1,8 @@
 // The store platforms Apple distinguishes, mirroring ipatool's `Platform`
-// (pkg/appstore/platform.go). Each platform gets its own iTunes Search entity,
-// its own iTunes Lookup entity, and its own MDM catalogue platform for the
-// version pin.
-//
-// visionOS apps surface through Apple's `xrosSoftware` entities, and macOS has
-// no MDM catalogue platform at all — ipatool's `metadataPlatform()` rejects it,
-// so a macOS download skips the pin rather than asking the wrong catalogue.
+// (pkg/appstore/platform.go). Each gets its own Search/Lookup entity and MDM
+// catalogue platform. visionOS surfaces via `xrosSoftware`; macOS has no MDM
+// catalogue platform (ipatool's `metadataPlatform()` rejects it), so a macOS
+// download skips the pin rather than asking the wrong catalogue.
 
 import type { Platform } from "../types";
 
@@ -61,9 +58,8 @@ export function lookupEntityFor(platform: Platform): string {
 }
 
 /**
- * `platform` for Apple's MDM catalogue lookup (the version pin). macOS has no
- * entry here — undefined means the caller must skip the pin. An unknown
- * platform keeps the historical default, the enterprise catalogue.
+ * `platform` for Apple's MDM catalogue lookup (the version pin). macOS returns
+ * undefined (skip the pin); an unknown platform defaults to `enterprisestore`.
  */
 export function metadataPlatformFor(platform?: Platform): string | undefined {
   switch (platform) {
@@ -79,13 +75,9 @@ export function metadataPlatformFor(platform?: Platform): string | undefined {
 }
 
 /**
- * The MDM catalogues `lookupLatestExternalVersionId` consults, in order.
- * Mirrors ipatool's `lookupLatestExternalVersionID` (e5211d6): tvOS stays on
- * its single Apple TV catalogue, while iPhone/iPad — and the default device
- * class — start at the enterprise catalogue and fall back to the consumer
- * iphone/ipad catalogues, because some storefronts have no enterprise listing
- * even when a consumer catalogue has the app. visionOS and macOS never reach
- * the MDM lookup, so they have no catalogues.
+ * The MDM catalogues `lookupLatestExternalVersionId` consults, in order (mirrors
+ * ipatool, e5211d6): tvOS stays on its Apple TV catalogue; iPhone/iPad (and the
+ * default) try the enterprise catalogue then iphone/ipad. visionOS/macOS have none.
  */
 export function mdmCataloguesFor(platform?: Platform): string[] | undefined {
   if (platform === "visionos" || platform === "macos") {
@@ -105,32 +97,18 @@ export function mdmCataloguesFor(platform?: Platform): string[] | undefined {
 }
 
 /**
- * Whether the download exchange must pin a platform-specific version before
- * the first request. tvOS and visionOS builds share an adam id with the iOS
- * app, so an unpinned volumeStore request returns the iOS ipa. macOS apps can
- * share an adam id with the iOS app too, and the legacy MDM lookup returns an
- * iOS offer even with platform=osx, so the Mac storefront page selects the
- * native Mac offer. iOS/iPad are the default device class and need no pin.
- *
- * It lives here rather than next to the exchange so callers that only need the
- * rule — a hook deciding whether a download has to bring its own version id —
- * do not have to import the libcurl-backed request graph.
+ * Whether the exchange must pin a platform-specific version first: tvOS/visionOS
+ * share an adam id with iOS (an unpinned request returns the iOS ipa) and macOS
+ * needs the Mac page; ios/ipad need none. Kept here so callers avoid the request graph.
  */
 export function needsPlatformPin(platform?: Platform): boolean {
   return platform === "tvos" || platform === "visionos" || platform === "macos";
 }
 
 /**
- * Whether a download artifact's URL can be the requested platform's build.
- * macOS packages are `.pkg` (xar containers, no IPAs); every other platform
- * ships an IPA. The URL is the one thing a download reply says about its own
- * platform, which is what makes it the check a *guessed* pin needs: an
- * external version id names its own platform, so a guess that reached another
- * platform's build still gets refused here.
- *
- * Both callers react differently on purpose: the pin guess drops such a
- * candidate (it is simply not this platform's build), while the download flow
- * refuses the whole request with a message (the user asked for this download).
+ * Whether an artifact URL can be the requested platform's build: macOS is `.pkg`,
+ * all else an IPA; the URL is what a reply says about its own platform, so this is
+ * the check a *guessed* pin needs. The guess drops a mismatch, the download flow refuses.
  */
 export function artifactMatchesPlatform(
   url: string,

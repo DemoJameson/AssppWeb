@@ -97,9 +97,8 @@ export default function SettingsPage() {
     }
   };
 
-  // Native confirm() is not blocking in embedded browsers (Trae's built-in
-  // browser returns true immediately while still drawing the dialog), so the
-  // destructive clear-all is confirmed through the in-app modal instead.
+  // Native confirm() is non-blocking in embedded browsers (Trae's returns true
+  // while still drawing the dialog), so clear-all is confirmed via in-app modal.
   const handleConfirmClear = () => {
     setClearModalOpen(false);
     localStorage.clear();

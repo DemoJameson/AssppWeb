@@ -6,9 +6,7 @@ const router = Router();
 
 // The token can be brute-forced when an access password is set, so failed
 // verifications are rate-limited per direct socket address. Only failures
-// count: a correct login never consumes quota, so legitimate users cannot be
-// locked out by other people's successful traffic. Ten failures per five
-// minutes is far above what a human typing a password produces.
+// count — a correct login never consumes quota, so it cannot lock anyone out.
 const verifyLimiter = createRateLimiter({
   windowMs: 5 * 60_000,
   max: 10,

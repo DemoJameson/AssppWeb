@@ -1,7 +1,7 @@
 /**
- * MD5 (RFC 1321) over the UTF-8 bytes of the input. Gravatar addresses
- * avatars by the MD5 of the lowercase email, and the Web Crypto API has no
- * MD5 — hence this small digest.
+ * MD5 (RFC 1321) over the UTF-8 bytes of the input. Gravatar addresses avatars
+ * by the MD5 of the lowercase email, and the Web Crypto API has no MD5 — hence
+ * this small digest.
  */
 
 // Per-round left-rotation amounts (RFC 1321).
@@ -88,10 +88,9 @@ function wordToLittleEndianHex(word: number): string {
 
 /**
  * The gravatar image URL for an email — null for anything that is not one.
- * Gravatars are keyed by address, so a phone-number Apple ID has no avatar to
- * find, and hashing the number to ask for one would hand a third party a
- * value derived from it. Callers probe the URL first (gravatar answers 404
- * when the address has no avatar) and fall back to the initial-letter
+ * Gravatars are keyed by address, so a phone-number Apple ID has no avatar, and
+ * hashing the number would hand a third party a value derived from it. Callers
+ * probe the URL first (404 means no avatar) and fall back to the initial-letter
  * placeholder.
  */
 export function gravatarUrl(email: string, size = 96): string | null {

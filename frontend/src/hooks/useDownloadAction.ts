@@ -28,17 +28,10 @@ import type { Account, Software } from "../types";
 
 /**
  * The version a download falls back to when its caller named none. tvOS,
- * visionOS and macOS downloads must carry a version id (`needsPlatformPin`):
- * without one the exchange has to resolve it from the catalogue or from the
- * pin a past download recorded, and a delisted app has neither — it fails with
- * "no version to pin" even though the version list, fetched through the pin
- * guess, names real builds.
- *
- * The list's newest entry *is* such a build (it is what the list exchange was
- * pinned to), so borrowing it keeps the download on the same footing as picking
- * that version in the picker — no extra Apple traffic, and nothing to guess.
- * A platform that needs no pin is left alone: an unpinned iOS request is the
- * historical path, and pinning it would only narrow what the account may get.
+ * visionOS and macOS must carry a version id (`needsPlatformPin`) — a delisted
+ * app has neither a catalogue entry nor a recorded pin, so borrow the version
+ * list's newest entry (what the list exchange was pinned to): no extra Apple
+ * traffic, same footing as picking that version. iOS needs no pin, left alone.
  */
 function versionPinFallback(
   app: Software,
@@ -46,20 +39,15 @@ function versionPinFallback(
   country?: string,
 ): string | undefined {
   if (!needsPlatformPin(app.platform)) return undefined;
-  // The cache is keyed by the region the exchange ran under. The page that
-  // writes the list keys it with its own `country` state — the same source the
-  // account's storefront is derived from — so an explicit region is used when
-  // the caller has one (it matches the write even on the first frame, before
-  // the account selection settles); otherwise the account's storefront is the
-  // best available name for it.
+  // The cache is keyed by the region the exchange ran under: `country` matches
+  // the page's write even on the first frame, else the account's storefront.
   const region = country ?? accountStoreCountry(account);
   return getCachedVersionList(
     versionListKey(app.id, app.platform, region),
   )?.[0];
 }
 
-/** The newest build an app still serves, as `lookupNewestServableVersion` finds
- * it: the id to fetch, the number to name it by, and the list to pick from. */
+/** The newest build an app still serves, as `lookupNewestServableVersion` finds it. */
 export interface ServableVersion {
   /** Apple's id of the newest build the list names. */
   versionId: string;
@@ -70,15 +58,10 @@ export interface ServableVersion {
 }
 
 /**
- * Shared hook for download & purchase actions.
- * Eliminates the duplicated flow across the pages that trigger downloads.
- *
- * Every action it hands out keeps a stable identity for as long as the pieces
- * it closes over do: pages take them as dependencies of their effects (the
- * detail page's version-list probe, the search page's), and an action that is
- * new on every render would re-run those effects on every render — which, for
- * an effect that reads the backend and writes a store the page subscribes to,
- * is a request loop.
+ * Shared hook for download & purchase actions, deduping the flow across pages.
+ * Actions keep a stable identity for as long as their dependencies do — pages
+ * use them as effect dependencies, so a new one per render would re-run those
+ * effects and, when they read the backend and write a subscribed store, loop.
  */
 export function useDownloadAction() {
   const { updateAccount } = useAccounts();
@@ -88,14 +71,12 @@ export function useDownloadAction() {
 
   /**
    * Acquires the app's license, silently renewing the password token first (a
-   * stale token would fail the purchase). Returns the account with the fresh
-   * cookies so the caller can keep using the same session.
+   * stale token fails the purchase). Returns the account with fresh cookies.
    */
   const acquireLicenseFor = useCallback(
     async (account: Account, app: Software): Promise<Account> => {
-      // Silently renew the password token before purchasing. This prevents
-      // "token expired" (2034/2042) errors that would otherwise require the
-      // user to manually re-authenticate.
+      // Renew the password token first to avoid "token expired" (2034/2042)
+      // errors that would otherwise need a manual re-authentication.
       let currentAccount = account;
       try {
         const renewed = await authenticate(
@@ -111,12 +92,9 @@ export function useDownloadAction() {
         // Ignore — proceed with existing token
       }
 
-      // The license grant is the download flow's one request with nowhere else
-      // to go: unlike the download-product exchange, it has no fallback host to
-      // move to. A request Apple never answered is repeated once — the grant is
-      // idempotent on Apple's side (a repeat comes back as "already owned"), and
-      // `repeatUnreachable` still refuses to repeat one whose response had
-      // already started arriving, where the answer could be a duplicate.
+      // The license grant has no fallback host, so an unanswered request is
+      // repeated once — idempotent on Apple's side (a repeat returns "already
+      // owned"); `repeatUnreachable` still refuses a started response.
       const result = await repeatUnreachable(() =>
         purchaseApp(currentAccount, app),
       );
@@ -137,13 +115,10 @@ export function useDownloadAction() {
     const appName = app.name;
     const pin = versionId || versionPinFallback(app, account, country);
 
-    // A build *this account* already holds — or is still fetching — would only
-    // become a second copy of the same package; the same build under another
-    // account is a package of its own, and asking for it there is the point.
-    // The queue is re-read first: it moves on its own, and a page opened
-    // straight from search may never have read it at all. The hash is taken
-    // from the account as it stands — the rows in that queue are keyed by the
-    // same digest, so the comparison lands on the tasks this account can see.
+    // A build this account already holds (or is fetching) would be a second copy;
+    // the same build under another account is its own package. Re-read the queue
+    // first — it moves on its own and a page opened from search may never have
+    // read it — and hash the account as it stands, since the rows share that digest.
     const accountKey = await accountHash(account);
     await fetchTasks();
     const duplicate = findDuplicateDownload(
@@ -182,8 +157,7 @@ export function useDownloadAction() {
       // Settings fetch failed — backend will still enforce the limit
     }
 
-    // If Apple answers that the account has no license for this app yet,
-    // acquire one and retry the download once before giving up.
+    // No license yet (FAILURE_LICENSE_NOT_FOUND) → acquire one and retry once.
     let currentAccount = account;
     let download: Awaited<ReturnType<typeof getDownloadInfo>>;
     try {
@@ -210,37 +184,27 @@ export function useDownloadAction() {
     const { output, updatedCookies } = download;
     await updateAccount({ ...currentAccount, cookies: updatedCookies });
 
-    // The app id is the identity here (ipatool's `App.ID`); the bundle id is
-    // whatever the storefront or the download item reports. When neither knows
-    // it — a download created from a bare app id — it is left empty and the backend
-    // reads it out of the compiled package.
+    // The app id is the identity (ipatool's `App.ID`); the bundle id comes from
+    // the storefront or the download item, or is left empty and read from the
+    // compiled package (a download created from a bare app id).
     const bundleID = app.bundleID || output.bundleID || "";
 
-    // The record's per-build facts — its release date and its size — were
-    // quoted for *one* build: the version the record names. The download reply
-    // is the authority on which build is actually coming, so they only travel
-    // when it confirms the same version. Two things fail that check: the picker
-    // can hand back an older build than the storefront's current version, and a
-    // recalled record is another build's download by nature (its `version` is
-    // whatever that package happened to be — see `needsVersionExchange`).
-    // Dropping them lets the compiled package supply the truth instead: its own
-    // release date, read out of the archive, and the size the backend measures
-    // after injection. Everything the record knows about the app itself (name,
-    // artist, genre, artwork) still travels either way.
+    // The record's date and size were quoted for one build, so they travel only
+    // when the download reply confirms that version (a picker can serve an older
+    // build; `needsVersionExchange` covers a recalled record). The package then
+    // supplies them. App-level facts (name, artist, genre, artwork) always travel.
     const quotedForServedBuild =
       !needsVersionExchange(app) &&
       !!app.version &&
       app.version === output.bundleShortVersionString;
 
-    // The account the package is filed under: the session the license step may
-    // have refreshed, whose digest is the key the finished task is listed by.
+    // The account the package is filed under — the session the license step may
+    // have refreshed — whose digest keys the finished task.
     const hash = await accountHash(currentAccount);
 
-    // A macOS package has to be decrypted once it lands, and only this side
-    // holds what that takes: the key material from Apple's reply and the
-    // hardware id the download was requested with. Both are refused up front
-    // when they are missing, so a package that nothing can open is never
-    // fetched.
+    // A macOS package must be decrypted on this side, which needs the key material
+    // from Apple's reply and the hardware id the download was requested with.
+    // Both are refused up front so an unopenable package is never fetched.
     let decryption: { dpInfo?: string; hardwareId?: string } = {};
     if (app.platform === "macos") {
       const hardwareId = accountHardwareId(currentAccount);
@@ -258,10 +222,9 @@ export function useDownloadAction() {
         ...app,
         bundleID,
         version: output.bundleShortVersionString,
-        // The id of the build Apple served — the reply names it, and the
-        // backend records it as the app+platform's last-known pin. Only a
-        // storefront record's own id may stand in when the reply omits it: a
-        // recalled record's id belongs to the build it was recalled from.
+        // The id of the build Apple served — recorded as the app+platform's
+        // last-known pin. Only a storefront record's own id may stand in when the
+        // reply omits it (a recalled record's id belongs to its recalled-from build).
         externalVersionId:
           output.externalVersionId ??
           (quotedForServedBuild ? app.externalVersionId : undefined),
@@ -270,9 +233,8 @@ export function useDownloadAction() {
           : {
               releaseDate: "",
               fileSizeBytes: undefined,
-              // The floor belongs to the build the record quoted, not to the
-              // older one Apple served, so it drops with the rest of that
-              // build's facts and the package supplies this build's own.
+              // The floor belongs to the build the record quoted, so it drops
+              // with that build's facts; the package supplies this build's own.
               minimumOsVersion: "",
             }),
       },
@@ -309,10 +271,8 @@ export function useDownloadAction() {
   );
 
   /**
-   * Lists an app's versions, acquiring the license first when Apple reports
-   * that the account has none yet — the version exchange requires a license
-   * just like a download does. The refreshed session cookies are stored on
-   * the account either way, and the list is returned to the caller.
+   * Lists an app's versions, acquiring the license first when Apple reports none
+   * (the exchange needs a license too). Fresh cookies are stored either way.
    */
   const listVersionsWithLicense = useCallback(
     async (
@@ -351,26 +311,12 @@ export function useDownloadAction() {
   );
 
   /**
-   * The newest build an app still serves, with the version number to name it by
-   * — the answer to "is there an update" for an app the storefront has
-   * forgotten.
-   *
-   * A listed app needs none of this: the catalogue's own `version` is the
-   * newest, so `lookupApp` answers for it alone. A delisted app is what this
-   * exists for. The catalogue has nothing left for it, and the package-app index
-   * the backend falls back to only describes the build already on disk — so a
-   * check comparing against *that* can never see an update, however long the app
-   * has moved on. The version exchange is the channel that outlives delisting:
-   * pinned to a build recorded for the app (`versionPins`), it answers with the
-   * app's version list, whose newest entry — the list arrives newest first — is
-   * the newest *servable* build.
-   *
-   * One further pinned exchange then reads that build's display version, which
-   * is the number an update message reports. It is skipped when the list's
-   * newest build is the one recorded, which is the no-update case and needs no
-   * number. A build the exchange will not describe is still an answer — it is
-   * servable, and the caller can name it by its id. Undefined only when the list
-   * names no build at all, which is not "up to date" but "could not be told".
+   * Newest build an app still serves, with its display version — the update check
+   * for a delisted app (the catalogue and the backend's package index can never
+   * see one). The version exchange, pinned to a recorded build, outlives
+   * delisting: its newest-first entry is the newest servable build, named by a
+   * second pinned exchange. Undefined = the list named nothing ("could not be
+   * told", not "up to date").
    */
   const lookupNewestServableVersion = useCallback(
     async (
@@ -383,15 +329,13 @@ export function useDownloadAction() {
       const versionId = list.versions[0];
       if (!versionId) return undefined;
 
-      // The newest build the list names is the one already held: nothing newer to
-      // name, and so nothing for a second exchange to describe.
+      // The list's newest build is the one already held: nothing newer to name.
       if (pinned && versionId === pinned) {
         return { versionId, versions: list.versions };
       }
 
-      // The license step — and the list before it — may have refreshed the
-      // session, so the exchange runs on the account as it now stands rather than
-      // on the caller's snapshot.
+      // The license/list steps may have refreshed the session, so run on the
+      // account as it now stands, not the caller's snapshot.
       const freshest =
         useAccountsStore
           .getState()

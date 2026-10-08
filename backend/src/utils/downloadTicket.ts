@@ -2,21 +2,17 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { accessPasswordHash } from "../config.js";
 
 /**
- * Short-lived signed links for the package file route. A browser-native
- * download is a plain GET navigation, which cannot attach the access-token
- * header, so those links carry an `exp` + `sig` pair instead — issued by
- * `GET /packages/:id/file-url` (itself behind the normal middleware) and
- * scoped to a single task and account hash. Without an instance password the
- * file route is open anyway, so no ticket is issued.
+ * `exp`+`sig` links for the package file route: a plain GET download cannot
+ * carry the access-token header, so `GET /packages/:id/file-url` (itself behind
+ * the normal middleware) scopes a short-lived pair to the task and account hash.
+ * Without an instance password the file route is open anyway, so no ticket.
  */
 const TICKET_TTL_MS = 5 * 60 * 1000;
 
 /**
- * Install links are handed to a *device* rather than used on the spot: the URL
- * is shown as a QR code and scanned from another machine, sometimes minutes
- * after the page was opened. Its window is therefore wider than the file
- * link's, while still being bounded — the password gate's point is that a
- * leaked link stops working.
+ * Install links are scanned from another device, sometimes minutes after the
+ * page was opened, so this window is wider than the file link's — but still
+ * bounded, since the password gate's point is that a leaked link stops working.
  */
 const INSTALL_TICKET_TTL_MS = 30 * 60 * 1000;
 
@@ -40,10 +36,9 @@ export function verifyDownloadTicket(
 }
 
 /**
- * Issues the pair the install routes accept: `manifest.plist`, `payload.ipa`
- * and the two icon sizes, which iOS fetches itself and therefore cannot
- * authenticate with the access token. Minted by `GET /install/:id/url`, which
- * *is* behind the token.
+ * Issues the pair the install routes accept — `manifest.plist`, `payload.ipa`
+ * and the two icon sizes, which iOS fetches itself and cannot authenticate —
+ * minted by `GET /install/:id/url`, which *is* behind the token.
  */
 export function createInstallTicket(
   taskId: string,

@@ -116,9 +116,8 @@ describe("useSearch.search", () => {
   });
 
   it("turns a missed App ID into a bare record for the direct-download path", async () => {
-    // The id lookup may recall a delisted app from the backend's index; a miss
-    // stays usable — the search page then probes it through the version
-    // exchange, and only a "no such app" answer drops it again.
+    // The id lookup may recall a delisted app from the backend's index; a miss stays usable,
+    // the search page then probing it through the version exchange.
     mockedLookupAppById.mockResolvedValue(null);
 
     await useSearch.getState().search("6503940939", "US", "ios");

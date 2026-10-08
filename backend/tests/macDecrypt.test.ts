@@ -103,9 +103,8 @@ describe("decryptMacOSPackage", () => {
   });
 
   it("looks for the helper at the image path, then this checkout's", () => {
-    // The one configuration-free contract between the build scripts and this
-    // service: the second candidate has to name tools/macdecrypt next to the
-    // repository root, wherever this file itself lives (src or dist).
+    // The one configuration-free contract with the build scripts: the second candidate
+    // names tools/macdecrypt next to the repo root, wherever this file lives (src or dist).
     const fromHere = path.resolve(
       fileURLToPath(new URL(".", import.meta.url)),
       `../../tools/macdecrypt/macdecrypt${process.platform === "win32" ? ".exe" : ""}`,
@@ -117,9 +116,8 @@ describe("decryptMacOSPackage", () => {
   });
 
   it("leaves a file that is already a package alone", async () => {
-    // StoreAgent is not a format checker: handed plaintext it decrypts the
-    // plaintext into garbage. The guard runs before the helper is even looked
-    // for, which is why a path that does not exist is enough here.
+    // StoreAgent is not a format checker: handed plaintext it decrypts it into garbage.
+    // The guard runs before the helper is even looked for, so a nonexistent path suffices.
     const bytes = Buffer.from("xar!\x00\x1c\x00\x01", "latin1");
     const filePath = writeTemp("decrypted", bytes);
 
@@ -134,11 +132,10 @@ describe("decryptMacOSPackage", () => {
   });
 
   it("stops a helper that never finishes instead of waiting forever", async () => {
-    // The helper has its own internal timeout, so this side's deadline only
-    // ever fires on a helper that hangs past it. The stand-in prints one
-    // progress report and then runs forever, which is exactly that case; the
-    // short injected deadline is what the production default (35 minutes)
-    // would be, shrunk to a test-sized moment.
+    // The helper has its own internal timeout, so this side's deadline only fires on a
+    // helper that hangs past it. The stand-in prints one progress report then runs
+    // forever — exactly that case — and the short injected deadline is the production
+    // default (35 minutes) shrunk to a test-sized moment.
     const filePath = writeTemp(
       "ciphertext",
       Buffer.from([0xba, 0x6b, 0x39, 0xe3]),

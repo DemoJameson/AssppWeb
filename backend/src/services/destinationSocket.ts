@@ -1,30 +1,8 @@
-// The socket the wisp server dials for a stream, with a stall guard.
-//
-// Apple's hostnames answer with a pool of addresses and not every member is
-// usable from every network. `buy.itunes.apple.com` — the host the sign-in POST
-// goes to — resolves to 17.8.132.x, and a connection to one of those can be
-// accepted in ~1 ms (something on the path answers the SYN) and then never
-// answer the TLS handshake at all: measured on this machine, 17.8.132.185
-// completed 1 handshake out of 3 and 17.8.132.36 two out of three, each miss
-// sitting silent past 20 seconds, while 17.8.132.117 answered in ~126 ms every
-// time. wisp dials the first address the system resolver returns and has no
-// timeout anywhere, so a sign-in that lands on a silent member waits forever —
-// nothing on the wire, nothing to report — and the next attempt (a fresh
-// connection, usually another address) works, which is what makes it look
-// random.
-//
-// So this socket dials a candidate list rather than one address, and when the
-// guest's bytes go out onto a connection the destination never answers, it
-// moves the stream to the next candidate: whatever the guest sent before the
-// destination said anything — a TLS ClientHello, as far as this layer can
-// tell — is replayed on the new connection, so the guest sees one unbroken
-// stream and simply waits a little longer. Addresses that failed are skipped
-// for a while, which is what makes the next attempt land somewhere else.
-//
-// Nothing here reads the bytes: the relay stays blind, and only the *presence*
-// of an answer (not its content) is used. Anything still silent once every
-// candidate has been tried closes the stream, which the client surfaces as a
-// failed request.
+// The socket the wisp server dials for a stream, with a stall guard. Apple hostnames resolve to a pool
+// not every member of which is usable: some accept the TCP connection then never answer the TLS handshake,
+// and wisp dials only the first address with no timeout, so a sign-in on a silent member waits forever. This
+// socket dials a candidate list instead, swapping and replaying the guest's bytes (a TLS ClientHello) so the
+// guest sees one stream; only an answer's presence, never its content, is read; silence past every candidate closes it.
 
 import { lookup } from "dns/promises";
 import net from "net";
@@ -36,10 +14,9 @@ export const FAILED_ADDRESS_TTL_MS = 30_000;
 export const CONNECT_TIMEOUT_MS = 4_000;
 
 /**
- * How long the destination may stay silent after the guest's first bytes.
- * A working handshake to any of these hosts lands in 600 ms and the slowest
- * measured was 4 s, so this only ever fires on a connection that is going
- * nowhere.
+ * How long the destination may stay silent after the guest's first bytes. A working
+ * handshake lands in 600 ms and the slowest measured was 4 s, so this only fires on a
+ * connection that is going nowhere.
  */
 export const ANSWER_TIMEOUT_MS = 6_000;
 
@@ -47,30 +24,24 @@ export const ANSWER_TIMEOUT_MS = 6_000;
 export const MAX_ATTEMPTS = 3;
 
 /**
- * The whole recovery — the resolver, every dial and every silence window, until
- * the destination's first byte — must be over before the client gives up on the
- * request: `APPLE_REQUEST_TIMEOUT_MS` in `frontend/src/apple/request.ts` is
- * 20 s, and a recovery that ran past it would be spent on a request the client
- * had already abandoned, its answer arriving into the void. The budget leaves
- * ~3 s of the client's own for the answer's TLS and body, and turns a fully
- * silent pool into a clean failure the user can retry instead of a race with
- * the client's timer. Every dial and every silence window is clamped to what is
- * left of it, so the numbers below are ideals rather than a sum.
+ * The whole recovery — the resolver, every dial and every silence window, until the destination's
+ * first byte — must be over before the client gives up: `APPLE_REQUEST_TIMEOUT_MS` in
+ * `frontend/src/apple/request.ts` is 20 s, leaving ~3 s for the answer's TLS and body. Every dial
+ * and silence window is clamped to what is left, so the constants below are ideals, not a sum.
  */
 export const RECOVERY_BUDGET_MS = 17_000;
 
 /**
- * How long the resolver may take. A hung lookup would stall a stream outside
- * every other bound here; real answers land in milliseconds, so this only ever
- * fires on a resolver that has stopped answering, and the stream it fails can
- * be retried like any other.
+ * How long the resolver may take. A hung lookup would stall a stream outside every other
+ * bound; real answers land in milliseconds, so this only fires on a resolver that has
+ * stopped answering.
  */
 export const DNS_TIMEOUT_MS = 3_000;
 
 /**
- * How much the relay may read ahead of the guest before the destination is
- * paused. Matches wisp's own `ServerStream.buffer_size`, which is what its
- * socket compares its queue against.
+ * How much the relay may read ahead of the guest before the destination is paused.
+ * Matches wisp's own `ServerStream.buffer_size`, which its socket compares its queue
+ * against.
  */
 export const RECV_BUFFER_SIZE = 128;
 
@@ -113,12 +84,10 @@ function orderCandidates(addresses: string[], now: number): string[] {
 }
 
 /**
- * Chunks waiting to be read, closeable so a reader learns the stream ended.
- *
- * Where wisp's own queue drops whatever is still buffered when the socket
- * closes, this one keeps handing out the chunks it already holds before
- * reporting the end: those bytes were received, and dropping them would
- * truncate an answer that arrived just as the destination went away.
+ * Chunks waiting to be read, closeable so a reader learns the stream ended. Unlike wisp's
+ * own queue, which drops what is buffered on close, this one keeps handing out the chunks
+ * it holds before reporting the end — dropping them would truncate an answer that arrived
+ * just as the destination went away.
  */
 class DataQueue {
   private chunks: Uint8Array[] = [];
@@ -154,13 +123,10 @@ class DataQueue {
  */
 export class DestinationSocket {
   /**
-   * What the guest has sent so far, in order, for the life of the stream. A
-   * swap has to hand the replacement connection the whole prefix — the guest's
-   * TLS handshake cannot be split across two connections — so these bytes are
-   * not disposable, and the stream stops growing them once the destination has
-   * answered (a swap is impossible from then on, and the reply says the request
-   * got through). Bounded by what the guest sends before the destination's
-   * first byte: a ClientHello and one small request body.
+   * What the guest has sent so far, in order, for the life of the stream. A swap hands the
+   * replacement the whole prefix (a TLS handshake cannot be split across connections), so
+   * these bytes are not disposable; growth stops once the destination answers, when a swap
+   * is no longer possible. Bounded by a ClientHello and one small request body.
    */
   private readonly guestBytes: Uint8Array[] = [];
   /** How many entries of `guestBytes` the live connection has been given. */
@@ -176,9 +142,8 @@ export class DestinationSocket {
   /** True while a stalled connection is being replaced. */
   private swapping = false;
   /**
-   * When the recovery must be over (`connect()` + {@link RECOVERY_BUDGET_MS}).
-   * Infinity until then, so a socket that was never connected has no budget to
-   * run out of.
+   * When the recovery must be over (`connect()` + {@link RECOVERY_BUDGET_MS}); Infinity
+   * until then, so a socket that was never connected has no budget to run out of.
    */
   private deadline = Number.POSITIVE_INFINITY;
 
@@ -210,9 +175,8 @@ export class DestinationSocket {
   }
 
   /**
-   * Names the addresses, but never outwaits the budget: a resolver that has
-   * stopped answering fails the stream — which the client can retry — instead
-   * of stalling it past every bound here.
+   * Names the addresses, but never outwaits the budget: a resolver that has stopped
+   * answering fails the stream (which the client can retry) instead of stalling it.
    */
   private resolve(hostname: string): Promise<string[]> {
     const lookup = this.deps.lookup(hostname);
@@ -241,11 +205,9 @@ export class DestinationSocket {
     if (this.answers === 0) {
       this.guestBytes.push(new Uint8Array(data));
       this.armAnswerTimer();
-      // A swap already under way is replaying this list, in order and by index.
-      // Writing here as well would put the same bytes on the wire twice —
-      // once now, once when that replay reaches them — and a TLS record
-      // arriving twice is a broken connection, not a slower one. The replay
-      // re-reads the list, so it will carry these bytes too.
+      // A swap already under way is replaying this list in order and by index; writing here
+      // too would put the same bytes on the wire twice (once now, once at replay), and a TLS
+      // record arriving twice is a broken connection. The replay re-reads the list itself.
       if (this.swapping) return;
     }
 
@@ -318,9 +280,8 @@ export class DestinationSocket {
         resolve(socket);
       });
       socket.on("data", (chunk: Uint8Array) => {
-        // Only the connection the stream is on may speak for it: bytes from a
-        // connection that was swapped out would be a second answer to a
-        // handshake that already moved on.
+        // Only the connection the stream is on may speak for it: bytes from a swapped-out
+        // connection would be a second answer to a handshake that already moved on.
         if (this.socket === socket) this.received(chunk);
       });
       socket.on("error", () => {
@@ -333,9 +294,8 @@ export class DestinationSocket {
           fail();
           return;
         }
-        // The destination is gone mid-stream: end the stream for the guest too
-        // (wisp's own socket closes its queue here), so it sees a truncated
-        // answer and can retry instead of waiting on a connection that is over.
+        // The destination is gone mid-stream: end the stream for the guest too (wisp's own
+        // socket closes its queue here), so it sees a truncated answer and can retry.
         if (this.socket === socket) this.giveUp();
       });
       socket.on("end", () => {
@@ -347,8 +307,8 @@ export class DestinationSocket {
   private received(chunk: Uint8Array): void {
     if (this.closed) return;
     if (this.answers === 0) {
-      // The destination is talking: the stream is real, nothing to swap for
-      // any more, and whatever the guest already sent is on this connection.
+      // The destination is talking: the stream is real, nothing left to swap for, and
+      // whatever the guest already sent is on this connection.
       this.answers = chunk.length;
       this.clearAnswerTimer();
     } else {
@@ -358,17 +318,16 @@ export class DestinationSocket {
   }
 
   private armAnswerTimer(): void {
-    // One swap at a time (bytes the guest sends while the replacement is being
-    // dialled must not arm a guard of their own), nothing to watch for once the
-    // destination has spoken, and nothing to do for a stream that is over.
+    // One swap at a time (bytes sent while the replacement is dialled must not arm their
+    // own guard), nothing to watch once the destination has spoken, nothing for a closed stream.
     if (this.answerTimer || this.closed || this.swapping || this.answers > 0) {
       return;
     }
     const remaining = this.remaining();
     if (remaining <= 0) {
-      // The budget is gone: no answer can arrive inside the client's timeout
-      // any more, so the stream ends here rather than at the client's own,
-      // later timeout — the request fails now, and the retry is the user's.
+      // The budget is gone: no answer can arrive inside the client's timeout any more, so
+      // end the stream now (the request fails, and the retry is the user's) rather than
+      // at the client's own later timeout.
       this.giveUp();
       return;
     }
@@ -388,9 +347,9 @@ export class DestinationSocket {
   }
 
   /**
-   * The destination never answered the bytes the guest already sent. Drop that
-   * connection, dial the next candidate, and put those bytes on it: the guest
-   * has no way to tell the difference and just waits a little longer.
+   * The destination never answered the bytes the guest already sent. Drop that connection,
+   * dial the next candidate, and replay those bytes onto it — the guest cannot tell the
+   * difference and just waits a little longer.
    */
   private async swapToNextAddress(): Promise<void> {
     if (this.closed) return;
@@ -415,8 +374,7 @@ export class DestinationSocket {
         this.giveUp();
         return;
       }
-      // Worth a line: the path to Apple is degrading, and this is the only
-      // place that can see it.
+      // Worth a line: the path to Apple is degrading, and only this can see it.
       console.warn(
         `[wisp] ${this.hostname} stayed silent at ${previousAddress}, moving the stream to ${next}`,
       );
@@ -425,23 +383,21 @@ export class DestinationSocket {
       try {
         fresh = await this.dialNext();
       } catch {
-        // Every candidate stayed silent: let the guest see the stream close so
-        // its request fails and can be retried, instead of waiting forever.
+        // Every candidate stayed silent: let the guest see the stream close so its request
+        // fails and can be retried, instead of waiting forever.
         this.giveUp();
         return;
       }
 
-      // The guest may have closed the stream while the new connection was being
-      // dialled; then this one is nobody's.
+      // The guest may have closed the stream while the new connection was being dialled.
       if (this.closed) {
         fresh.destroy();
         return;
       }
       this.socket = fresh;
-      // No connection has carried any of these bytes: hand the new one the whole
-      // prefix, from the start. Bytes the guest sends while this runs are
-      // appended to the same list and go out after the ones already in it —
-      // never beside them, never twice.
+      // No connection has carried any of these bytes, so hand the new one the whole prefix
+      // from the start; bytes sent while this runs are appended to the same list and go out
+      // after the ones already in it — never beside them, never twice.
       this.carried = 0;
       this.paused = false;
       while (this.carried < this.guestBytes.length && !this.closed) {

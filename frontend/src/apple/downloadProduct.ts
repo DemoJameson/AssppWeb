@@ -1,10 +1,7 @@
 // The shared download-product exchange, mirroring ipatool's
-// `sendDownloadProduct` (pkg/appstore/appstore_download_product.go).
-//
-// ipatool drives three different appstore operations through this one function —
-// Download, ListVersions and GetVersionMetadata — so it lives here rather than
-// inside the download flow. Callers supply a pin (or an empty string) and then
-// apply their own failure mapping to the reply.
+// `sendDownloadProduct` (pkg/appstore/appstore_download_product.go). It backs
+// Download, ListVersions and GetVersionMetadata, so callers supply a pin (or "")
+// and apply their own failure mapping to the reply.
 
 import type { Account, Software, Cookie } from "../types";
 import { appleRequest, type AppleRequestOptions, type AppleResponse } from "./request";
@@ -36,9 +33,8 @@ import {
 } from "./config";
 import i18n from "../i18n";
 
-// The error types themselves live in `errors.ts` (importable without the
-// libcurl graph); they are re-exported here, the module whose protocol they
-// describe, so existing import sites keep working.
+// Error types live in `errors.ts` (importable without the libcurl graph) and are
+// re-exported here so existing import sites keep working.
 export { DownloadError, UnexpectedAppleResponseError };
 
 /** Apple's own cap on the number of redirects it will route a download through. */
@@ -69,17 +65,10 @@ export function createDownloadSession(
 }
 
 /**
- * volumeStore is the primary endpoint, and it is not the only one: it answers
- * without a download item for apps the account does not own yet (it fulfils the
- * order and replies with the purchase receipt) and can report an app as
- * unavailable. The bag then advertises a redownload endpoint for exactly that
- * case, and when redownload itself cannot serve the request — an empty HTTP 500,
- * or the same availability message — the bag's updateProduct endpoint is the
- * last resort, since it can serve pinned versions.
- *
- * Only those two shapes trigger a fallback. A reply carrying a failureType or a
- * message is a real answer, so it is returned as-is and never mistaken for
- * "try another host".
+ * volumeStore is primary but not the only endpoint: it answers without a download
+ * item for unowned apps and can report one unavailable, so the bag chains
+ * redownload then updateProduct (serving pinned versions) on an empty/unavailable
+ * reply — not on a failureType or message, which is a real answer returned as-is.
  */
 export async function requestDownloadProduct(
   session: DownloadSession,
@@ -90,21 +79,17 @@ export async function requestDownloadProduct(
 
   let externalVersionId = pinnedVersionId;
 
-  // The volumeStore reply follows the account's device class (iOS by default),
-  // not the requested platform: an unpinned request for a tvOS or visionOS
-  // build comes back as the iOS ipa. Pin the platform's version first so the
-  // request names the build we actually want. macOS apps ship under their own
-  // adam ids and need no pin; iOS/iPad keep the historical path.
+  // volumeStore answers by the account's device class (iOS by default), not the
+  // requested platform: an unpinned tvOS/visionOS request returns the iOS ipa, so
+  // pin that platform's version first. macOS ships under its own adam ids (no pin).
   if (!externalVersionId && needsPlatformPin(session.app.platform)) {
     externalVersionId = await pinnedLatestVersionId(session);
   }
 
-  // A request Apple never answered says nothing about whether this endpoint
-  // could have served the app — and the fallbacks live on another host, so the
-  // next one is a real alternative rather than a repeat of the same dead path.
-  // (The storefront host's address pool is the one that goes silent; see
-  // AGENTS.md.) Everything Apple *answered* stays with the shape checks below,
-  // which is where an empty or unavailable reply is decided.
+  // A request Apple never answered (the storefront host's address pool is the
+  // one that goes silent; see AGENTS.md) says nothing about this endpoint, and the
+  // fallbacks live on another host, so the next one is a real alternative; anything
+  // Apple *answered* stays with the shape checks below.
   let volumeStoreReply: DownloadReply | null = null;
   let volumeStoreFailure: unknown;
   try {
@@ -140,20 +125,16 @@ export async function requestDownloadProduct(
     guid,
   );
 
-  // "Unpinned redownloads can fail or return a tvOS package. Select the current
-  // iOS build before sending." The reply that would normally carry the version
-  // id — the volumeStore document — is the very thing that came back empty, or
-  // never came back at all.
+  // Unpinned redownloads can fail or return a tvOS package, so pin the current
+  // iOS build first — the volumeStore reply that would carry the version id is
+  // exactly what came back empty (or never arrived).
   if (!externalVersionId) {
     try {
       externalVersionId = await pinnedLatestVersionId(session);
     } catch (error) {
-      // Reached only because the exchange is already recovering from something:
-      // when volumeStore never answered, the pin lookup fails for that same
-      // reason, and "this platform has no build" would be a wrong diagnosis of a
-      // request that never reached Apple. Report what actually happened; on the
-      // empty-reply path there is no such failure to report and the lookup's own
-      // answer stands.
+      // Reached only while recovering: if volumeStore never answered, the pin
+      // lookup fails for the same reason, so report that real failure instead of
+      // "no build for this platform" (the empty-reply path keeps the lookup's answer).
       throw volumeStoreFailure ?? error;
     }
   }
@@ -196,9 +177,8 @@ export async function requestDownloadProduct(
 }
 
 /**
- * The bag's updateProduct endpoint serves pinned versions when redownload comes
- * up empty. Its reply is validated before it is trusted: ipatool requires
- * exactly one item, for the requested app, version and bundle id.
+ * Serves pinned versions when redownload comes up empty; the reply is validated
+ * first — exactly one item, for the requested app, version and bundle id.
  */
 async function sendUpdateProduct(
   session: DownloadSession,
@@ -274,11 +254,9 @@ async function sendDownloadRequest(
 }
 
 /**
- * Apple routes downloads through per-pod hosts and answers the first request
- * with a redirect. The original POST is replayed at the advertised location:
- * the volumeStore hop is a pod hand-off that expects the same body, and Go's
- * client (which ipatool uses) would otherwise downgrade 302 to a bodyless GET.
- * A redirect without a Location is returned untouched, matching ipatool.
+ * Apple answers the first request with a redirect; the original POST is replayed
+ * at the advertised location (the volumeStore hop is a pod hand-off expecting the
+ * same body). A redirect with no Location is returned untouched, matching ipatool.
  */
 async function followRedirects(
   session: DownloadSession,
@@ -300,11 +278,9 @@ async function followRedirects(
     }
 
     const url = new URL(location, `https://${host}`);
-    // This request carries the session cookies and the account's DSID header,
-    // and the Location is a host Apple chose. A hop off Apple's own domains
-    // would hand both to whoever that host is, so it is refused here — the
-    // response is returned as it stands, exactly like a redirect with no
-    // Location, and the caller reports a download it could not fetch.
+    // The request carries the session cookies and the DSID header, and a hop off
+    // Apple's domains would hand both to an unknown host — so it is refused and
+    // the response returned as-is, like a redirect with no Location.
     if (!isAppleHost(url.hostname)) {
       console.warn(
         `[download] refused a redirect from ${host} to ${url.hostname}: not an Apple domain`,
@@ -335,8 +311,8 @@ function toReply(
     );
   }
 
-  // A 3xx that survived the redirect following has no Location: ipatool returns
-  // it without a payload rather than failing, so the caller reports it.
+  // A 3xx that survived redirect-following has no Location: return it payload-less,
+  // like ipatool.
   if (response.status >= 300 && response.status < 400) return reply;
 
   let data: Record<string, any> | null = null;
@@ -369,11 +345,8 @@ export function itemsOf(reply: DownloadReply): Record<string, any>[] {
 }
 
 /**
- * Apple's version identifiers from a download-product reply, newest first. It
- * returns them oldest first; the version pickers (ProductDetail's, and the
- * downloads page's update picker)
- * render the array in order, so the reversal happens here rather than in each
- * caller.
+ * Apple's version identifiers from a reply, newest first (Apple returns oldest
+ * first); the reversal happens here so the version pickers can render in order.
  */
 export function versionIdentifiersFromReply(reply: DownloadReply): string[] {
   const metadata = itemsOf(reply)[0]?.metadata as Record<string, any> | undefined;
@@ -423,13 +396,9 @@ function isEmptyRedownloadError(error: unknown): boolean {
 }
 
 /**
- * Resolves the newest external version id that redownload and updateProduct
- * need. A failure is fatal here, as in ipatool: an unpinned redownload can
- * return a tvOS build for a universal app, and the rest of the flow has no way
- * to tell that apart from the requested download.
- *
- * When the catalogue cannot name one — delisted apps — the pin recorded from
- * a previous download of the same app+platform is used instead.
+ * Resolves the newest external version id redownload/updateProduct need; failure
+ * is fatal here (as in ipatool) since an unpinned redownload can return a tvOS
+ * build indistinguishable from the request. Delisted apps fall back to a recorded pin.
  */
 async function pinnedLatestVersionId(session: DownloadSession): Promise<string> {
   const country = storeIdToCountry(session.account.store) ?? "us";
@@ -455,16 +424,13 @@ async function pinnedLatestVersionId(session: DownloadSession): Promise<string> 
   );
 
   if (!versionId) {
-    // Nothing can name a build for this platform: no catalogue offer, and no
-    // past download recorded a version id *for it*. A `local` or `bare` record
-    // is still a real app, so the iOS version list may name a neighbour id the
-    // target platform serves — the same guess `listVersions` uses. Without it,
-    // a direct download of a delisted app's tvOS/visionOS/macOS build fails
-    // where 「选择版本」 succeeds.
+    // No catalogue offer and no recorded pin names this platform, but a
+    // `local`/`bare` record is a real app, so guess a neighbour id from the iOS
+    // list (as `listVersions` does) — else a delisted tvOS/visionOS/macOS direct
+    // download fails where 「选择版本」 succeeds.
     if (needsVersionExchange(session.app)) {
-      // Dynamic import breaks the cycle: `versionPinGuess` imports this
-      // module's `requestDownloadProduct`, so a static import here would
-      // defeat the test mock that intercepts the guess's probes.
+      // Dynamic import breaks the cycle (`versionPinGuess` imports this module) and
+      // keeps the test mock that intercepts the guess's probes working.
       const { guessPlatformPinFromIOSList } = await import("./versionPinGuess");
       const guessed = await guessPlatformPinFromIOSList(session);
       if (guessed) {
@@ -475,10 +441,8 @@ async function pinnedLatestVersionId(session: DownloadSession): Promise<string> 
       }
     }
 
-    // A pinned version is required here and neither the catalogue, a recorded
-    // pin, nor a neighbour guess has one. That is not proof of a missing app
-    // (see `appPresenceFromProbeError`), but it does settle the platform:
-    // there is no build of it to download.
+    // No catalogue, recorded pin or neighbour guess has a version id: not proof
+    // of a missing app (see `appPresenceFromProbeError`), but no build to download.
     throw new PlatformVersionUnavailableError(
       i18n.t("errors.download.missingVersion"),
     );
@@ -509,11 +473,8 @@ function dispatchEndpoint(
 }
 
 /**
- * Strips the account's `passwordToken` (and anything else keyed `passwordToken`)
- * from an Apple reply before it reaches a console log or an error toast. The
- * download-product reply is a plist; the token rides as the value of a
- * `<key>passwordToken</key><string>…</string>` pair that a snippet would
- * otherwise carry verbatim.
+ * Strips the account's `passwordToken` (a plist `<key>passwordToken</key><string>`
+ * value) from an Apple reply before it reaches a console log or error toast.
  */
 export function redactAppleSecrets(text: string): string {
   return text.replace(
@@ -523,9 +484,8 @@ export function redactAppleSecrets(text: string): string {
 }
 
 /**
- * Compact single-line excerpt of a response body, with HTML markup stripped so
- * the underlying message stays readable, and any credentials redacted first.
- * Mirrors ipatool's `bodySnippet`.
+ * Single-line excerpt of a response body: credentials redacted, HTML markup
+ * stripped. Mirrors ipatool's `bodySnippet`.
  */
 export function bodySnippet(body: string, maxLength = 200): string {
   const snippet = redactAppleSecrets(body)

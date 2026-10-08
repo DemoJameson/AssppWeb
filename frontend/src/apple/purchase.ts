@@ -16,12 +16,9 @@ export class PurchaseError extends Error {
 }
 
 /**
- * failureType values meaning "this account already owns the app". Reaching that
- * state is the whole point of acquiring a license, so they count as success:
- * ipatool's CLI ignores its `ErrLicenseAlreadyExists` as a terminal success
- * state, and Apple pairs `5002` with the uninformative "An unknown error has
- * occurred" message. `2019` is PRICE_MISMATCH, which Apple returns for an item
- * that is already purchased.
+ * failureType values meaning the account already owns the app, which counts as
+ * success (ipatool treats `ErrLicenseAlreadyExists` as terminal success). `5002`
+ * comes with an uninformative message; `2019` is PRICE_MISMATCH for an owned item.
  */
 const ALREADY_OWNED_FAILURE_TYPES = new Set(["5002", "2019"]);
 
@@ -45,14 +42,9 @@ export async function purchaseApp(
 }
 
 /**
- * The reply's plist, or an empty dict when the body is not one.
- *
- * The 500 below is answered from the status alone and its body is not always a
- * plist (or there at all), so the parse cannot be what decides whether that
- * answer is reached: an empty body used to throw a `DOMParser` error from
- * inside `parsePlist`, which is not a `PurchaseError` and so read as an
- * unexplained failure — the opposite of the "license already exists" this
- * handler was written to recognise.
+ * The reply's plist, or an empty dict when the body is not one. The HTTP 500 below
+ * is answered from status alone and its body is not always a plist; a parse error
+ * would mask the intended "license already exists" result.
  */
 function parseReply(body: string): Record<string, any> {
   try {

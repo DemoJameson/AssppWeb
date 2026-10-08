@@ -197,10 +197,9 @@ describe("apple/download", () => {
   });
 
   it("refuses a macOS package for a task that is not a macOS one", async () => {
-    // Which build Apple serves is decided by the version pin, and that pin can
-    // have been guessed (see `versionFinder`) — so a tvOS request really can be
-    // handed a Mac package. It is refused here, in the user's language, before a
-    // task is created for something the IPA pipeline cannot compile.
+    // Which build Apple serves is decided by the version pin, and that pin can be guessed
+    // (see `versionFinder`) — so a tvOS request really can be handed a Mac package, refused
+    // here before a task is created for something the IPA pipeline cannot compile.
     const tvosApp = { ...app, platform: "tvos" } as Software;
     downloadReplies = [reply(macPackageDoc())];
 
@@ -368,9 +367,8 @@ describe("apple/download", () => {
   });
 
   it("reports the stalled request when no version can be named either", async () => {
-    // Both fail, for the same reason: the request never reached Apple. The
-    // version lookup's own "no build for this platform" would be a wrong
-    // diagnosis of it.
+    // Both fail for the same reason: the request never reached Apple. The version
+    // lookup's own "no build for this platform" would be a wrong diagnosis of it.
     lookupBody = offersMissingDoc();
     downloadReplies = [new AppleUnreachableError("Apple did not answer")];
 

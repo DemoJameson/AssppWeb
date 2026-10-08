@@ -11,9 +11,9 @@ import PasswordGate from './components/Auth/PasswordGate';
 import { useSettingsStore } from './store/settings';
 import { lazyWithRetry } from './utils/lazyWithRetry';
 
-// lazyWithRetry, not plain lazy: each of these is a separate network fetch
-// fired the moment the user switches to its tab, and a single aborted request
-// (a blinking edge cache) would otherwise blank the page. See utils/lazyWithRetry.
+// lazyWithRetry, not plain lazy: each is a separate fetch fired on tab switch, and
+// a single aborted request (a blinking edge cache) would otherwise blank the page.
+// See utils/lazyWithRetry.
 const HomePage = lazyWithRetry(() => import('./components/Welcome/HomePage'));
 const AccountList = lazyWithRetry(
   () => import('./components/Account/AccountList'),
@@ -89,9 +89,8 @@ export default function App() {
         <Sidebar />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden md:pt-[env(safe-area-inset-top)]">
           <MobileHeader />
-          {/* Inline variant: a tab whose chunk failed to load is replaced by
-              the recovery panel, while the sidebar and tabs stay live so the
-              user can just click another tab. */}
+          {/* Inline variant: a tab whose chunk failed to load is replaced by the
+              recovery panel while the sidebar and tabs stay live. */}
           <AppErrorBoundary variant="inline">
             <Suspense fallback={<Loading />}>
               <Routes>
@@ -111,9 +110,8 @@ export default function App() {
                   path="/downloads/by-id"
                   element={<Navigate to="/search" replace />}
                 />
-                {/* The package detail page is gone — a package is described by
-                    the row it sits in — so a link or bookmark to one lands on
-                    the list it belongs to. */}
+                {/* The package detail page is gone, so a link or bookmark to one
+                    lands on the list it belongs to. */}
                 <Route
                   path="/downloads/:id"
                   element={<Navigate to="/downloads" replace />}

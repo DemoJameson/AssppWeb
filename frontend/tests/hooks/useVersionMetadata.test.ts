@@ -432,10 +432,9 @@ describe("useVersionMetadataMap", () => {
   });
 
   it("reads the shared cache once per app, however often it is asked", async () => {
-    // The read is what every fill starts with, and it is a request: a page that
-    // re-renders (a storefront switch, a cookie refresh handing the account
-    // store a new array) must not keep asking for the same answer. The second
-    // ask waits on the first promise rather than opening a new one.
+    // The read is what every fill starts with, and it is a request: a page that re-renders
+    // (a storefront switch, a cookie refresh handing the account store a new array) must
+    // not keep asking for the same answer — the second ask waits on the first promise.
     vi.mocked(fetchVersionMetadata).mockResolvedValue({
       "894041913": { displayVersion: "8.2.1", releaseDate: "2025-06-12" },
     });
@@ -601,10 +600,9 @@ describe("useVersionMetadataMap", () => {
   });
 
   it("remembers a failed shared-cache read as done, and fills anyway", async () => {
-    // The read is an optimisation, not a prerequisite: a fill whose cache step
-    // failed still asks Apple. It also must not be retried on the next render —
-    // that retry is the request loop — and nothing may reject out of a
-    // fire-and-forget fill.
+    // The read is an optimisation, not a prerequisite: a fill whose cache step failed
+    // still asks Apple. It must also not be retried on the next render — that retry is
+    // the request loop — and nothing may reject out of a fire-and-forget fill.
     vi.mocked(fetchVersionMetadata).mockRejectedValue(new Error("backend down"));
     vi.mocked(getVersionMetadata).mockResolvedValue({
       metadata: { displayVersion: "1.0.0", releaseDate: "d" },

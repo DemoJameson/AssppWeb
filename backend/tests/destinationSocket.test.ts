@@ -315,9 +315,8 @@ describe("destinationSocket", () => {
     await socket.send(new Uint8Array([1]));
     dialled.emit("data", new Uint8Array([2]));
 
-    // The guest must not be left waiting on a connection that is over: an EOF
-    // is what lets it see the truncated answer and retry (wisp's own socket
-    // closes its queue here too).
+    // The guest must not be left waiting on a connection that is over: an EOF lets it
+    // see the truncated answer and retry (wisp's socket closes its queue here too).
     dialled.emit("error", new Error("ECONNRESET"));
     dialled.emit("close");
 
@@ -338,9 +337,8 @@ describe("destinationSocket", () => {
     await vi.waitFor(() => expect(h.dialled).toHaveLength(2));
     await socket.send(new Uint8Array([2]));
 
-    // The address being dialled never connects, so the swap moves on — the
-    // bytes the guest sent must not have armed a guard of their own that gives
-    // up before this third candidate gets its chance.
+    // The address being dialled never connects, so the swap moves on — the bytes the
+    // guest sent must not have armed a guard that gives up before the third candidate.
     await vi.advanceTimersByTimeAsync(CONNECT_TIMEOUT_MS);
     await vi.waitFor(() => expect(h.dialled).toHaveLength(3));
 
@@ -373,10 +371,9 @@ describe("destinationSocket", () => {
 
     const extra = new Uint8Array([0x02]);
     const sending = socket.send(extra);
-    // Nothing goes out beside the replay: these bytes are in the list the
-    // replay is walking, so writing them here as well would put them on the
-    // wire twice — a TLS record delivered twice is a broken connection, not a
-    // slower one.
+    // Nothing goes out beside the replay: these bytes are in the list the replay walks,
+    // so writing them here too would put them on the wire twice — and a TLS record
+    // delivered twice is a broken connection, not a slower one.
     expect(second.written).toEqual([hello]);
 
     // Let the replay finish: it awaits nothing but its own microtasks.
@@ -407,10 +404,9 @@ describe("destinationSocket", () => {
   });
 
   it("gives up at once when the recovery budget is already spent", async () => {
-    // The budget exists to stay inside the client's own request timeout (20 s):
-    // once it is gone, no answer can arrive in time, so the stream ends here
-    // instead of at the client's later timeout — and no connection is dialled
-    // for a request nothing will wait for.
+    // The budget stays inside the client's own request timeout (20 s): once it is gone
+    // no answer can arrive in time, so the stream ends here rather than at the client's
+    // later timeout — and no connection is dialled for a request nothing waits for.
     const h = harness({ lookup: async () => ["10.0.0.1", "10.0.0.2"] });
     const socket = new DestinationSocket("buy.itunes.apple.com", 443, h.deps);
     await connect(socket, h);
@@ -426,9 +422,8 @@ describe("destinationSocket", () => {
     const h = harness({ lookup: async () => ["10.0.0.1", "10.0.0.2"] });
     const socket = new DestinationSocket("buy.itunes.apple.com", 443, h.deps);
     await connect(socket, h);
-    // Half a second of budget left: the silence guard fires on that rather than
-    // on its full six seconds, the replacement dial gets the same clamped
-    // window, and the stream ends when it is gone.
+    // Half a second of budget left: the silence guard fires on that, not its full six
+    // seconds, the replacement dial gets the same clamped window, then the stream ends.
     h.clock.now = RECOVERY_BUDGET_MS - 500;
     await socket.send(new Uint8Array([1]));
     // Half a second in, the silence guard has fired on what was left rather

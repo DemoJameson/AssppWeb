@@ -7,9 +7,8 @@ export interface BagOutput {
   /** Present when the bag advertises the SAP signing protocol. */
   sapEndpoints?: SapEndpoints;
   /**
-   * Download fallback hosts. The download flow consults these instead of
-   * hardcoding the dispatch host (ipatool reads `urlBag.redownloadProduct` and
-   * `urlBag.updateProduct`).
+   * Download fallback hosts; the flow consults these instead of hardcoding the
+   * dispatch host (ipatool reads `urlBag.redownloadProduct` / `updateProduct`).
    */
   redownloadEndpoint?: string;
   updateEndpoint?: string;
@@ -20,12 +19,9 @@ export const defaultAuthURL =
 
 const NATIVE_AUTH_HOST = "auth.itunes.apple.com";
 
-// The bag advertises the native auth endpoint without the /fast/ sub-path that
-// the login flow requires; the no-trailing-slash variant 301s to an HTML page.
-// The legacy storefront endpoint (.../MZFinance.woa/wa/authenticate) wants the
-// same thing: Apple answers the sign-in only when its path ends in a slash,
-// and hands back an HTML page — not a plist — for the bare form. Anything that
-// is not one of these two sign-in endpoints passes through unchanged.
+// The bag advertises the native auth endpoint without the /fast/ sub-path the
+// login flow requires; the no-trailing-slash variant 301s to HTML. The legacy
+// storefront endpoint wants the same trailing slash. Other URLs pass through.
 const LEGACY_AUTH_PATH = "/wa/authenticate";
 
 export function normalizeAuthURL(rawURL: string): string {
@@ -50,9 +46,8 @@ export function normalizeAuthURL(rawURL: string): string {
   return rawURL;
 }
 
-// Fetches the bag via the backend proxy.
-// The backend fetches it using Node.js native HTTPS.
-// The bag response is public data (Apple service URLs, no credentials).
+// Fetches the bag via the backend proxy (Node.js native HTTPS). The response is
+// public data (Apple service URLs, no credentials).
 export async function fetchBag(deviceId: string): Promise<BagOutput> {
   try {
     const resp = await fetch(`/api/bag?guid=${encodeURIComponent(deviceId)}`, {
@@ -69,8 +64,8 @@ export async function fetchBag(deviceId: string): Promise<BagOutput> {
     const xml = await resp.text();
     const dict = parsePlist(xml) as Record<string, any>;
 
-    // authenticateAccount used to live inside the urlBag dict; newer bag
-    // responses move it to the plist root, so prefer the root and fall back.
+    // authenticateAccount moved from the urlBag dict to the plist root in newer
+    // responses, so prefer the root and fall back.
     const urlBag = dict.urlBag as Record<string, any> | undefined;
     const authURL =
       (dict.authenticateAccount as string | undefined) ??

@@ -3,34 +3,13 @@ import { VERSION_METADATA_MAX_ENTRIES } from "../config.js";
 import type { PackageMetadata } from "./sinfInjector.js";
 
 /**
- * The instance-wide version metadata cache: `appId -> versionId -> entry`,
- * served to every client of this instance.
- *
- * Backed by the `version_metadata` SQLite table. Entries come from two
- * sources: the download pipeline seeds what compiled packages read back
- * (`seedVersionMetadata`), and clients may save metadata they fetched live
- * from Apple through `saveClientVersionMetadata` — the server itself never
- * contacts Apple (it holds no credentials). Package-sourced entries are
- * immutable and always win over client-saved ones: the IPA is the authority
- * on the build it contains.
- *
- * `source` answers two separate questions, which is why it has three values
- * rather than two:
- *
- *   - **May this be shown as the build's date?** Only a value read out of the
- *     build's own package may. Apple's exchange dates the *app* — every pinned
- *     version of one app comes back with the same day — so a `client` entry is
- *     never printed as a version's date (see the frontend's `versionLabels`).
- *   - **May it be overwritten?** Everything except `package` may.
- *
- * `package` is the download pipeline reading a package *this instance compiled*,
- * which is the only read the server can attest. `package-read` is the same read
- * performed at a URL a *client* supplied: displayable, because the bytes did
- * come out of a package, but not authoritative, because the server cannot prove
- * that package is the build these ids name. Splitting the two is what lets a
- * version's real date survive a change browsers while keeping the permanent,
- * unoverwritable claim only the pipeline can make — a client-writable `package`
- * entry was a claim about any (app, version) pair that nothing could correct.
+ * Instance-wide version metadata cache (`appId -> versionId -> entry`) over the `version_metadata`
+ * table; the server holds no credentials and never contacts Apple. Entries come from the pipeline
+ * (`seedVersionMetadata`) or clients (`saveClientVersionMetadata`). Package-sourced entries are
+ * immutable and win, and only a package-sourced date is displayable (Apple's dates the app — see
+ * frontend `versionLabels`). `package` = a package this instance compiled (attestable);
+ * `package-read` = the same read at a client-supplied URL — displayable, refreshable, but not
+ * authoritative, yet still outranking `client`.
  */
 
 export type VersionMetadataSource = "package" | "package-read" | "client";
@@ -90,9 +69,8 @@ export function initVersionMetadataCache(): void {
 }
 
 /**
- * Drops the cached connection-bound statements and un-initializes the cache.
- * Call after the DB has been reset/closed and before the next
- * `initVersionMetadataCache`, which re-prepares against the fresh connection.
+ * Drops the cached connection-bound statements and un-initializes the cache, so the next
+ * `initVersionMetadataCache` re-prepares against the fresh connection.
  */
 export function resetVersionMetadataCacheForTest(): void {
   initialized = false;
@@ -107,10 +85,9 @@ export function resetVersionMetadataCacheForTest(): void {
 }
 
 /**
- * Records what a compiled package knows about the version it contains. Only
- * displayable entries pass the gate (numeric ids plus both display fields);
- * anything else is silently skipped. A package entry is never rewritten, but it
- * does replace anything weaker — the IPA is the authority.
+ * Records what a compiled package knows about its version. Only numeric ids plus both
+ * display fields pass; others are skipped. A package entry is never rewritten but replaces
+ * anything weaker — the IPA is the authority.
  */
 export function seedVersionMetadata(
   appId: string | number,
@@ -138,11 +115,9 @@ export function seedVersionMetadata(
 }
 
 /**
- * Whether a write from `incoming` may replace an entry held by `existing`.
- *
- * A write may refresh its own kind and may improve on a weaker one, and the
- * pipeline's own compile (`package`) is never replaced — that is the one claim
- * the server can attest, and nothing a client sends should be able to undo it.
+ * Whether a write from `incoming` may replace an entry held by `existing`: it may refresh
+ * its own kind or improve on a weaker one, but never replaces `package` — the one claim
+ * the server can attest.
  */
 function mayReplace(existing: string, incoming: VersionMetadataSource): boolean {
   if (existing === "package") return false;
@@ -160,9 +135,8 @@ interface SavedEntry {
 }
 
 /**
- * Saves one entry from a source weaker than the pipeline, under
- * {@link mayReplace}. Callers get `saved: false` plus the entry that stayed
- * instead when the write was declined.
+ * Saves one entry from a source weaker than the pipeline, under {@link mayReplace}. A
+ * declined write returns `saved: false` plus the entry that stayed.
  */
 function saveEntry(
   appId: string | number,
@@ -215,9 +189,9 @@ function saveEntry(
 }
 
 /**
- * Saves metadata a client fetched live from Apple. It fills gaps and refreshes
- * earlier client-saved values, but never displaces a value read out of a
- * package — callers get `saved: false` plus the entry that stayed instead.
+ * Saves metadata a client fetched live from Apple. It fills gaps and refreshes earlier
+ * client-saved values but never displaces a package-sourced one, returning `saved: false`
+ * plus the surviving entry when declined.
  */
 export function saveClientVersionMetadata(
   appId: string | number,
@@ -229,14 +203,11 @@ export function saveClientVersionMetadata(
 }
 
 /**
- * Saves metadata read out of a build's own package, at a download URL a client
- * supplied (`POST /version-metadata/:appId/:versionId/package`).
- *
- * It is displayable — the bytes did come out of a package, which is the only
- * place a per-build date exists — but it is not authoritative, because the
- * server cannot prove that package is the build these ids name. So it may be
- * refreshed, and replaced by the pipeline's own compile, but it in turn
- * outranks a `client` entry (Apple's app-level date).
+ * Saves metadata read out of a build's own package at a client-supplied download URL
+ * (`POST /version-metadata/:appId/:versionId/package`). Displayable — a per-build date exists only
+ * in a package — but not authoritative, since the server cannot prove that package is the build
+ * these ids name; it may be refreshed or replaced by the pipeline's compile, yet still outranks a
+ * `client` entry.
  */
 export function savePackageReadVersionMetadata(
   appId: string | number,

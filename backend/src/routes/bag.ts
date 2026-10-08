@@ -6,10 +6,9 @@ const router = Router();
 const userAgent =
   "Configurator/2.17 (Macintosh; OS X 15.2; 24C5089c) AppleWebKit/0620.1.16.11.6";
 
-// Proxy for Apple's bag endpoint.
-// The bag response is public data (Apple service URLs, no credentials).
-// Proxied server-side because init.itunes.apple.com requires TLS 1.3,
-// which node-forge (browser-side TLS) does not support.
+// Proxy for Apple's bag endpoint: public data (service URLs, no credentials),
+// proxied server-side because init.itunes.apple.com requires TLS 1.3, which
+// node-forge (browser-side TLS) does not support.
 router.get("/bag", async (req: Request, res: Response) => {
   const guid = req.query.guid as string | undefined;
   if (!guid) {

@@ -9,10 +9,8 @@ import { versionMetadataFromDownloadURL } from "../services/packageVersionMetada
 const router = Router();
 
 // The shared version metadata cache. Reads are storefront-public (display
-// version + release date, no account binding), so no accountHash is required;
-// `accessAuth` still gates it like every other API route when the instance
-// password is set. Writes accept metadata a client fetched live from Apple —
-// package-sourced entries stay authoritative, see services/versionMetadataCache.ts.
+// version + release date), so no accountHash is required — `accessAuth` still
+// gates it. Package-sourced entries stay authoritative (see services/versionMetadataCache.ts).
 router.get("/version-metadata/:appId", (req: Request, res: Response) => {
   const raw = req.params.appId;
   const appId = Array.isArray(raw) ? raw[0] : raw;
@@ -24,9 +22,8 @@ router.get("/version-metadata/:appId", (req: Request, res: Response) => {
   res.json({ entries: getVersionMetadataForApp(appId) });
 });
 
-// Saves metadata a client fetched live from Apple. When a compiled package
-// already knows better the write is declined: `saved: false` comes back with
-// the entry that remains authoritative.
+// Saves metadata a client fetched live from Apple. If a compiled package knows
+// better the write is declined: `saved: false` with the authoritative entry.
 router.put(
   "/version-metadata/:appId/:versionId",
   (req: Request, res: Response) => {
@@ -71,24 +68,10 @@ router.put(
 );
 
 /**
- * Reads one version's metadata out of its own package — ipatool's
- * `readVersionMetadataFromIPA`. The download-product exchange does report a
- * release date, but it dates the *app*: every pinned version of an app comes
- * back with the same day (and the `iTunesMetadata.plist` inside the download
- * says the same thing), which is how a picker ends up printing one date for
- * every row. The package is the per-build source of truth, as it already is for
- * compiled downloads.
- *
- * The client hands over the download URL it got from the pinned exchange; the
- * package is never fetched whole, and the URL is validated first like every
- * other package address.
- *
- * Reading a package does not make the result authoritative: the URL came from
- * the *client*, so the server cannot attest that the package behind it is the
- * build these ids name. It is therefore saved as a `package-read` entry — shown
- * as the build's date, since that is where the value came from, but refreshable
- * and unable to displace what the download pipeline compiled. `source =
- * 'package'` is reserved for the pipeline, which reads the package it built.
+ * Reads one version's metadata out of its own package (`readVersionMetadataFromIPA`):
+ * the download-product exchange dates the *app*, so every pinned version shares
+ * one day. The URL comes from the client, so the result is saved as a
+ * refreshable `package-read` entry that cannot displace the pipeline's `package`.
  */
 router.post(
   "/version-metadata/:appId/:versionId/package",

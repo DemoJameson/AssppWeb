@@ -1,8 +1,8 @@
 /**
  * Terms that read as a bundle identifier — reverse-DNS shape: dot-separated
  * segments of letters, digits and hyphens, no whitespace. Apple's fuzzy search
- * answers such a term with unrelated apps, so the search flow routes it
- * through the exact lookup instead (`searchApps` never sees it).
+ * answers such a term with unrelated apps, so the search flow routes it through
+ * the exact lookup instead (`searchApps` never sees it).
  */
 const BUNDLE_ID_RE = /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/;
 

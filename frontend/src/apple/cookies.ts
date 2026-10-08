@@ -53,10 +53,9 @@ export function buildCookieHeader(cookies: Cookie[], url: string): string {
     if (cookie.domain) {
       if (!matchesDomain(cookie.domain, host)) continue;
     } else if (!isAppleHost(host)) {
-      // A cookie Apple sent without a `Domain` attribute is host-only in a
-      // browser. Here it is carried *across* Apple's hosts on purpose — the
-      // session one endpoint sets is required by another — so it is confined to
-      // Apple's domains rather than sent to whatever host a redirect names.
+      // A cookie without a `Domain` attribute is host-only in a browser; here it
+      // is carried across Apple's hosts on purpose (one endpoint's session is
+      // required by another), so it is confined to Apple's domains.
       continue;
     }
 

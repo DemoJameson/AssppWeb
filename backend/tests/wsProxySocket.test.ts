@@ -4,9 +4,8 @@ import type { AddressInfo } from "net";
 import { WebSocket } from "ws";
 import express from "express";
 
-// The relay is asked to dial with the socket that moves a stream off an address
-// that never answers. wisp's own socket would keep waiting on it forever (see
-// destinationSocket.ts), so this wiring is what the tunnel's resilience rests on.
+// The relay dials with the socket that moves a stream off an address that never answers —
+// wisp's own socket would wait forever (see destinationSocket.ts) — so the tunnel rests on it.
 const routeRequest = vi.fn((_request: unknown, socket: { destroy(): void }) => {
   socket.destroy();
 });

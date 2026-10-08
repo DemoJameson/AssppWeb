@@ -63,11 +63,9 @@ export default function PackageQuickActions({
   );
   const isPreview = isPreviewDownloadTask(task);
 
-  // The install links are signed by the server, so they are fetched rather than
-  // built here (see `api/install`). Once per package: the QR code below renders
-  // whatever this lands with, and a click re-mints it when the window has run
-  // out — a QR scanned from another device cannot, so the window is generous.
-  // A preview row stands for no task on the server, so there is nothing to ask.
+  // Install links are server-signed, so they are fetched, not built here (see `api/install`).
+  // Fetched once per package: the QR renders whatever lands and a click re-mints it when
+  // expired — a QR scanned from another device cannot, so the window is generous. Preview: none.
   useEffect(() => {
     if (isPreview || task.status !== 'completed' || !task.hasFile) return;
 
@@ -77,8 +75,7 @@ export default function PackageQuickActions({
         if (!cancelled) setInstallInfo(info);
       })
       .catch(() => {
-        // Left null: the buttons stay inert rather than opening a link the
-        // server will refuse.
+        // Left null: the buttons stay inert rather than open a link the server refuses.
       });
     return () => {
       cancelled = true;
@@ -97,9 +94,9 @@ export default function PackageQuickActions({
     return info.installUrl;
   }
 
-  // No font-size utility here on purpose: the app's unlayered
-  // `font: inherit` beats Tailwind on <button>, so the <a> and <button>
-  // twins only stay identical when both sides inherit one size.
+  // No font-size utility on purpose: the app's unlayered `font: inherit` beats
+  // Tailwind on <button>, so the <a>/<button> twins stay identical only when both
+  // sides inherit one size.
   const buttonSize =
     size === 'compact'
       ? 'min-h-10 px-2'
@@ -121,8 +118,7 @@ export default function PackageQuickActions({
       return;
     }
 
-    // A dialog always comes first: either the overwrite notice for a device
-    // that can take the package, or the reason it cannot.
+    // A dialog always comes first: the overwrite notice, or the reason it cannot install.
     event.preventDefault();
 
     const device = detectInstallDevice();
@@ -150,8 +146,7 @@ export default function PackageQuickActions({
   async function confirmInstall() {
     setPendingInstall(null);
     try {
-      // Minted before either toast: a link the server will not accept must not
-      // be announced as a started install.
+      // Minted before the toast: a link the server will not accept must not be announced.
       const url = await resolveInstallUrl();
       addToast(task.software.name, 'info', t('toast.title.installStarted'));
       openInstallUrl(url);
@@ -216,18 +211,9 @@ export default function PackageQuickActions({
       return;
     }
 
-    // A URL hover prefetched is not proof the package is still there: the file
-    // can be gone while the row still reads as ready, and the browser obeys
-    // `download` even for an error response — it would save the server's
-    // `{"error":"Package not found"}` as if it were the package. So the click is
-    // always held until the server hands back a URL for a package it still has.
-    //
-    // This guards the left click only. The prefetched href and name stay on the
-    // link, so the paths that never reach this handler — right-click "save link
-    // as", middle-click (an `auxclick`), an extension reading the href — can
-    // still fetch a URL whose package is gone and save the error under a
-    // package name. Accepted: closing it means not publishing the URL at all,
-    // which is the very thing the hover exists for (download managers).
+    // A hover-prefetched URL is not proof the package is still there: the browser obeys `download` even
+    // for an error response, saving `{"error":"Package not found"}` as the package, so the click waits
+    // for a server URL. Left click only — save-link-as, middle-click, extensions can still save the error.
     event.preventDefault();
     try {
       const params = new URLSearchParams({ accountHash: task.accountHash });
@@ -239,8 +225,7 @@ export default function PackageQuickActions({
         'info',
         t('toast.title.downloadIpaStarted'),
       );
-      // res.download sets Content-Disposition: attachment, so the browser
-      // downloads rather than leaves the page.
+      // res.download sets Content-Disposition: attachment, so the page is not left.
       openDownloadUrl(resolveDownloadUrl(url));
     } catch {
       addToast(
@@ -395,11 +380,9 @@ async function copyText(value: string) {
 
 /**
  * The name the browser saves the package under, mirroring the backend's
- * `packageDownloadName`: same platform suffix, same extension. The two sides
- * have to agree because either can name the file — the `download` attribute
- * when the browser handles the link, the `Content-Disposition` header when the
- * click navigates — and a macOS package saved as `.ipa` is one the Mac refuses
- * to open, whatever its bytes are.
+ * `packageDownloadName`: same platform suffix and extension. Both sides must
+ * agree — either can name the file — since a macOS package saved as `.ipa` is
+ * one the Mac refuses to open, whatever its bytes are.
  */
 function packageFileName(task: DownloadTask): string {
   const platform = task.software.platform ?? 'ios';

@@ -4,17 +4,15 @@ import os from "os";
 import path from "path";
 import type { Software } from "../src/types/index.js";
 
-// The manager decides where a task lands from `config.dataDir`, read once at
-// import time — so the scratch directory has to exist first (same shape as the
-// other store tests).
+// The manager reads `config.dataDir` once at import time, so the scratch directory
+// must exist first (same shape as the other store tests).
 const TEMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "asspp-download-"));
 process.env.DATA_DIR = TEMP_DIR;
 process.env.DOWNLOAD_THREADS = "2";
 
-// The real decrypter is a separate binary built into the image; what these
-// tests are about is when it runs and what its answer does to the task, so it
-// is stood in for here. The package it is handed is Apple's ciphertext either
-// way (see `ciphertextPayload`).
+// The real decrypter is a separate binary built into the image; these tests are
+// about when it runs and what its answer does to the task, so it is stood in for.
+// What it is handed is Apple's ciphertext either way (see `ciphertextPayload`).
 const decrypt = vi.hoisted(() => vi.fn());
 vi.mock("../src/services/macDecrypt.js", () => ({
   decryptMacOSPackage: decrypt,
@@ -187,9 +185,8 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  // The scratch DB must be closed before its directory goes: SQLite keeps the
-  // handle open a moment past `close()` otherwise, and `fs.rmSync` would EBUSY
-  // (the same dance the other store tests do).
+  // Close the scratch DB before its directory goes: SQLite keeps the handle open a
+  // moment past `close()` and `fs.rmSync` would EBUSY (as in the other store tests).
   const { closeDb } = await import("../src/services/db.js");
   closeDb();
   fs.rmSync(TEMP_DIR, {
@@ -206,9 +203,8 @@ describe("download lifecycle", () => {
   });
 
   it("leaves a macOS download Apple served unencrypted alone", async () => {
-    // Apple sends a Mac download encrypted, but the pipeline does not assume
-    // it: a file that already reads as a package is not decrypted again, which
-    // would only corrupt it.
+    // Apple sends a Mac download encrypted, but the pipeline does not assume it: a
+    // file that already reads as a package is not decrypted again, which would corrupt it.
     const payload = xarPayload();
     serve(payload);
 
@@ -268,9 +264,8 @@ describe("download lifecycle", () => {
   });
 
   it("lands a failure that happens after the download instead of hanging at 100%", async () => {
-    // The transfer is long over by the time the decrypter refuses a package,
-    // and nothing else would ever move the task off `downloading` again — so
-    // its reason has to reach the task, in its own words.
+    // The transfer is long over when the decrypter refuses, and nothing else would
+    // move the task off `downloading` — so its reason must reach the task, in its words.
     serve(ciphertextPayload());
     decrypt.mockRejectedValue(
       new Error(
@@ -327,9 +322,8 @@ describe("download lifecycle", () => {
   });
 
   it("leaves a resumed task to the attempt that owns it", async () => {
-    // A rapid pause → resume replaces the attempt's registration while the
-    // first one is still unwinding. That attempt's failure must not land on the
-    // task — the second attempt owns it now, and it finishes the download.
+    // A rapid pause → resume replaces the attempt's registration while the first is still
+    // unwinding; that failure must not land on the task, which the second attempt now owns.
     serve(xarPayload(256 * 1024), { drip: true });
 
     const id = startTask();
@@ -347,9 +341,8 @@ describe("download lifecycle", () => {
   });
 
   it("keeps a paused task paused when the attempt it interrupted unwinds", async () => {
-    // Pausing aborts the transfer, so the attempt that was running reports an
-    // abort moments later — and that report must not land as this task's
-    // failure, or pausing would read as a failed download.
+    // Pausing aborts the transfer, so the running attempt reports an abort moments later;
+    // that must not land as this task's failure, or pausing would read as a failure.
     serve(xarPayload(256 * 1024), { drip: true });
 
     const id = startTask();
@@ -366,11 +359,10 @@ describe("download lifecycle", () => {
   });
 
   it("keeps a pause that lands as the transfer ends", async () => {
-    // The window this guards is the archive-magic read, which sits between the
-    // transfer's end and the decryption step — the one place a pause used to be
-    // overwritten by `injecting` and then unwind as a stale attempt, leaving a
-    // row that no button could move again. The spy lands the pause inside that
-    // read deterministically.
+    // This guards the archive-magic read between the transfer's end and decryption —
+    // the one place a pause used to be overwritten by `injecting` and then unwind as
+    // a stale attempt, leaving a row no button could move again. The spy lands the
+    // pause inside that read deterministically.
     serve(ciphertextPayload());
     decrypt.mockImplementation(async ({ filePath }: { filePath: string }) => {
       fs.writeFileSync(filePath, xarPayload());

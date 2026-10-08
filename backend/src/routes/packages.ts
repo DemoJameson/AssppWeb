@@ -18,8 +18,7 @@ const PLATFORM_SUFFIX: Record<Platform, string> = {
   macos: "macOS",
 };
 
-// File names that browsers will save verbatim: strip characters that are
-// illegal on common filesystems; the header itself is encoded by
+// Strip characters illegal on common filesystems; the header is encoded by
 // `res.download` (RFC 5987), so Unicode names survive intact.
 export function packageDownloadName(
   name: string,
@@ -34,10 +33,8 @@ export function packageDownloadName(
 }
 
 /**
- * The extension that says what the file is: every package this pipeline
- * compiles is an IPA, except Apple's macOS ones, which arrive — and install —
- * as `.pkg` containers. A macOS download saved as `.ipa` is a file the Mac
- * will refuse to open, whatever its bytes are.
+ * The extension for a compiled package: `.ipa`, except macOS ones, which arrive
+ * and install as `.pkg` (a `.ipa` a Mac refuses to open).
  */
 export function packageDownloadExtension(platform?: Platform): string {
   return platform === "macos" ? ".pkg" : ".ipa";
@@ -77,9 +74,8 @@ router.get("/packages", (req: Request, res: Response) => {
   res.json(packages);
 });
 
-// Issues the URL a browser-native download should open for the file below.
-// Safe to navigate to without headers: when the instance password is set, the
-// URL carries a short-lived exp+sig pair instead of the access token.
+// Issues the URL a browser-native download should open. Safe without headers:
+// with a password set it carries a short-lived exp+sig pair, not the access token.
 router.get("/packages/:id/file-url", (req: Request, res: Response) => {
   const accountHash = req.query.accountHash as string;
   if (!accountHash || accountHash.length < MIN_ACCOUNT_HASH_LENGTH) {
@@ -177,12 +173,9 @@ router.delete("/packages/:id", (req: Request, res: Response) => {
     return;
   }
 
-  // Deleting the file through the download manager rather than unlinking it
-  // here is what keeps the two views of a task in step: it drops the task, its
-  // icon and any paused `.part` leftovers too, and persists the removal. A
-  // bare unlink left a `completed` task holding the path of a file that no
-  // longer existed — a row that offered an install and a download that both
-  // 404'd, until a restart swept it up.
+  // Delete through the download manager, not a bare unlink: it also removes the
+  // task, its icon and any paused `.part` leftovers and persists the removal,
+  // keeping the two views of a task in step.
   if (!deleteTask(id)) {
     res.status(404).json({ error: "Package not found" });
     return;

@@ -34,13 +34,9 @@ import { countryCodeMap, storeIdToCountry } from "../../apple/config";
 import { PLATFORM_LABELS } from "../../apple/platform";
 
 /**
- * What the version exchange said about a bare App ID — the only thing that can
- * decide whether the number names an app at all. `resolved` means versions came
- * back, so the record behaves like any other result; `unavailable` means the
- * exchange answered that this platform has no build to fetch, which is an
- * answer rather than a failure to get one. `noAccount` means no exchange ran at
- * all: the searched region has no account to ask with, which is a step the user
- * can take, not a verdict about the app.
+ * What the version exchange said about a bare App ID. `resolved`: versions came
+ * back. `unavailable`: no build to fetch here (an answer, not a failure).
+ * `noAccount`: no exchange ran, a step the user can take, not a verdict.
  */
 type ProbeState =
   | { status: "checking" }
@@ -66,9 +62,8 @@ export default function SearchPage() {
   /** False once the page is gone: a settled probe must not touch state. */
   const mountedRef = useRef(true);
   useEffect(() => {
-    // Re-armed on setup, not only cleared on cleanup: React StrictMode runs
-    // setup → cleanup → setup on mount, and the cleanup's `false` must not
-    // survive into the second run (it would mute every settled probe).
+    // Re-armed on setup, not only cleared on cleanup: StrictMode runs setup →
+    // cleanup → setup, and the cleanup's `false` must not mute the second run.
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
@@ -81,10 +76,8 @@ export default function SearchPage() {
   // Subscribed rather than read once: the newest version's label arrives after
   // the probe, and the cards re-render with it.
   const versionLists = useVersionListsStore((s) => s.lists);
-  // Where the page opens. A region and platform the user picked before come
-  // back from the store; with nothing stored the region is one they can act
-  // in — the first account's storefront — and China when they have no account
-  // at all. The platform starts on iOS, Apple's default everywhere.
+  // Where the page opens: a previously picked region/platform from the store, else
+  // the first account's storefront (China with no account), platform defaulting to iOS.
   const fallbackCountry = firstAccountCountry(accounts) ?? "CN";
   const fallbackPlatform = "ios" as const;
   const addToast = useToastStore((s) => s.addToast);
@@ -109,12 +102,10 @@ export default function SearchPage() {
   }, [error, addToast]);
 
   useEffect(() => {
-    // Wait for the account store's first read before committing a fallback
-    // region: committing while it is still loading would pin the no-account
-    // default (CN) even after the accounts arrive.
+    // Wait for the account store's first read: committing while it loads would pin
+    // the no-account default (CN) even after the accounts arrive.
     if (accountsLoading) return;
-    // Nothing stored yet: open in a region the user can act in — the first
-    // account's storefront, or China when they have no account at all.
+    // Nothing stored yet: open in a region the user can act in.
     if (!country) setSearchParam({ country: fallbackCountry });
     if (!platform) setSearchParam({ platform: fallbackPlatform });
   }, [accountsLoading, country, fallbackCountry, platform, fallbackPlatform, setSearchParam]);
@@ -122,30 +113,23 @@ export default function SearchPage() {
   const activeCountry = country || fallbackCountry;
   const activePlatform = platform || fallbackPlatform;
   /**
-   * The dimension the current probe states were asked in. A region switch
-   * makes them stale — the same id may be fetchable from one storefront and
-   * not another — and so does a platform switch: a different platform's
-   * exchange is a different question. Either way the states are dropped and
-   * the cards are re-asked (the list cache alone never re-settles across
-   * dimensions; its keys are region-scoped too).
+   * The dimension the current probe states were asked in. A region or platform
+   * switch makes them stale, so the states are dropped and the cards are re-asked.
    */
   const probedDimensionRef = useRef({
     country: activeCountry,
     platform: activePlatform,
   });
   /**
-   * The dimension currently on screen. An exchange settling for another region
-   * or platform concluded nothing for this one — it must not settle it, and
-   * its slot is freed so a return re-asks.
+   * The dimension currently on screen: an exchange settling for another region or
+   * platform concluded nothing here, so its slot is freed and a return re-asks.
    */
   const viewRef = useRef({ country: activeCountry, platform: activePlatform });
   viewRef.current = { country: activeCountry, platform: activePlatform };
 
   /**
-   * Records what the version exchange said about a bare App ID. Equal states
-   * keep their identity: `probes` is one of the probe effect's dependencies, so
-   * a new object would re-run the effect — and its work — for a verdict that did
-   * not change.
+   * Records what the exchange said about a bare App ID. Equal states keep their
+   * identity: `probes` is a probe-effect dependency, so a new object re-runs it.
    */
   function settleProbe(id: number, state: ProbeState) {
     setProbes((probes) =>
@@ -153,39 +137,20 @@ export default function SearchPage() {
     );
   }
 
-  // A record the storefront does not carry — a delisted app, or a bare App ID
-  // nothing knows — gets its version list fetched as soon as the search resolves
-  // it, before the detail view is entered, so 选择版本 can open from the cache.
-  //
-  // For a record without evidence for the platform on screen — a bare App ID,
-  // or a package-index record that only covers another platform — the same
-  // exchange is also the only thing left that can say whether anything is
-  // fetchable here: the storefront has no record of it and this server never
-  // downloaded a build for this platform. Apple reporting nothing to serve
-  // drops a bare id (the search reports a real miss instead of offering an id
-  // that can never be fetched) and leaves a package-index record in place with
-  // its reason — that record is proof the app exists, just not for this
-  // platform. A failure about the session or the transport concludes nothing,
-  // and the card says why it could not be settled.
-  //
-  // The verification is region-scoped: a region switch re-runs it with that
-  // region's account, because the same id may be fetchable from one storefront
-  // and not another — the shared list cache alone never re-settles a record
-  // across regions.
+  // Fetches the version list on resolve so 选择版本 opens from the cache; for a
+  // record with no evidence for this platform the exchange alone decides
+  // fetchability, and it is region-scoped (an id may be fetchable from one
+  // storefront, not another).
   useEffect(() => {
-    // Dimension switch (region or platform): every verdict was asked of the
-    // old storefront/platform pair, so none of them carries over. Dropping the
-    // states re-opens the cards and re-asks below.
+    // Dimension switch: every verdict belongs to the old pair, so drop and re-ask.
     const dimension = probedDimensionRef.current;
     if (dimension.country !== activeCountry || dimension.platform !== activePlatform) {
       probedDimensionRef.current = {
         country: activeCountry,
         platform: activePlatform,
       };
-      // The prefetch markers are dimension-scoped too: dropping the verdicts
-      // must also drop the "already asked" markers, or a quick switch away and
-      // back leaves a clickable-but-unverified card — the probe state is gone
-      // while the marker still blocks the re-fetch.
+      // The prefetch markers are dimension-scoped too: dropping the verdicts must
+      // also drop them, or a quick switch back leaves an unverified-but-clickable card.
       prefetchedRef.current.clear();
       if (Object.keys(probes).length > 0) {
         setProbes({});
@@ -193,17 +158,11 @@ export default function SearchPage() {
       }
     }
 
-    // A search in flight means the results on screen still belong to the
-    // *previous* dimension: probing them here would run the new dimension's
-    // exchange against records that carry another platform's evidence — and
-    // mark the new key as already-asked while settling nothing, which then
-    // blocks the real probe when the fresh results land. The effect re-runs
-    // when the search resolves.
+    // A search in flight means the results still belong to the *previous* dimension:
+    // probing them would mark the new key as already-asked while settling nothing.
     if (loading) return;
 
-    // A record whose region-scoped cache already holds a list needs no
-    // exchange: that list was fetched by this region's account, which is the
-    // settlement.
+    // A region-scoped cached list needs no exchange — this region's account fetched it.
     for (const app of results) {
       if (!needsFetchVerification(app)) continue;
       if (probes[app.id]?.status === "resolved") continue;
@@ -216,11 +175,8 @@ export default function SearchPage() {
       }
     }
 
-    // One exchange at a time, for the first record that still needs one: its
-    // region cache is empty and — for a record that must be verified — no
-    // verdict exists yet. Records already checking/resolved/unresolved keep
-    // their state, and rows not probed yet stay open; entering the detail view
-    // verifies them there.
+    // One exchange at a time, for the first record still needing one. Records already
+    // settled keep their state; rows not probed yet stay open (the detail view verifies them).
     const fetchable = results.find((app) => {
       if (!needsVersionExchange(app)) return false;
       const key = versionListKey(app.id, activePlatform, activeCountry);
@@ -230,28 +186,21 @@ export default function SearchPage() {
         : !prefetchedRef.current.has(key);
     });
     if (!fetchable) return;
-    // The records this exchange has to settle: a bare App ID, or a package-index
-    // record that only ever covered *another* platform (an iOS build asked for
-    // as tvOS) — its evidence does not reach the platform on screen. A record
-    // whose own platform was recorded needs no settling: it came with it.
+    // The records this exchange must settle: a bare App ID, or a package-index record
+    // covering only *another* platform; a record with its own platform needs no settling.
     const verify = needsFetchVerification(fetchable);
     const bare = fetchable.metadataSource === "bare";
     const key = versionListKey(fetchable.id, activePlatform, activeCountry);
-    // Region-scoped key: each region gets its own slot, so its verification
-    // runs for real and its exchange is never confused with one asked from
-    // another storefront.
+    // Region-scoped key: each region gets its own slot, never confused with another.
     if (prefetchedRef.current.has(key)) return;
     const account = accounts[0];
-    // A verified record has to be asked about from the storefront the user
-    // searched: any other account answers "Account Not In This Store", which
-    // says nothing about the app. Without one there is nothing to ask with at
-    // all.
+    // A verified record must be asked from the searched storefront: another account
+    // answers "Account Not In This Store". Without one there is nothing to ask with.
     const regionAccount = accounts.find(
       (candidate) => accountStoreCountry(candidate) === activeCountry,
     );
     if (verify && !regionAccount) {
-      // Nothing was asked of Apple, so nothing was concluded about the app: the
-      // card says what is missing and where to add it.
+      // Nothing was asked, so nothing concluded: the card says what is missing.
       settleProbe(fetchable.id, { status: "noAccount" });
       return;
     }
@@ -271,24 +220,20 @@ export default function SearchPage() {
       ),
     )
       .then((versions) => {
-        // The exchange has no abort, so leaving mid-flight cannot call it off —
-        // but nothing of it lands on a page that is gone.
+        // The exchange has no abort, but nothing of it lands on a page that is gone.
         if (!mountedRef.current) return;
         if (verify) {
           const view = viewRef.current;
           if (view.country !== probeRegion || view.platform !== probePlatform) {
-            // The user moved on: this result belongs to another dimension and
-            // cannot settle the one on screen. The list is cached under this
-            // region's key, so a return to it settles from the cache instead
-            // of re-asking.
+            // The user moved on: this result belongs to another dimension and cannot
+            // settle this one. The list is cached, so a return settles from the cache.
             prefetchedRef.current.delete(key);
             return;
           }
           settleProbe(fetchable.id, { status: "resolved" });
         }
-        // The card shows what was found, so the newest build gets its label:
-        // the shared cache folds in first (free), then one lookup for that
-        // version only — `force` keeps the card honest with the switch off.
+        // The newest build gets its label: shared cache first, then one lookup —
+        // `force` keeps the card honest with the switch off.
         void fillVersionsSilently(probeAccount, target, versions.slice(0, 1), {
           force: true,
         });
@@ -301,18 +246,15 @@ export default function SearchPage() {
           return;
         }
         if (appPresenceFromProbeError(error) === "missing") {
-          // Nothing to fetch for this id at all — but only a bare record is
-          // nothing *but* the id. A package-index record is proof the app
-          // exists, so Apple's answer settles this platform at most: the
-          // record stays and says it could not be settled.
+          // Nothing to fetch for this id — but only a bare record is nothing *but*
+          // the id; a package-index record is proof the app exists, so it stays.
           if (bare) {
             dropResult(fetchable.id);
             return;
           }
         }
-        // The exchange answered that this platform has no build to name —
-        // nothing here to download, which the card says outright instead of
-        // leaving it as an open question.
+        // The exchange answered that this platform has no build to name: nothing to
+        // download, which the card says outright instead of leaving it open.
         if (isPlatformVersionUnavailable(error)) {
           settleProbe(fetchable.id, { status: "unavailable" });
           return;
@@ -428,10 +370,8 @@ export default function SearchPage() {
             value={activePlatform}
             onChange={(p) => {
               setSearchParam({ platform: p });
-              // Flipping the platform re-runs the search straight away — but
-              // only a search that actually happened. A term typed without
-              // pressing 搜索 is not a query yet, so switching dimensions must
-              // not fire one for it.
+              // Flipping the platform re-runs the search straight away, but only a
+              // search that actually happened: a typed-but-unsubmitted term is not a query.
               if (searched && term.trim()) search(term.trim(), activeCountry, p);
             }}
             wrapperClassName="w-1/2"
@@ -507,11 +447,8 @@ export default function SearchPage() {
         <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10">
           <div className="divide-y divide-gray-100 dark:divide-gray-800">
             {results.map((app) => {
-              // A record with no evidence for this platform is only walkable
-              // once the version exchange has produced versions for it: without
-              // them the detail view has nothing to show, and while the
-              // exchange runs it is still an open question. Every other record
-              // came with metadata for the platform on screen.
+              // A record with no evidence for this platform is walkable only once the
+              // exchange produced versions; every other record came with metadata.
               const verifying = needsFetchVerification(app);
               const bare = app.metadataSource === "bare";
               const probe = verifying ? probes[app.id] : undefined;
@@ -528,9 +465,8 @@ export default function SearchPage() {
                         reason: probe.note,
                       })
                     : app.artistName;
-              // What is known about the version: the newest build the exchange
-              // produced for this app+platform, else the record's own version
-              // (a store result's, or the build a past download recorded).
+              // The version: the newest build the exchange produced, else the record's
+              // own (a store result's, or the build a past download recorded).
               const newestVersionId =
                 versionLists[
                   versionListKey(app.id, activePlatform, activeCountry)
@@ -539,11 +475,8 @@ export default function SearchPage() {
                 (newestVersionId && versionMeta[newestVersionId]?.displayVersion) ||
                 app.version ||
                 "";
-              // Only fields we actually have are rendered: an empty span still
-              // takes a flex gap, which would push the next one out of line
-              // with the title above it. That includes the price — a delisted
-              // or bare record has none, and neither a dash nor a "free" it was
-              // never told would be honest.
+              // Only fields we actually have are rendered: an empty span still takes a
+              // flex gap. The price too — a delisted or bare record deserves no dash.
               const price = displayPrice(app, t("search.free"));
               const meta: { text: string; truncate?: boolean }[] = [
                 ...(price ? [{ text: price }] : []),

@@ -18,8 +18,8 @@ declare module "libcurl.js" {
     proxy?: string;
     /**
      * Cancels the transfer: aborting tears down the curl handle and errors the
-     * response stream, so a request that would otherwise stay pending for as
-     * long as the peer keeps the socket open settles immediately.
+     * response stream, so a request that would otherwise hang while the peer keeps
+     * the socket open settles immediately.
      */
     signal?: AbortSignal;
     _libcurl_verbose?: number;

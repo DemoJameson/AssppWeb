@@ -9,10 +9,7 @@ import type { Platform, Software } from "../types";
 interface SearchState {
   term: string;
   country: string;
-  /**
-   * Empty until the search page seeds it. The pair of country and platform is
-   * persisted, so a visit opens where the previous one left off.
-   */
+  /** Empty until the search page seeds it; persisted with country. */
   platform: Platform | "";
   results: Software[];
   loading: boolean;
@@ -30,14 +27,11 @@ interface SearchState {
   lookup: (bundleId: string, country: string) => Promise<void>;
   /**
    * Drops a result the version exchange proved is not an app (see
-   * `isMissingAppError`): a bare App ID is only offered while something is
+   * `isMissingAppError`) — a bare App ID is only offered while something is
    * still behind it to fetch.
    */
   dropResult: (id: number) => void;
-  /**
-   * Clears the search state (term, results, error) while keeping the selected
-   * country and platform as user preferences.
-   */
+  /** Clears term, results and error, keeping country/platform as preferences. */
   clear: () => void;
 }
 
@@ -62,17 +56,15 @@ export const useSearch = create<SearchState>()(
         try {
           const trimmed = term.trim();
           // A store link or a numeric App ID is not a search term: route it
-          // through the exact id lookup, which also recalls delisted apps from
-          // the backend's package index.
+          // through the exact id lookup, which also recalls delisted apps.
           const storeId = /^\d+$/.test(trimmed)
             ? trimmed
             : appIdFromStoreUrl(trimmed);
           let next: Software[];
           if (storeId) {
             // A resolved id is used as-is; a missed one stays usable as a bare
-            // record — the version exchange can still fetch it directly, and what
-            // that exchange answers decides whether the record survives (see the
-            // search page's probe).
+            // record the version exchange can still fetch directly, and its answer
+            // decides whether the record survives (see the search page's probe).
             const app = await lookupAppById(storeId, country, platform);
             next = app ? [app] : [bareSoftwareById(storeId, platform)];
           } else if (looksLikeBundleId(term)) {
@@ -109,8 +101,7 @@ export const useSearch = create<SearchState>()(
           set({ loading: false });
         }
       },
-      // Clears the keyword, results and error, but keeps the selected country and
-      // platform (user preferences).
+      // Clears keyword, results and error, but keeps country/platform preferences.
       clear: () => set({ term: "", results: [], error: null, searched: false }),
       dropResult: (id) =>
         set((state) => {
@@ -120,8 +111,7 @@ export const useSearch = create<SearchState>()(
     }),
     {
       name: "asspp-search",
-      // Only the dimensions are a preference; the term and the results are
-      // this visit's page state.
+      // Only the dimensions are a preference; term and results are page state.
       partialize: (state) => ({
         country: state.country,
         platform: state.platform,

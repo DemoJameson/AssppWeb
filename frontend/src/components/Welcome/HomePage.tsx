@@ -13,9 +13,8 @@ interface Stats {
 }
 
 /**
- * The last computed stats, kept for the lifetime of the page session so that
- * revisiting the home page shows the real numbers immediately instead of
- * flashing zeros while the counts are recomputed. Reset by a full reload.
+ * Last computed stats, cached for the page session so revisiting home shows
+ * real numbers instead of flashing zeros. Reset by a full reload.
  */
 let cachedStats: Stats | null = null;
 

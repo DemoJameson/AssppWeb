@@ -120,9 +120,8 @@ describe("SPA fallback", () => {
   });
 
   it("still serves a route whose last segment looks like a filename", async () => {
-    // `/accounts/:email` matches an address, and every address ends in a TLD.
-    // Deciding "is this a file?" by extension alone would 404 a real page —
-    // which is why the no-fallback rule names the emitted files instead.
+    // `/accounts/:email` matches an address, and every address ends in a TLD; judging "is this
+    // a file?" by extension alone would 404 a real page — hence the emitted-file list instead.
     for (const route of [
       "/accounts/someone@example.com",
       "/accounts/a@b.co.uk",

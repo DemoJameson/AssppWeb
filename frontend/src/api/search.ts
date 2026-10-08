@@ -19,9 +19,8 @@ export async function searchApps(
 }
 
 /**
- * Resolves an app from a bundle id. When the storefront no longer lists the
- * app (delisted), the backend answers from its package-app index — what past
- * downloads' compiled packages recorded — instead of returning nothing.
+ * Resolves an app from a bundle id. When the storefront no longer lists the app
+ * (delisted), the backend answers from its package-app index instead of nothing.
  */
 export async function lookupApp(
   bundleId: string,
@@ -32,9 +31,8 @@ export async function lookupApp(
 }
 
 /**
- * Resolves an app from its numeric App Store id — by the same route a bundle
- * id takes, with the backend's package-app index as the fallback when the
- * storefront no longer knows the id. Returns null when nothing does.
+ * Resolves an app from its numeric App Store id — same route as a bundle id, with
+ * the package-app index as fallback. Returns null when nothing resolves it.
  */
 export async function lookupAppById(
   id: string | number,
@@ -46,8 +44,8 @@ export async function lookupAppById(
 
 /**
  * Shared lookup request. The platform picks Apple's lookup entity (a bare id
- * search would otherwise only ever see iOS builds) and is echoed onto the
- * result by the backend, which strips it before forwarding to Apple.
+ * search otherwise only ever sees iOS builds) and is echoed onto the result by the
+ * backend, which strips it before forwarding to Apple.
  */
 async function lookup(
   base: Record<string, string>,

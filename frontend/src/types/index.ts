@@ -6,14 +6,13 @@ export type Platform = "ios" | "ipad" | "tvos" | "visionos" | "macos";
 
 export interface Software {
   /**
-   * The App Store app id (ipatool's `App.ID`). It is what identifies the app to
-   * Apple, and the only field a download strictly requires.
+   * The App Store app id (ipatool's `App.ID`) — what identifies the app to Apple,
+   * and the only field a download strictly requires.
    */
   id: number;
   /**
-   * May be empty: a download created from a bare app id (the download-by-ID
-   * page) does not know it up front. The layout then keys off `id`, and the
-   * bundle identifier is read out of the finished package.
+   * May be empty for a by-ID download, which does not know it up front: the layout
+   * keys off `id`, and the bundle id is read from the finished package.
    */
   bundleID: string;
   name: string;
@@ -33,17 +32,13 @@ export interface Software {
   formattedPrice?: string;
   primaryGenreName: string;
   /**
-   * Which store platform the app is meant for. Drives the search entity, the
-   * lookup entity and the version pin; absent on by-ID downloads until the
-   * catalogue or the user names a platform.
+   * Which store platform the app is meant for; drives the search/lookup entity and
+   * the version pin. Absent on by-ID downloads until the catalogue or user names one.
    */
   platform?: Platform;
   /** Apple's external version identifier, read from the compiled package. */
   externalVersionId?: string;
-  /**
-   * Where the record came from: `store` (Apple answered) or `local` (the
-   * package-app index — a delisted app recalled from past downloads).
-   */
+  /** Where the record came from: `store` (Apple) or `local` (the package-app index). */
   metadataSource?: "store" | "local" | "bare";
 }
 
@@ -81,21 +76,16 @@ export interface DownloadOutput {
   sinfs: Sinf[];
   bundleShortVersionString: string;
   bundleVersion: string;
-  /**
-   * Apple's bundle identifier for the item. Lets a download created without
-   * storefront metadata (by-ID download) still produce a usable manifest.
-   */
+  /** Apple's bundle identifier; lets a by-ID download still produce a usable manifest. */
   bundleID?: string;
   /**
-   * The external version identifier of the build Apple served. The backend
-   * records it as the app+platform's last-known pin, which is what keeps
-   * delisted apps — and platforms whose lookup has no answer left — queryable.
+   * External version id of the build Apple served. The backend records it as the
+   * app+platform's last-known pin, which keeps delisted apps queryable.
    */
   externalVersionId?: string;
   /**
-   * Base64 `dpInfo`, which Apple only sends on a macOS download: the packages
-   * it serves there are encrypted, and this is the key material the server's
-   * decrypter turns them into installable ones with.
+   * Base64 `dpInfo`, sent only on a macOS download: the packages it serves there are
+   * encrypted, and this is the key material the server's decrypter uses.
    */
   dpInfo?: string;
   iTunesMetadata?: string;
@@ -104,16 +94,15 @@ export interface DownloadOutput {
 export interface VersionMetadata {
   displayVersion: string;
   /**
-   * Empty when no date is vouched for: the exchange's own value dates the
-   * *app*, so it is not printed as a version's.
+   * Empty when no date is vouched for: the exchange's value dates the *app*, not the
+   * version.
    */
   releaseDate: string;
   /**
-   * Where the date came from. `package` is this instance's own compiled
-   * package, `package-read` a package read at a URL the client supplied (the
-   * server cannot attest it is the build these ids name), and `client` Apple's
-   * exchange, which dates the *app* rather than the build. Pickers print a date
-   * only for the two package sources.
+   * Where the date came from: `package` (this instance's compiled package),
+   * `package-read` (a package read at a client-supplied URL the server cannot
+   * attest), or `client` (Apple's exchange, dating the *app* not the build). Pickers
+   * print a date only for the two package sources.
    */
   source?: "package" | "package-read" | "client";
 }

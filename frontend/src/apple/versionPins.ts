@@ -5,11 +5,9 @@ interface VersionPinsResponse {
   pins?: Array<{ platform?: string; versionId?: string }>;
 }
 
-/**
- * The version id recorded for an app+platform by previous downloads (the
- * backend's version-pin store), or undefined when none is known. Best effort
- * by design: any failure resolves to undefined so callers keep their live
- * Apple flow — the store never blocks a query.
+/** The version id recorded for an app+platform by previous downloads (the backend's
+ * version-pin store), or undefined when none is known. Best effort: any failure
+ * resolves to undefined so the store never blocks a live Apple flow.
  */
 export async function recordedVersionIdFor(
   appId: string | number,
@@ -27,13 +25,9 @@ export async function recordedVersionIdFor(
   }
 }
 
-/**
- * The version ids recorded for an app *outside* one platform — every pin whose
- * platform is not `platform`. A pin is a build this instance has already
- * downloaded, so an id it holds is a build of some other platform: a neighbour
- * guess must never offer it as this platform's pin. Best effort like the rest of
- * the store: a failure resolves to an empty list, which only means the guess
- * has one less thing it can rule out.
+/** The version ids recorded for an app *outside* one platform. A pin is a build already
+ * downloaded here, so an id it holds is another platform's build a neighbour guess must
+ * never offer as this platform's pin. Best effort: a failure resolves to an empty list.
  */
 export async function recordedVersionIdsExceptPlatform(
   appId: string | number,
@@ -57,14 +51,11 @@ export async function recordedVersionIdsExceptPlatform(
   }
 }
 
-/**
- * Resolves a platform version id by running `lookup` (the live Apple
- * catalogue), falling back to the recorded pin when the lookup yields nothing
- * or fails — which is exactly the delisted-app case, where the catalogue has
- * no answer left. When neither source provides one, the result is undefined:
- * the lookup's failure is logged, never surfaced raw, so callers raise their
- * own clean "no version information" message instead of leaking a 404
- * storefront page or a parse hiccup into the UI.
+/** Resolves a platform version id by running `lookup` (the live Apple catalogue),
+ * falling back to the recorded pin when it yields nothing or fails — the delisted-app
+ * case. When neither source answers, the result is undefined and the lookup's failure is
+ * only logged, so callers raise their own clean "no version information" message rather
+ * than leaking a storefront 404 or parse hiccup into the UI.
  */
 export async function withRecordedFallback(
   lookup: () => Promise<string | undefined>,

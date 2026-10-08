@@ -136,10 +136,9 @@ describe("Version Metadata Route", () => {
   });
 
   describe("POST /api/version-metadata/:appId/:versionId/package (client write-back)", () => {
-    // The download URL in the request body is fetched by the server only when
-    // it passes the same allowlist as every package address — otherwise the
-    // route refuses it. Each of these is rejected in `validateDownloadURL`
-    // before any network connection is made, so they run offline.
+    // The download URL in the request body is fetched only when it passes the same allowlist
+    // as every package address — otherwise the route refuses it. Each case is rejected in
+    // `validateDownloadURL` before any network connection, so they run offline.
     const cases: Array<[string, string]> = [
       ["non-HTTPS", "http://example.com/app.ipa"],
       ["non-Apple host", "https://evil.example.com/app.ipa"],

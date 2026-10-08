@@ -2,12 +2,9 @@ import { useEffect, useState } from "react";
 import type { Account } from "../types";
 
 /**
- * Account selection shared by the pages that pick one. The choice lives for
- * the page: entering a view falls back to the first available account — or
- * to `preferredEmail` when the caller carries one (e.g. the package detail's
- * 「应用详情」 hop seeds the download's owning account), and the search
- * page's region selection brings the matching account along on the detail
- * view (see ProductDetail).
+ * Account selection shared by the pages that pick one — page-lifetime, falling
+ * back to the first available account or to `preferredEmail` when the caller
+ * carries one (e.g. the package detail's 「应用详情」 hop; see ProductDetail).
  */
 export function useSelectedAccount(
   accounts: Account[],

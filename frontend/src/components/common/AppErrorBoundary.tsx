@@ -5,10 +5,8 @@ import { isChunkLoadFailure } from '../../utils/chunkLoadFailure';
 interface Props {
   children: ReactNode;
   /**
-   * `page` fills the viewport (used at the root, where there is no layout left
-   * to preserve); `inline` fills the parent (used around the routes, so the
-   * sidebar and tabs stay usable and the user can navigate away from the tab
-   * that failed).
+   * `page` fills the viewport (used at the root); `inline` fills the parent so
+   * the surrounding layout stays usable around the routes.
    */
   variant?: 'page' | 'inline';
 }
@@ -18,20 +16,9 @@ interface State {
 }
 
 /**
- * Keeps a failed render from becoming a blank page.
- *
- * React unmounts the entire tree when an error reaches the root, so without a
- * boundary anywhere above the routes any escaping error — a chunk that failed
- * to load, a render throw — leaves `<div id="root">` empty and the user staring
- * at white with nothing to click. This catches it and offers the action that
- * can actually recover.
- *
- * Note the asymmetry between the two buttons, which is deliberate: a rejected
- * dynamic import is memoized by `React.lazy`, so re-rendering the same
- * component rejects again without touching the network. For that failure the
- * only thing that works is a reload, and offering "try again" would be a lie.
- * A render error, by contrast, may well be transient state that re-rendering
- * clears. So chunk failures get the reload alone.
+ * Keeps a failed render from becoming a blank page. A chunk-load failure is
+ * memoized by `React.lazy`, so only a reload recovers it; a render error may
+ * be transient, so retry is offered too.
  */
 export default class AppErrorBoundary extends Component<Props, State> {
   state: State = { error: null };
@@ -58,8 +45,7 @@ export default class AppErrorBoundary extends Component<Props, State> {
     return (
       <Fallback
         variant={this.props.variant ?? 'page'}
-        // A memoized rejection means "try again" cannot help; a reload is the
-        // only move, so the retry button is withheld rather than shown inert.
+        // A memoized rejection makes "try again" useless, so retry is withheld.
         recoverable={!isChunkLoadFailure(error)}
         onRetry={this.retry}
         onReload={this.reload}
@@ -79,10 +65,8 @@ function Fallback({
   onRetry: () => void;
   onReload: () => void;
 }) {
-  // Safe to translate here even though this component only renders on a
-  // failure: i18n is a static import in main.tsx, so it is part of the entry
-  // bundle and is always loaded by the time anything can throw. Only the
-  // lazily-loaded route chunks are at risk.
+  // Safe to translate here: i18n is a static import in main.tsx (part of the
+  // entry bundle), so only the lazily-loaded route chunks are at risk.
   const { t } = useTranslation();
   const sizing = variant === 'page' ? 'min-h-[100dvh]' : 'min-h-full';
 

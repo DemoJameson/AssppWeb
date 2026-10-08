@@ -29,10 +29,9 @@ export default function AddAccountForm() {
     "block min-h-11 w-full min-w-0 max-w-full rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white";
 
   /**
-   * What the submit button says while it waits: the signer's own stage first —
-   * the first run downloads its assets before anything can be signed — then
-   * the ordinary busy label. After the signer failed, the same button is the
-   * retry: it relabels, and submitting runs the whole sign-in again.
+   * Submit button label: the signer's own stage first (its first run downloads
+   * assets before signing), then the busy label; after a failure it relabels as
+   * the retry that reruns the whole sign-in.
    */
   function submitLabel(): string {
     if (loading && sapStage === "assets") {
@@ -63,8 +62,8 @@ export default function AddAccountForm() {
       const cleanedDeviceId = deviceId.replace(/[: ]/g, "");
       setDeviceId(cleanedDeviceId);
 
-      // A pasted phone number carries its own separators, and this value becomes
-      // the account's key — leaving them in stores one account twice over.
+      // Pasted input carries separators, and this value becomes the account's
+      // key — leaving them in stores one account twice over.
       const cleanedAppleId = appleId.trim();
 
       const account = await authenticate(

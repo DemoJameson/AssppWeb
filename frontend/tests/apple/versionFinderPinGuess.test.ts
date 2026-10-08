@@ -111,9 +111,8 @@ describe("apple/versionFinder pin guess", () => {
     const result = await listVersions(account, bareTvosApp);
 
     expect(result.versions).toEqual(["22", "21", "20"]);
-    // The iOS exchange named the anchor; the probes ran on tvOS over its
-    // neighbours, nearest first — and the ids the list itself carries (11, 10,
-    // 9, and the anchor 12) were skipped rather than probed.
+    // The iOS exchange named the anchor; tvOS probes ran over its neighbours, nearest
+    // first — ids the list already carries (11, 10, 9, and the anchor 12) were skipped.
     expect(calls[0]).toEqual({ platform: "ios", pin: "" });
     expect(calls.slice(1, 7).map((call) => call.pin)).toEqual([
       "13",
@@ -178,9 +177,8 @@ describe("apple/versionFinder pin guess", () => {
 
   it("probes nothing when the iOS list already covers every neighbour", async () => {
     const calls: string[] = [];
-    // A list whose newest id (our anchor) sits in the middle: 12 first, then
-    // 2…11 and 13…22 — every id within six steps is an iOS build, so there is
-    // no candidate left to probe.
+    // A list whose anchor (newest id) sits in the middle: 12 first, then 2…11 and
+    // 13…22 — every id within six steps is an iOS build, so no candidate is left.
     const covered = [
       ...Array.from({ length: 10 }, (_, index) => String(22 - index)),
       ...Array.from({ length: 10 }, (_, index) => String(11 - index)),
@@ -205,8 +203,7 @@ describe("apple/versionFinder pin guess", () => {
 
   it("guesses for a package-index record, whose evidence covers another platform", async () => {
     // An iOS build downloaded here, asked for as tvOS: the app is real, but no
-    // catalogue offer and no recorded pin names a tvOS build, so the guess is
-    // the only way to name one.
+    // catalogue offer or recorded pin names a tvOS build — the guess must name one.
     const localApp = { ...bareTvosApp, metadataSource: "local" } as Software;
     const calls: string[] = [];
     vi.mocked(requestDownloadProduct).mockImplementation(async (session, pin) => {
@@ -228,9 +225,8 @@ describe("apple/versionFinder pin guess", () => {
   });
 
   it("does not guess for a storefront record", async () => {
-    // The storefront already enumerated what it offers for this platform, so a
-    // missing offer is its answer rather than something to guess around — what
-    // the guess exists for is records that never had storefront data.
+    // The storefront already enumerated this platform, so a missing offer is its answer,
+    // not something to guess around — the guess is for records with no storefront data.
     const storeApp = { ...bareTvosApp, metadataSource: undefined } as Software;
 
     const error = await listVersions(account, storeApp).catch((e: unknown) => e);
@@ -242,10 +238,9 @@ describe("apple/versionFinder pin guess", () => {
   });
 
   it("never offers another platform's build as this platform's pin", async () => {
-    // A macOS page for an app that has no Mac version. The id one step from
-    // the newest iOS build is this app's tvOS build: the exchange serves it
-    // (an id names its own platform, whatever device class asks) — so the only
-    // thing that can rule it out is knowing it was recorded as tvOS.
+    // A macOS page for an app with no Mac version. The id one step from the newest
+    // iOS build is this app's tvOS build, and the exchange serves it (an id names its
+    // own platform, whatever device asks) — so only a recorded tvOS pin can rule it out.
     const macApp = { ...bareTvosApp, platform: "macos" } as Software;
     vi.mocked(apiGet).mockResolvedValue({
       pins: [{ platform: "tvos", versionId: "13" }],
@@ -272,10 +267,9 @@ describe("apple/versionFinder pin guess", () => {
   });
 
   it("rules out an older build of another platform the index holds", async () => {
-    // The Forward case, exactly: the iOS pin is 888154622 and the tvOS 1.3.18
-    // build compiled here is 888154623 — one step away, and *not* the newest
-    // tvOS id, so the pin store alone would not rule it out. The guess would
-    // reach it first and hand a macOS page the tvOS build.
+    // The Forward case exactly: the iOS pin is 888154622 and the tvOS 1.3.18 build
+    // here is 888154623 — one step away and *not* the newest tvOS id, so the pin store
+    // alone would not rule it out; the guess would reach it first.
     const macApp = { ...bareTvosApp, platform: "macos" } as Software;
     vi.mocked(apiGet).mockImplementation(async (path: string) =>
       (path.includes("package-builds")
@@ -305,9 +299,8 @@ describe("apple/versionFinder pin guess", () => {
   });
 
   it("still accepts the macOS build a delisted Mac storefront no longer names", async () => {
-    // The guess exists for exactly this: a delisted Mac app whose storefront
-    // page is gone. Its Mac build serves a `.pkg` — the one artifact a macOS
-    // page can use — so the guess must keep accepting it.
+    // The guess exists for exactly this: a delisted Mac app whose storefront page is gone
+    // and whose Mac build serves a `.pkg` — the one artifact a macOS page can use.
     const macApp = { ...bareTvosApp, platform: "macos" } as Software;
     vi.mocked(apiGet).mockResolvedValue({ pins: [] } as never);
     vi.mocked(latestVersionIdForPlatform).mockResolvedValue(undefined);
@@ -332,11 +325,10 @@ describe("apple/versionFinder pin guess", () => {
   });
 
   it("refuses a hit whose history names a build of another platform", async () => {
-    // The artifact check alone is not enough for IPA-family platforms: a
-    // macOS ask can be served an iOS/tvOS build (.ipa) just as willingly. The
-    // served history is the fingerprint — if it names an id already known
-    // under another platform, the pin landed there and is refused. This is
-    // what finally settles Forward-as-macOS: no candidate survives.
+    // The artifact check alone is not enough for IPA-family platforms: a macOS ask can be
+    // served an iOS/tvOS build (.ipa) just as willingly. The served history is the
+    // fingerprint — an id already known under another platform means the pin landed
+    // there and is refused. This finally settles Forward-as-macOS: no candidate survives.
     const macApp = { ...bareTvosApp, platform: "macos" } as Software;
     vi.mocked(apiGet).mockImplementation(async (path: string) =>
       path.includes("package-builds")
@@ -365,9 +357,8 @@ describe("apple/versionFinder pin guess", () => {
   });
 
   it("rules out the id another platform's own source names", async () => {
-    // The build one id away is on offer for tvOS right now — this instance has
-    // never downloaded it, so no recorded pin can rule it out; the tvOS
-    // catalogue can.
+    // The build one id away is on offer for tvOS right now: this instance never
+    // downloaded it, so no recorded pin rules it out — the tvOS catalogue can.
     const macApp = { ...bareTvosApp, platform: "macos" } as Software;
     vi.mocked(apiGet).mockResolvedValue({ pins: [] } as never);
     vi.mocked(latestVersionIdForPlatform).mockImplementation(
@@ -396,9 +387,8 @@ describe("apple/versionFinder pin guess", () => {
   });
 
   it("does not call a failed iOS list 'no version for this platform'", async () => {
-    // The iOS list is what every guess offsets from. Not being able to read it
-    // — a dead session, a blocked host — must stay an open question rather than
-    // reading as "this platform has no build".
+    // The iOS list is what every guess offsets from; failing to read it — a dead
+    // session, a blocked host — must stay an open question, not read as "no build".
     const calls: string[] = [];
     vi.mocked(requestDownloadProduct).mockImplementation(async (_session, pin) => {
       calls.push(pin);

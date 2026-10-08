@@ -1,17 +1,8 @@
-// Reads a version's real metadata out of its IPA, mirroring ipatool's
-// `readVersionMetadataFromIPA` (pkg/appstore/appstore_get_version_metadata.go).
-//
-// Apple's download-product exchange does carry a `releaseDate`, but that value
-// dates the *app*: every pinned version of one app comes back with the same day,
-// and the `iTunesMetadata.plist` Apple embeds in the download says the same
-// thing — see the releaseDate of a real, compiled package. ipatool therefore
-// reads the IPA itself: the app's `Info.plist` `releaseDate`/`ReleaseDate`, and
-// the archive entry's modification time when the plist carries none. That is a
-// per-build value, which is what the version pickers want.
-//
-// The package is never downloaded whole: the archive's central directory is
-// fetched from the tail and only the Info.plist entry is fetched, both bounded,
-// the same way ipatool ranges against the CDN.
+// Reads a version's real metadata out of its IPA, mirroring ipatool's `readVersionMetadataFromIPA`
+// (pkg/appstore/appstore_get_version_metadata.go). Apple's download-product exchange carries a
+// `releaseDate` but it dates the *app* (every pinned version shares the day), so the IPA is read:
+// Info.plist `releaseDate`/`ReleaseDate`, else the archive entry's mtime — a per-build value. The
+// package is never fetched whole: only the central directory (from the tail) and the Info.plist entry, bounded.
 
 import { inflateRawSync } from "node:zlib";
 import bplistParser from "bplist-parser";
@@ -49,16 +40,16 @@ export interface PackageVersionMetadata {
 }
 
 /**
- * Reads the version's display version and release date out of an IPA, given a
- * reader over that archive and its total size. Throws when the archive cannot be
- * read or the payload carries no app — the caller treats that as "no date".
+ * Reads the version's display version and release date out of an IPA, given a reader over
+ * that archive and its total size. Throws when the archive cannot be read or the payload
+ * carries no app — the caller treats that as "no date".
  */
 export async function readVersionMetadataFromRanges(
   read: RangeReader,
   size: number,
 ): Promise<PackageVersionMetadata> {
-  // Only the end-of-central-directory record itself is a hard minimum (22
-  // bytes); anything smaller cannot be an archive at all.
+  // The end-of-central-directory record itself is the hard minimum (22 bytes); smaller
+  // cannot be an archive at all.
   if (!Number.isFinite(size) || size <= 22) {
     throw new Error("not a zip archive");
   }
@@ -75,8 +66,8 @@ export async function readVersionMetadataFromRanges(
     firstString(infoPlist?.["CFBundleShortVersionString"]);
   if (!displayVersion) throw new Error("no version in Info.plist");
 
-  // ipatool's order: the plist's own date first, then the entry's modification
-  // time — never the value the download API handed out.
+  // ipatool's order: the plist's own date first, then the entry's modification time —
+  // never the value the download API handed out.
   const releaseDate =
     plistDate(infoPlist?.releaseDate) ??
     plistDate(infoPlist?.ReleaseDate) ??
@@ -86,14 +77,11 @@ export async function readVersionMetadataFromRanges(
 }
 
 /**
- * Reads that metadata for a version from its download URL, which is validated
- * like every other package address before a byte of it is fetched.
- *
- * This is the client-write path (`POST /version-metadata/:appId/:versionId/package`):
- * the URL comes from the request body, so its hostname is allowlisted to
- * `*.apple.com` first (via `validateDownloadURL`). Redirects are refused rather
- * than followed — an allowlisted URL could otherwise return a 3xx to an internal
- * or otherwise arbitrary address and the server would blindly chase it.
+ * Reads that metadata for a version from its download URL, validated like every other package
+ * address before a byte is fetched. This is the client-write path
+ * (`POST /version-metadata/:appId/:versionId/package`): the URL comes from the request body, so its
+ * hostname is allowlisted to `*.apple.com` first (via `validateDownloadURL`) and redirects are
+ * refused — an allowlisted URL could otherwise 3xx to an arbitrary address and be chased.
  */
 export async function versionMetadataFromDownloadURL(
   downloadURL: string,
@@ -126,9 +114,9 @@ type DirectoryEntry = {
 };
 
 /**
- * Fetches and walks the archive's central directory. The end-of-central-
- * directory record sits in the last bytes, so a small window finds it and the
- * directory itself is fetched in one more request.
+ * Fetches and walks the archive's central directory. The end-of-central-directory record
+ * sits in the last bytes, so a small window finds it and the directory is fetched in one
+ * more request.
  */
 async function readCentralDirectory(
   read: RangeReader,
@@ -147,11 +135,10 @@ async function readCentralDirectory(
   }
   if (eocd === -1) throw new Error("not a zip archive");
 
-  // Zip64 relocates the real values into extra records this reader does not
-  // walk. Detect it two ways — the locator record that precedes the EOCD, and
-  // the 0xFFFFFFFF marker fields — and say so, instead of failing later with a
-  // nonsense offset. No App Store IPA is zip64 (entries are far below 4 GiB),
-  // so refusing is the honest outcome.
+  // Zip64 relocates the real values into extra records this reader does not walk. Detect
+  // it two ways — the locator record before the EOCD and the 0xFFFFFFFF marker fields —
+  // and refuse, instead of failing later with a nonsense offset. No App Store IPA is
+  // zip64 (entries are far below 4 GiB), so refusing is the honest outcome.
   const entries = tail.readUInt16LE(eocd + 10);
   const directorySize = tail.readUInt32LE(eocd + 12);
   const directoryOffset = tail.readUInt32LE(eocd + 16);
@@ -175,9 +162,8 @@ async function readCentralDirectory(
   const parsed: DirectoryEntry[] = [];
   let offset = 0;
   for (let index = 0; index < entries; index += 1) {
-    // A truncated directory (the EOCD's entry count is corrupt) would otherwise
-    // surface as a raw RangeError from readUInt32LE below; fail with a readable
-    // error instead. 46 is the fixed central-directory header length.
+    // A truncated directory (corrupt EOCD entry count) would otherwise surface as a raw
+    // RangeError from readUInt32LE below; 46 is the fixed central-directory header length.
     if (offset + 46 > directory.length) {
       throw new Error("unreadable central directory");
     }
@@ -229,8 +215,8 @@ async function readEntry(
 
   if (entry.method === 0) return raw;
   if (entry.method === 8) {
-    // A declared size that lies can still inflate far past the limit, so the
-    // decompressor gets the same bound as a second line of defense.
+    // A declared size that lies can still inflate far past the limit, so the decompressor
+    // gets the same bound as a second line of defense.
     return inflateRawSync(raw, { maxOutputLength: MAX_ENTRY_OUTPUT });
   }
   throw new Error(`unsupported compression method ${entry.method}`);
@@ -246,8 +232,8 @@ async function readContentLength(url: string): Promise<number> {
     const value = Number(response.headers.get("content-length"));
     if (Number.isFinite(value) && value > 0) return value;
   }
-  // Some CDNs answer HEAD with nothing useful: a one-byte range returns the
-  // total in `Content-Range`.
+  // Some CDNs answer HEAD with nothing useful: a one-byte range returns the total in
+  // `Content-Range`.
   const ranged = await fetch(url, {
     headers: { Range: "bytes=0-0" },
     redirect: "error",
@@ -296,9 +282,9 @@ function firstString(value: unknown): string | undefined {
 }
 
 /**
- * MS-DOS date and time, as the zip directory stores it. Built in UTC so the
- * result matches what yauzl's `getLastMod()` reports for the same entry — the
- * value the download pipeline already records for compiled packages.
+ * MS-DOS date and time, as the zip directory stores it. Built in UTC so the result matches
+ * what yauzl's `getLastMod()` reports for the same entry — the value the download pipeline
+ * already records for compiled packages.
  */
 function dosDateTime(date: number, time: number): Date {
   return new Date(

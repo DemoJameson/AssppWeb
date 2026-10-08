@@ -69,7 +69,6 @@ export async function encryptData(
   combined.set(iv, salt.length);
   combined.set(encryptedBytes, salt.length + iv.length);
 
-  // Convert Uint8Array to Base64
   let binary = "";
   const chunkSize = 0x8000;
   for (let i = 0; i < combined.length; i += chunkSize) {

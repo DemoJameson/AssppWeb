@@ -36,9 +36,8 @@ describe("assertPackageMatchesPlatform", () => {
   const ipaUrl = "https://iosapps.example.com/app.ipa";
 
   it("refuses a macOS package for a task that is not a macOS one", () => {
-    // The version pin that selects the build can have been guessed, so a tvOS or
-    // visionOS task really can be offered a Mac package — and it would only fail
-    // after the whole thing had been downloaded.
+    // The version pin can be guessed, so a tvOS or visionOS task really can be offered a
+    // Mac package — which would only fail after the whole download.
     expect(() => assertPackageMatchesPlatform(pkgUrl, "tvos")).toThrow(
       /macOS package/,
     );
@@ -242,10 +241,9 @@ describe("applyPackageMetadata", () => {
     expect(target.artworkUrl).toBe("https://cdn.apple.com/store.jpg");
   });
 
-  // A universal app searched as tvOS can be served its iOS build: the record
-  // arrives carrying tvOS's floor, and the package corrects the platform. The
-  // floor has to follow the platform, or the row pairs one platform's name with
-  // another's minimum (Forward shown as "iOS 17.0" when iOS is 16.0).
+  // A universal app searched as tvOS can be served its iOS build: the record arrives with
+  // tvOS's floor while the package corrects the platform. The floor must follow it, or the
+  // row pairs one platform's name with another's minimum (Forward shown as "iOS 17.0").
   it("takes the package's minimum OS when it corrects the platform", () => {
     const target = software({
       platform: "tvos",

@@ -1,8 +1,6 @@
-// Guest service shims for the SAP machine: libc memory functions plus the
-// CoreFoundation/IOKit/objc surface the emulated CommerceKit code touches.
-// Ported from ipatool's internal/sap/machine (shim_memory.go, shim_platform.go,
-// shims.go). Imports resolve to 16-byte stub slots holding a single RET; a code
-// hook over the shim area dispatches on the entry address.
+// Guest service shims for the SAP machine: libc memory fns plus the CF/IOKit/objc
+// surface CommerceKit touches (ported from ipatool's internal/sap/machine).
+// Imports are 16-byte stub slots holding RET; a shim-area code hook dispatches.
 
 import { UnicornEngine, X86_REG } from "./engine";
 
@@ -18,9 +16,8 @@ const PAGE_SIZE = 0x1000;
 export const HEAP_BASE = 0x0000400000000000;
 export const HEAP_SIZE = 64 << 20;
 
-// Passed through regWrite as -1: wasm's saturating f64->i64 conversion turns
-// -1 into the full 64-bit 0xFFFF...F (Go's math.MaxUint64), which cannot be
-// represented exactly as a JS number.
+// Passed through regWrite as -1: wasm's saturating f64->i64 makes it the full
+// 64-bit 0xFFFF...F (Go's math.MaxUint64), not representable exactly as a JS number.
 const FAKE_HANDLE = -1;
 const CORE_FP_FILE = 3;
 const CORE_FP_PATH = "/System/Library/PrivateFrameworks/CoreFP.framework/CoreFP";

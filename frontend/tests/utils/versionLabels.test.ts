@@ -21,9 +21,8 @@ describe("versionOptionLabel", () => {
   });
 
   it("prints a date read out of a package at a client's URL too", () => {
-    // The server cannot attest that such a package is the build the ids name,
-    // but the bytes did come out of one — so the date is still the build's, and
-    // a row another browser filled in reads the same here.
+    // The server cannot attest that such a package is the build the ids name, but the bytes
+    // did come out of one — so the date is still the build's, whoever filled the row in.
     expect(
       versionOptionLabel("894041913", { ...meta, source: "package-read" }),
     ).toBe("8.2.1 (894041913) · 2025-06-12");

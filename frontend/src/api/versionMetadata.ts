@@ -11,9 +11,9 @@ interface VersionMetadataResponse {
 }
 
 /**
- * Reads the backend's shared version metadata cache for an app, keyed by
- * version id. Best effort by design: any failure resolves to an empty map so
- * callers degrade to the live Apple flow — the cache never blocks a picker.
+ * Reads the backend's shared version metadata cache for an app, keyed by version
+ * id. Best effort: failure resolves to an empty map, so callers degrade to the
+ * live Apple flow — the cache never blocks a picker.
  */
 export async function fetchVersionMetadata(
   appId: string | number,
@@ -40,11 +40,10 @@ export async function fetchVersionMetadata(
 }
 
 /**
- * Saves metadata the frontend fetched live from Apple into the backend's
- * shared cache. Best effort: failures resolve silently because the live value
- * is already on screen — the server may also decline (saved: false) when a
- * compiled package already knows better. The request is keepalive, so a
- * lookup that lands just as the user closes the page still gets delivered.
+ * Saves metadata the frontend fetched live from Apple into the backend's shared
+ * cache. Best effort: failures resolve silently (the live value is already on
+ * screen), and the server may decline when a compiled package knows better. The
+ * request is keepalive, so a lookup landing as the page closes still gets delivered.
  */
 export async function saveVersionMetadata(
   appId: string | number,
@@ -64,10 +63,9 @@ export async function saveVersionMetadata(
 
 /**
  * Asks the backend to read a version's metadata out of its own package — the
- * per-build source of truth for the release date, which the exchange's
- * app-level value is not (see `services/packageVersionMetadata`). Best effort:
- * a failure resolves to `undefined` and the caller keeps whatever the exchange
- * said, minus the date it cannot vouch for.
+ * per-build source of truth for the release date, which the exchange's app-level
+ * value is not (see `services/packageVersionMetadata`). Best effort: failure
+ * resolves to `undefined`.
  */
 export async function fetchPackageVersionMetadata(
   appId: string | number,
@@ -80,10 +78,9 @@ export async function fetchPackageVersionMetadata(
       { downloadURL },
     );
     if (!res?.entry?.displayVersion || !res.entry.releaseDate) return undefined;
-    // Whatever the server kept: a `package-read` entry when it took the write,
-    // or the pipeline's own `package` record when it declined because one was
-    // already there. Either way the date is a build's, which is what the label
-    // needs (`utils/versionLabels` prints a date only for those).
+    // Whatever the server kept: a `package-read` entry when it took the write, or
+    // the pipeline's own `package` record when one already existed. Either way the
+    // date is a build's, which is what `utils/versionLabels` prints a date for.
     return {
       displayVersion: res.entry.displayVersion,
       releaseDate: res.entry.releaseDate,

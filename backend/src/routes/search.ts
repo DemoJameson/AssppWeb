@@ -12,9 +12,8 @@ import type { PackageAppRecord } from "../services/packageAppStore.js";
 const router = Router();
 
 /**
- * Accepted `platform` query values — the frontend's `Platform` values plus
- * ipatool's aliases. Unknown values are dropped rather than forwarded so a
- * stray parameter never reaches Apple.
+ * Accepted `platform` values: the frontend's `Platform` plus ipatool's aliases.
+ * Unknown values are dropped, never forwarded to Apple.
  */
 const PLATFORM_VALUES: Record<string, Platform> = {
   ios: "ios",
@@ -52,8 +51,7 @@ function mapSoftware(item: Record<string, any>, platform?: Platform) {
     releaseNotes: item.releaseNotes,
     formattedPrice: item.formattedPrice,
     primaryGenreName: item.primaryGenreName,
-    // The caller's platform choice is the authority: macOS and tvOS results
-    // surfaced through a shared entity still report the platform asked for.
+    // The caller's platform choice is authoritative, not the entity's.
     platform,
   };
 }
@@ -72,14 +70,10 @@ router.get("/search", async (req: Request, res: Response) => {
     const results = (data.results ?? []).map((item: Record<string, any>) =>
       mapSoftware(item, platform),
     );
-    // Delisted apps live in the package-app index, not the catalogue: merge
-    // their name matches in on top, tagged so the list can say so — and never
-    // when the storefront already lists the same app. A name match against the
-    // index only proves we downloaded the app once, not that it was delisted:
-    // the search term may simply not have matched (e.g. "sen" does not find
-    // "SenPlayer"). Re-check each match by bundle id against the storefront —
-    // if it is still there, use that data untagged; only when the storefront
-    // has nothing do we tag it as a local record.
+    // Merge delisted apps' name matches from the package-app index on top (a
+    // name match only proves the app was downloaded once, not that it is
+    // delisted). Re-check each by bundle id: if the storefront still has it, use
+    // that data untagged; only otherwise tag it as a local record.
     const term = typeof req.query.term === "string" ? req.query.term : "";
     if (term.trim()) {
       const seen = new Set(results.map((item: any) => item.id));
@@ -136,8 +130,8 @@ router.get("/lookup", async (req: Request, res: Response) => {
     );
     const data = await response.json();
     if (!data.resultCount || !data.results?.length) {
-      // The storefront forgot the app — fall back to what past downloads'
-      // compiled packages recorded about it, so delisted apps stay findable.
+      // Storefront forgot the app — fall back to the package-app index so
+      // delisted apps stay findable.
       res.json(localSoftwareFrom(req.query, platform) ?? null);
       return;
     }
@@ -151,10 +145,8 @@ router.get("/lookup", async (req: Request, res: Response) => {
 export default router;
 
 /**
- * Builds a Software record from the package-app index when the storefront
- * knows nothing about the app: the compiled package is the authority on what
- * it contains, delisted or not. `metadataSource` tells the frontend where the
- * record came from so it can say so.
+ * Builds a Software record from the package-app index when the storefront knows
+ * nothing about the app. `metadataSource` marks it as local for the frontend.
  */
 function localSoftwareFrom(query: Record<string, unknown>, platform?: Platform) {
   const bundleId = typeof query.bundleId === "string" ? query.bundleId : "";
@@ -167,19 +159,10 @@ function localSoftwareFrom(query: Record<string, unknown>, platform?: Platform) 
 }
 
 /**
- * One package-app record as the Software shape the frontend renders: the
- * requested platform's build supplies the version id, version, minimum OS, size
- * and release date (a tvOS build must not pass for an iOS lookup), and
- * `metadataSource` tells the frontend where the record came from.
- *
- * The storefront knows nothing more to add — it has forgotten the app — so what
- * is left out here (the price, the description, the screenshots, the seller)
- * is left out because the package never carried it. `artistName` is the app's
- * own, and the UI falls back to it where a seller name would go.
- *
- * The size is the package's own on-disk size, not Apple's installed size: it is
- * what a download of this app from this instance would actually transfer, which
- * is the same number the downloads view prints under 大小.
+ * One package-app record as the Software shape the frontend renders; the
+ * requested platform's build supplies version id, version, minimum OS, size and
+ * release date (a tvOS build must not pass for an iOS lookup). Size is the
+ * package's own on-disk size, not Apple's installed size.
  */
 function softwareFromRecord(record: PackageAppRecord, platform?: Platform) {
   const build = buildForPlatform(record, platform);
@@ -196,8 +179,7 @@ function softwareFromRecord(record: PackageAppRecord, platform?: Platform) {
     artworkUrl: record.artworkUrl ?? "",
     screenshotUrls: [],
     minimumOsVersion: build?.minimumOsVersion ?? "",
-    // The build's own id: what a detail view ties the record to when the list
-    // offers a version — a version number can name two different builds.
+    // The build's own id: a version number can name two different builds.
     externalVersionId: build?.externalVersionId,
     fileSizeBytes: build?.fileSizeBytes,
     releaseDate: build?.releaseDate ?? "",

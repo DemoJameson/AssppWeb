@@ -2,16 +2,9 @@ import { useTranslation } from "react-i18next";
 import { useSapStore } from "../../store/sap";
 
 /**
- * What the SAP signer is doing, for the form that waits on it. It sits in the
- * submit area — where the eye already is when the button goes busy — and the
- * slot keeps a single line's height at all times, so a message appearing or
- * clearing never moves the buttons above it.
- *
- * Idle and ready say nothing. While the assets download it explains the one
- * thing that costs time and cannot be seen (the first run fetches them); the
- * percentage itself rides on the submit button's label. A failure keeps its
- * whole message — it is the actionable part of the screen; the retry lives on
- * the submit button itself, which relabels to offer it.
+ * What the SAP signer is doing, for the form waiting on it. The slot keeps one
+ * line's height so messages never shift the buttons; assets-download explains
+ * the unseen first-run cost, and a failure keeps its full, actionable message.
  */
 export default function SapStatus() {
   const { t } = useTranslation();

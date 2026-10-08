@@ -5,11 +5,10 @@ import os from "os";
 import path from "path";
 import type { Database as DatabaseHandle } from "better-sqlite3";
 
-// The legacy-JSON migration is the one chunk of db.ts that only ever runs on
-// an old instance's first boot, so it is easy for it to rot silently. Each case
-// runs against its own scratch DATA_DIR with a freshly imported db module:
-// `config.dataDir` is read once at import time, so the env is set before the
-// dynamic import and the module registry is reset in between.
+// The legacy-JSON migration is the one chunk of db.ts that only runs on an old instance's
+// first boot, so it is easy to rot silently. Each case runs against its own scratch
+// DATA_DIR with a freshly imported db module: `config.dataDir` is read once at import
+// time, so the env is set before the dynamic import and the registry is reset between.
 async function withDb<T>(
   dir: string,
   seed: (dir: string) => void,
@@ -84,9 +83,8 @@ describe("schema upgrades", () => {
         old.close();
       },
       (db) => {
-        // Appended by ALTER TABLE, so they land after `updated_at` — the order
-        // differs from a fresh database's, which every query here is written to
-        // survive (columns are always named).
+        // Appended by ALTER TABLE, so they land after `updated_at` — an order that differs
+        // from a fresh database's, which every query here survives (columns are always named).
         expect(columns(db, "package_app_builds")).toEqual(
           expect.arrayContaining([
             "app_id",

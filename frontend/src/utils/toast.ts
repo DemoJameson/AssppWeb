@@ -7,8 +7,8 @@ export interface AccountContext {
 }
 
 /**
- * Extract display-friendly account context for toast notifications.
- * The label matches the account dropdown format (region · name (email)).
+ * Display-friendly account context for toasts; the label matches the account
+ * dropdown format (region · name (email)).
  */
 export function getAccountContext(
   account: Account | undefined,

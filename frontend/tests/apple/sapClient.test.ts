@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The signer's own modules are mocked: `./protocol` reaches libcurl (which does
-// not run under jsdom) and `./assets` would try to download 14 MB. Everything
-// else — the driver, its timeouts, the signer's setup sequence, the cached
-// preparation — is the real thing.
+// The signer's own modules are mocked: `./protocol` reaches libcurl (which does not run
+// under jsdom) and `./assets` would download 14 MB. Everything else — the driver, its
+// timeouts, the setup sequence, the cached preparation — is the real thing.
 vi.mock("../../src/apple/sap/protocol", () => ({
   fetchSetupCertificate: vi.fn(async () => new Uint8Array([1])),
   exchangeSetupBuffer: vi.fn(async () => new Uint8Array([2])),

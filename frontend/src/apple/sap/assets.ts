@@ -14,10 +14,9 @@ export interface SapAssetSpec {
 }
 
 /**
- * Digests of the distributed assets. The backend strips fat binaries to their
- * x86_64 slice (the emulated guest architecture) after verifying Apple's
- * original digests during extraction — see
- * backend/src/services/sapAssets.ts for both pin sets.
+ * Digests of the distributed assets; the backend strips fat binaries to their
+ * x86_64 slice (the emulated guest architecture) after verifying Apple's pins.
+ * See backend/src/services/sapAssets.ts for both pin sets.
  */
 export const SAP_ASSET_SPECS: SapAssetSpec[] = [
   {
@@ -90,9 +89,9 @@ async function digestMatches(
 }
 
 /**
- * Loads all four SAP assets, verifying digests. Served bytes come from the
- * backend cache (public Apple data); the browser persists them in the Cache
- * API so the ~38 MiB transfer happens once.
+ * Loads all four SAP assets, verifying digests. Bytes come from the backend
+ * cache (public Apple data) and are persisted in the Cache API so the ~38 MiB
+ * transfer happens once.
  */
 export async function loadSapAssets(
   onProgress?: (loadedBytes: number, totalBytes: number) => void,
@@ -115,8 +114,7 @@ export async function loadSapAssets(
       if (cached) {
         const cachedBytes = new Uint8Array(await cached.arrayBuffer());
         if (await digestMatches(cachedBytes, spec.sha256)) {
-          // Hand out the verified view directly — nothing else references it,
-          // and the old extra copy doubled peak memory for no reason.
+          // Hand out the verified view directly; a copy doubled peak memory for nothing.
           data = cachedBytes;
         }
       }

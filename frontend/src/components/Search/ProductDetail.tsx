@@ -81,23 +81,21 @@ export default function ProductDetail() {
   } | null;
   const stateApp = previewEnabled ? previewProductApp : routeState?.app;
   const stateCountry = previewEnabled ? 'US' : routeState?.country;
-  // A package's 「应用详情」 hop carries its owning account; the region
-  // effect below honours that exact account over a country-first match.
+  // A package's 「应用详情」 hop carries its owning account; the region effect
+  // below honours it over a country-first match.
   const routeAccountEmail =
     !previewEnabled && typeof routeState?.accountEmail === 'string'
       ? routeState.accountEmail
       : '';
   const [searchParams] = useSearchParams();
-  // The platform the entry names: the record's own when it carries one (a
-  // package hop does), else the query the search results attached. The selector
-  // below can move the page to another platform afterwards.
+  // The platform the entry names: the record's own when it carries one, else
+  // the query the search attached; the selector can move it afterwards.
   const entryPlatform: Platform =
     stateApp?.platform ?? parsePlatform(searchParams.get("platform")) ?? "ios";
   const [platform, setPlatform] = useState<Platform>(entryPlatform);
-  // A version id from the route speaks only for the platform it came from: it
-  // is a build of the package hop, and switching the selector leaves that
-  // package behind — a foreign id must neither name a version here nor pin this
-  // platform's exchange.
+  // A route version id speaks only for the platform it came from (it is the
+  // package hop's build): a foreign id must neither name a version here nor pin
+  // this platform's exchange.
   const routeVersionId =
     !previewEnabled &&
     platform === entryPlatform &&
@@ -105,11 +103,9 @@ export default function ProductDetail() {
     /^\d+$/.test(routeState.versionId)
       ? routeState.versionId
       : '';
-  // The region this page answers for. It arrives with the navigation state; an
-  // entry that carries none (a reload, a shared link) takes the first account's
-  // storefront — which is why the first lookup waits for the account store:
-  // committing "US" while a CN-only set is still loading would ask the US
-  // storefront and leave the page with no account of its own.
+  // The region this page answers for: the navigation state's, else the first
+  // account's storefront. The first lookup therefore waits for the account
+  // store, or a CN-only set would commit "US" and ask the wrong storefront.
   const [enteredCountry, setCountry] = useState(stateCountry ?? "");
   const fallbackCountry = firstAccountCountry(productAccounts) ?? "US";
   const country = enteredCountry || fallbackCountry;
@@ -133,10 +129,8 @@ export default function ProductDetail() {
     fillVersionsSilently,
   } = useVersionMetadataMap();
 
-  // Every package the download list carries: what the version list may mark as
-  // downloaded, and what a download refuses to add a second time. Both are
-  // asked of one account (`accountKey`) — a package belongs to the account
-  // that fetched it.
+  // Every package the download list carries, asked of one account
+  // (`accountKey`): a package belongs to the account that fetched it.
   const tasks = useDownloadsStore((s) => s.tasks);
 
   const { selectedAccount, selectAccount } = useSelectedAccount(
@@ -146,8 +140,7 @@ export default function ProductDetail() {
 
   const account = productAccounts.find((a) => a.email === selectedAccount);
   // The key a package is filed under, per account (see `utils/downloaded`):
-  // everything this page calls "已下载" is asked of the account on screen — the
-  // same build under another account is a package of its own.
+  // everything this page calls "已下载" is asked of the account on screen.
   const accountHashes = useAccountHashes(productAccounts);
   const accountKey = account ? accountHashes[account.email] ?? '' : '';
   const isDownloading = loadingAction === 'download';
@@ -156,27 +149,20 @@ export default function ProductDetail() {
 
   // The version-list cache is keyed by app+platform+region: a different
   // storefront answers differently, so its lists must never be reused here.
-  // The region is this page's own dimension (it follows the selected account's
-  // storefront), and the search page's prefetch wrote under the same region it
-  // navigated in with.
+  // The search page's prefetch wrote under the region it navigated in with.
 
-  // The newest version the fetched list knows. It answers for a build the page
-  // was not opened on, and it beats the recorded build, which can be a stale
-  // download (a delisted app shows its true latest).
+  // The newest version the fetched list knows; it beats the recorded build,
+  // which can be a stale download (a delisted app shows its true latest).
   const cachedVersions = useVersionListsStore((s) =>
     app ? s.lists[versionListKey(app.id, app.platform, country)] : undefined,
   );
   const latestListVersionId = cachedVersions?.[0] ?? "";
 
   // The platform the packages are compared against: a record can arrive
-  // without one (a storefront answer asked for iOS does), while the version
-  // list — and everything it is matched with — belongs to the dimension the
-  // page is showing.
+  // without one, while the version list belongs to the dimension on screen.
   const appPlatform = app?.platform ?? platform;
-  // The builds the selected account already holds of this app. A version list
-  // is asked of one platform, so only that platform's packages can answer for
-  // the ids it offers — and only that account's, since another account's copy
-  // of a build neither marks it here nor keeps it out of a download.
+  // The builds the selected account holds of this app: only that platform's
+  // packages, and only that account's, can answer for the ids the list offers.
   const downloaded = app
     ? downloadedBuilds(tasks, app.id, appPlatform, accountKey)
     : undefined;
@@ -189,20 +175,15 @@ export default function ProductDetail() {
       versionMeta[versionId]?.displayVersion,
     );
 
-  // The build this page is about: what the picker shows once it has been used,
-  // else the package the downloads hop came from (the link hands over its
-  // version id), else the newest the fetched list named. It is what 详细信息
-  // answers for, what a download would ask for, and what the 已下载 state is
-  // read from — one build, one set of numbers.
-  //
-  // Empty when nothing named one: Apple picks the build then, so the button
-  // stays available (the hook makes the same check against the record's own
-  // version) and the rows fall back to the record's build below.
+  // The build this page is about: the picker's pick, else the downloads hop's
+  // package, else the newest the fetched list named — 详细信息, a download and the
+  // 已下载 state all answer for it. Empty when nothing named one: Apple picks then,
+  // so the button stays available and the rows fall back to the record's build.
   const currentVersionId =
     selectedVersion || routeVersionId || latestListVersionId;
   const currentMeta = versionMeta[currentVersionId];
-  // The package the account holds of that build, when it holds one: a compiled
-  // package is the authority for its own version, size, minimum OS and date.
+  // The package the account holds of that build: a compiled package is the
+  // authority for its own version, size, minimum OS and date.
   const heldBuild = app
     ? heldBuildFor(
         tasks,
@@ -213,11 +194,9 @@ export default function ProductDetail() {
         accountKey,
       )
     : undefined;
-  // Whether the record describes the build on screen. The record carries its
-  // build's external id, so the ids decide it — a version number can name two
-  // different builds, which is exactly the confusion this avoids. Only a record
-  // from before the id was recorded has nothing else to speak with, and then the
-  // number does — the same rule `utils/downloaded` applies to held packages.
+  // Whether the record describes the build on screen: the external ids decide
+  // it, since a version number can name two builds. Falling back to the number
+  // matches `utils/downloaded`'s rule for held packages.
   const recordIsCurrent =
     !!app &&
     (!currentVersionId ||
@@ -228,9 +207,7 @@ export default function ProductDetail() {
     currentMeta?.displayVersion ||
     heldBuild?.software.version ||
     (recordIsCurrent ? app?.version ?? "" : "");
-  // The id printed beside the version. The named build's when one is named;
-  // with nothing named, the record's own — the same build, and the only other
-  // place an id can come from.
+  // The id printed beside the version: the named build's, else the record's own.
   const displayVersionId =
     currentVersionId || (recordIsCurrent ? app?.externalVersionId ?? "" : "");
   const currentFileSizeBytes = heldBuild
@@ -245,8 +222,7 @@ export default function ProductDetail() {
       : "";
   // A date may only come from a package read (`utils/versionLabels` prints only
   // those): the exchange dates the *app*, not the build. A held package's own
-  // date is the one the version list shows next to this id; the record's is the
-  // recorded build's.
+  // date is the one the version list shows; the record's is the recorded build's.
   const currentReleaseDate =
     heldBuild?.software.releaseDate ||
     (dateComesFromPackage(currentMeta?.source) ? currentMeta.releaseDate : '') ||
@@ -254,16 +230,12 @@ export default function ProductDetail() {
 
   const targetDownloaded = !!currentVersionId && isVersionDownloaded(currentVersionId);
 
-  // Undefined when nobody priced this app — a delisted or bare record then gets
-  // no chip at all rather than a dash standing in for data.
+  // Undefined when nobody priced this app: no chip rather than a dash.
   const price = app ? displayPrice(app, t("search.product.free")) : undefined;
 
-  // The accounts that can serve this page's region, and the ones that cannot.
-  // A foreign account cannot answer this region's storefront calls, so it is
-  // never shown as the current pick — the control says there is no account
-  // instead, and offers the others as a deliberate move in their own group.
-  // Memoised because the version effect takes it as a dependency: a filter is
-  // new every render, and that would re-run the fill on every render.
+  // The accounts that can serve this page's region. A foreign account cannot
+  // answer this region's storefront calls, so it is never the current pick.
+  // Memoised because the version effect takes it as a dependency.
   const regionAccounts = useMemo(
     () => productAccounts.filter((a) => accountStoreCountry(a) === country),
     [productAccounts, country],
@@ -286,12 +258,9 @@ export default function ProductDetail() {
   const explicitMoveRef = useRef<string | null>(null);
 
   /**
-   * Reloads the app for the current storefront and platform. The navigation
-   * state is used as-is on first render; afterwards any account pick (which
-   * moves `country` to that account's storefront) or platform change
-   * refetches, so the page always reflects the selection — and a selection
-   * the app does not exist in snaps back to the previous one with a notice
-   * instead of dead-ending on the not-found page.
+   * Reloads the app for the current storefront and platform. The navigation state
+   * is used as-is on first render; later account/platform changes refetch, and a
+   * selection the app is absent from snaps back with a notice.
    */
   const lastLookupKeyRef = useRef<string | null>(
     stateApp ? `${appId}|${stateCountry ?? "US"}|${platform}|0` : null,
@@ -312,16 +281,14 @@ export default function ProductDetail() {
 
   useEffect(() => {
     if (!appId) return;
-    // An entry with no region of its own has to wait for the account store:
-    // its region is the first account's storefront, and looking up before that
-    // is known would ask the fallback storefront.
+    // An entry with no region of its own waits for the account store: its region
+    // is the first account's storefront, and looking up first asks the fallback.
     if (regionPending) return;
     const lookupKey = `${appId}|${country}|${platform}|${reloadToken}`;
     if (lookupKey === lastLookupKeyRef.current) return;
     lastLookupKeyRef.current = lookupKey;
 
-    // The loaded version list — and what the exchange concluded about this
-    // platform — belongs to the previous storefront/platform.
+    // The loaded version list belongs to the previous storefront/platform.
     setVersions([]);
     setSelectedVersion("");
     setVersionsOpen(false);
@@ -340,9 +307,7 @@ export default function ProductDetail() {
         }
         const lastGood = lastGoodRef.current;
         // The notice button is a second, deliberate confirmation to leave the
-        // region: a miss there is the truth to show, not a mistake to undo —
-        // with a single account the snap-back would be an inescapable loop.
-        // A plain dropdown pick keeps the old protection.
+        // region: its miss stands, or a single account loops on snap-back.
         const forcedMove = explicitMoveRef.current === country;
         explicitMoveRef.current = null;
         if (
@@ -351,10 +316,8 @@ export default function ProductDetail() {
           !lastGood ||
           (lastGood.country === country && lastGood.platform === platform)
         ) {
-          // Nothing carries the app here, and there is no earlier selection to
-          // fall back to. A numeric App ID may still be real even so — the
-          // version exchange decides that (see the probe below) — so the record
-          // is kept and probed rather than declared missing on the spot.
+          // Nothing carries the app here and there is no earlier selection. A numeric
+          // App ID may still be real: keep it and probe (see below).
           const bare = /^\d+$/.test(appId)
             ? bareSoftwareById(appId, platform)
             : null;
@@ -403,39 +366,23 @@ export default function ProductDetail() {
     t,
   ]);
 
-  // A record the storefront does not carry — a delisted app, or a bare App ID
-  // nothing knows — gets its version list fetched in the background when the
-  // view opens, bounded and silent, so 选择版本 can open straight from the cache
-  // instead of waiting on the exchange. A cached list still gets its labels
-  // filled (newest-version display / picker text).
-  //
-  // For a record with no evidence for the platform on screen this exchange is
-  // also the only thing that can say whether anything is fetchable here: Apple
-  // reporting nothing to serve means there is nothing to fetch, so a bare id
-  // falls through to not-found rather than offering a download that can never
-  // be built. A `local` record is evidence from a compiled package — of *some*
-  // platform — so Apple's answer settles this platform at most: it stays, with
-  // the notice saying why it could not be settled. A failure about the session
-  // or the transport concludes nothing either way.
+  // A record the storefront does not carry (a delisted app, or a bare App ID)
+  // gets its version list fetched silently in the background so 选择版本 can open
+  // from the cache. For a record with no evidence for this platform the exchange
+  // alone decides fetchability: Apple reporting nothing to serve means a bare id
+  // falls through to not-found, while a `local` record stays with a notice.
   const prefetchedListKeysRef = useRef<Set<string>>(new Set());
   /**
-   * The keys whose silent fill has already been started. The fill begins by
-   * folding the backend's shared cache in, and this effect re-runs whenever the
-   * page re-renders with a fresh dependency identity — a storefront switch, a
-   * new record, or the account store handing over a new array after the cookies
-   * of an exchange were written back. Without this guard each of those runs
-   * asks for the same cache again, and since the answer lands in the store this
-   * page subscribes to, the asks sustain themselves: the request loop seen when
-   * the page moved to another region's account. One fill per
-   * app+platform+region per page visit.
+   * The keys whose silent fill has already started. This effect re-runs with a new
+   * dependency identity, and without the guard each run re-asks the same cache —
+   * a self-sustaining request loop. One fill per app+platform+region per page visit.
    */
   const filledListKeysRef = useRef<Set<string>>(new Set());
   /** False once the page is gone: a settled probe must not touch state. */
   const mountedRef = useRef(true);
   useEffect(() => {
-    // Re-armed on setup, not only cleared on cleanup: React StrictMode runs
-    // setup → cleanup → setup on mount, and the cleanup's `false` must not
-    // survive into the second run (it would mute every settled probe).
+    // Re-armed on setup, not only cleared on cleanup: StrictMode runs setup →
+    // cleanup → setup, and the cleanup's `false` must not mute the second run.
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
@@ -443,11 +390,8 @@ export default function ProductDetail() {
   }, []);
   const [probeNote, setProbeNote] = useState("");
   /**
-   * Set when the version exchange answered that this platform has no build to
-   * name: no catalogue or storefront offer, no recorded pin, and no neighbour
-   * id that belongs to it. The app may still exist elsewhere — a package on
-   * this instance is proof of that — but there is nothing to download *here*,
-   * so the download is out rather than a button that can only fail.
+   * Set when the exchange answered that this platform has no build to name: nothing
+   * to download *here*, so the download is out rather than a button that can only fail.
    */
   const [platformUnavailable, setPlatformUnavailable] = useState(false);
   useEffect(() => {
@@ -455,15 +399,10 @@ export default function ProductDetail() {
     if (!needsVersionExchange(app)) return;
     const verify = needsFetchVerification(app);
     const bare = app.metadataSource === "bare";
-    // The exchange answers for this page's region only through an account of
-    // that region: `apple/versionFinder` sends the *account's* storefront, so a
-    // foreign one both earns "Account Not In This Store" and would cache its
-    // answer under this region's key — where the search page reads a settled
-    // verdict. With no such account nothing is asked — not even the background
-    // version fill, which drives the same authenticated exchange — and the
-    // add-account banner or the region notice is what says why. A "could not
-    // check" line would claim a verdict that was never asked for, so a stale one
-    // from the storefront this page has moved away from comes off as well.
+    // Only an account of this region can answer for it: `apple/versionFinder` sends
+    // the *account's* storefront, so a foreign account fails ("Account Not In This
+    // Store") and would cache under this region's key. With none, nothing is asked
+    // — not even the background fill — and a stale note comes off.
     const probeAccount =
       regionAccounts.find((a) => a.email === selectedAccount) ??
       regionAccounts[0];
@@ -481,8 +420,7 @@ export default function ProductDetail() {
     };
     const cached = getCachedVersionList(key);
     if (cached) {
-      // The exchange already answered for this id and produced versions: they
-      // are the proof something is fetchable here, so nothing is unverified —
+      // The exchange already produced versions: proof something is fetchable here,
       // and no verdict from another storefront survives it.
       setProbeNote("");
       setPlatformUnavailable(false);
@@ -529,11 +467,9 @@ export default function ProductDetail() {
     t,
   ]);
 
-  // Entering from a search that picked a region brings the matching account
-  // along, so the view speaks for that storefront from the start — and it
-  // keeps re-asserting until the selection is settled, so a React StrictMode
-  // double-run of the neighbour effect cannot clobber it. Once settled, the
-  // picker is left alone.
+  // Entering from a search that picked a region brings the matching account along,
+  // re-asserting until the selection is settled so a StrictMode double-run cannot
+  // clobber it. Once settled, the picker is left alone.
   const regionHonoredRef = useRef(false);
   useEffect(() => {
     if (
@@ -594,36 +530,31 @@ export default function ProductDetail() {
   }
 
   /**
-   * Picking an account moves the view to that account's storefront: the
-   * country follows the account, and the reload token forces a refetch even
-   * when the storefront did not change.
+   * Picking an account moves the view to its storefront: the country follows the
+   * account, and the reload token forces a refetch even if it did not change.
    */
   function handleAccountChange(email: string, forced = false) {
     selectAccount(email);
     const next = productAccounts.find((a) => a.email === email);
     const nextCountry = accountStoreCountry(next);
-    // An explicit move insists: a lookup miss on that storefront stands
-    // instead of snapping back. The picker asks for one when the region has
-    // no account — leaving it is the only way forward.
+    // An explicit move insists: a lookup miss stands instead of snapping back —
+    // leaving a region with no account is the only way forward.
     explicitMoveRef.current = forced ? (nextCountry ?? null) : null;
     if (nextCountry) setCountry(nextCountry);
     setReloadToken((token) => token + 1);
   }
 
   /**
-   * Picks an account from the list. A region with no account leaves the picker
-   * as the only way out, so a pick made there counts as the deliberate move it
-   * looks like — a miss on the new storefront stands rather than snapping back
-   * to the region just left.
+   * Picks an account. A region with no account leaves the picker as the only way
+   * out, so a pick there counts as a deliberate move — a miss stands.
    */
   function handleAccountPick(email: string) {
     handleAccountChange(email, noRegionAccount);
   }
 
   /**
-   * The downloads page, pointing at one package: the page highlights it and
-   * scrolls it into view (see `DownloadList`). Both the already-downloaded
-   * notice and the picker's 已下载 chips lead here.
+   * The downloads page pointing at one package, which it highlights and scrolls
+   * into view (see `DownloadList`). Both 已下载 entry points lead here.
    */
   function goToDownloadTask(taskId: string) {
     navigate("/downloads", { state: { highlightTaskId: taskId } });
@@ -666,16 +597,12 @@ export default function ProductDetail() {
 
   function applyVersionList(list: string[]) {
     setVersions(list);
-    // Versions arrived, so the id is answered — nothing is unverified now, and
-    // a platform the automatic probe had found nothing for is back on offer:
-    // the manual 选择版本 run may well have named a build where that probe
-    // could not (a fresh session, a pin entered by hand).
+    // Versions arrived, so nothing is unverified — a manual run may name a build
+    // the automatic probe could not (a fresh session, a hand-entered pin).
     setProbeNote("");
     setPlatformUnavailable(false);
-    // The build the package hop came from keeps the pick: that is the build the
-    // page was opened on, and its row says 已下载 — moving to the next unheld
-    // build on open would read as the page forgetting which package it is
-    // about. Otherwise the first build this account does not hold is picked,
+    // The package hop's build keeps the pick (moving off it would read as the page
+    // forgetting its package); otherwise the first build this account does not hold,
     // so the download button has something to ask for.
     const selectable = list.filter((id) => !isVersionDownloaded(id));
     setSelectedVersion(
@@ -685,8 +612,7 @@ export default function ProductDetail() {
     );
     setVersionsOpen(true);
     if (account && app) {
-      // Shared cache first, then the missing labels filled silently — the
-      // policy the old new-download page opened its picker with.
+      // Shared cache first, then the missing labels filled silently.
       fillVersionsSilently(account, app, list);
     }
   }
@@ -731,8 +657,8 @@ export default function ProductDetail() {
   }
 
   /**
-   * The manual counterpart of the silent fill, offered when the automation
-   * switch is off: look the missing version numbers up on demand.
+   * The manual counterpart of the silent fill, offered when the automation switch
+   * is off: look the missing version numbers up on demand.
    */
   async function handleCheckVersions() {
     if (!account || !app || versions.length === 0) return;
@@ -835,7 +761,7 @@ export default function ProductDetail() {
               </p>
             )}
             {/* Only when nothing is known: a version on screen is proof the
-                exchange produced something for this platform. */}
+                exchange produced something. */}
             {needsFetchVerification(app) && probeNote && !displayVersion && (
               <p className="mt-3 min-w-0 break-words rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                 {t(
@@ -904,10 +830,8 @@ export default function ProductDetail() {
                       versionMeta[v],
                       pendingMeta[v],
                     );
-                    // A build this account already holds refuses the pick —
-                    // there is nothing to gain from downloading it twice. Its
-                    // 已下载 mark is a clickable chip instead of a suffix: it
-                    // leads to the package on the downloads page.
+                    // A held build refuses the pick; its 已下载 mark is a chip leading
+                    // to the package on the downloads page.
                     const heldTask = heldTaskFor(v);
                     return {
                       value: v,
@@ -1032,9 +956,8 @@ export default function ProductDetail() {
                 )}
               </div>
             )}
-            {/* Why the download button is out: the account already holds the
-                build it would ask for. The button before the text leads to that
-                package — the downloads page highlights and scrolls to it. */}
+            {/* Why the download button is out: the account already holds the build it
+                would ask for; the button leads to that package on the downloads page. */}
             {!noRegionAccount && targetDownloaded && (
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
                 {heldBuild && (
@@ -1051,8 +974,7 @@ export default function ProductDetail() {
                 </span>
               </div>
             )}
-            {/* Asked for a platform Apple has no build of: the download is out
-                and the page says why. */}
+            {/* Asked for a platform Apple has no build of: the download is out. */}
             {!noRegionAccount && platformUnavailable && (
               <p className="min-w-0 break-words rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                 {t("search.product.noVersionForPlatform", {
@@ -1068,11 +990,8 @@ export default function ProductDetail() {
             {t("search.product.details")}
           </h2>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
-            {/* App ID and Bundle ID name the app; the four rows after them
-                (minimum OS, size, version, release date) all answer for one
-                build — the newest anybody named (see `displayVersion` above).
-                No row borrows another's numbers: a fact nobody vouched for
-                stays as an em dash. */}
+            {/* The four rows after ID/Bundle ID all answer for one build (see
+                `displayVersion`); an unvouched fact stays an em dash. */}
             <dt className="text-gray-500 dark:text-gray-400">
               {t("search.product.appId")}
             </dt>

@@ -1,8 +1,8 @@
 /**
- * The numeric App Store id a store link carries, or undefined when the value
- * is not an Apple store URL. The path is matched for `/id…` regardless of the
- * locale segments before it (a percent-encoded Chinese app name included), so
- * any share link resolves to the same id the store uses.
+ * The numeric App Store id a store link carries, or undefined when the value is
+ * not an Apple store URL. The path is matched for `/id…` regardless of the
+ * locale segments before it (a percent-encoded Chinese app name included), so any
+ * share link resolves to the same id the store uses.
  */
 const STORE_HOST_RE = /(^|\.)apple\.com$/i;
 const STORE_ID_RE = /\/id(\d+)/;

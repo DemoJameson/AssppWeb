@@ -2,19 +2,12 @@ import { getDb } from "./db.js";
 import type { Platform } from "../types/index.js";
 
 /**
- * The instance-wide version-pin store: `appId + platform -> external version id`,
- * recorded passively from the tasks the download pipeline compiled.
- *
- * Backed by the `version_pins` SQLite table. A version list for tvOS / visionOS
- * / macOS can only be fetched when the download-product exchange is pinned to
- * a version id that exists for that platform — the pin is what makes Apple
- * answer with the platform's build instead of the account's default iOS one.
- * For an app the storefront no longer offers (delisted), that id cannot be
- * looked up any more; but a past download left the id behind in its finished
- * package, so recording it here keeps the app queryable.
- *
- * Server-written only (no client write-back): entries come from
- * `recordVersionPin` call sites in downloadManager, never from a request body.
+ * Instance-wide version-pin store (`appId + platform -> external version id`) over the
+ * `version_pins` table, recorded passively from the tasks the pipeline compiled. A tvOS /
+ * visionOS / macOS version list is only fetchable when the download-product exchange is pinned to
+ * a version id that exists for that platform; for a delisted app that id can no longer be looked
+ * up, so recording it keeps the app queryable. Server-written only, from `recordVersionPin` call
+ * sites in downloadManager — never from a request body.
  */
 
 const PLATFORM_SET: ReadonlySet<string> = new Set([
@@ -50,9 +43,8 @@ export function initVersionPinStore(): void {
 }
 
 /**
- * Drops the cached connection-bound statements and un-initializes the store.
- * Call after the DB has been reset/closed and before the next `initVersionPinStore`,
- * which re-prepares the statements against the fresh connection.
+ * Drops the cached connection-bound statements and un-initializes the store, so the next
+ * `initVersionPinStore` re-prepares against the fresh connection.
  */
 export function resetVersionPinStoreForTest(): void {
   initialized = false;
@@ -62,10 +54,9 @@ export function resetVersionPinStoreForTest(): void {
 }
 
 /**
- * Records the version id a finished package carried for its platform. Version
- * ids are assigned in release order, so the largest id seen for a platform is
- * the newest known release — the best pin for future exchanges, regardless of
- * the order the downloads happened in.
+ * Records the version id a finished package carried for its platform. Version ids are
+ * assigned in release order, so the largest id seen for a platform is the newest known
+ * release — the best pin for future exchanges regardless of download order.
  */
 export function recordVersionPin(
   appId: string | number,

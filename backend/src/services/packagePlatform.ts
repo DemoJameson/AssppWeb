@@ -1,18 +1,8 @@
 // Package platform validation, mirroring ipatool's `validatePackagePlatform`
-// (pkg/appstore/appstore_download.go). After the backend downloads an IPA, the
-// package's own Info.plist must declare support for a known platform in its
-// `CFBundleSupportedPlatforms` — otherwise Apple served something we cannot
-// identify, and installing it would silently give the user the wrong thing.
-//
-// The package's own declaration is the authority, not the platform the request
-// carried: a by-ID download can pin a tvOS version id while the platform
-// selector still reads iOS, and the package that comes back is a tvOS build.
-// Validating against the request's platform would reject a perfectly good IPA.
-//
-// macOS packages (.pkg) are xar containers, not IPAs, and are skipped — there
-// is no IPA to validate against. The Mac flow can still be served the wrong
-// build outright, so macOS gets its own archive check instead (see
-// `assertMacOSPackage`).
+// (pkg/appstore/appstore_download.go). The package's own Info.plist `CFBundleSupportedPlatforms`
+// is the authority, not the platform the request carried: a by-ID download can pin a tvOS version
+// id while the selector still reads iOS, so validating the request would reject a good IPA. macOS
+// (.pkg, a xar not an IPA) is skipped here and checked by `assertMacOSPackage` instead.
 
 import fs from "fs";
 import { open as openZip } from "yauzl-promise";
@@ -22,9 +12,9 @@ import plist from "plist";
 import type { Platform } from "../types/index.js";
 
 /**
- * Thrown when the downloaded IPA does not declare support for any known
- * platform. Callers check `instanceof PackagePlatformError` to surface the
- * message to the user instead of the generic "Download failed".
+ * Thrown when the downloaded IPA does not declare support for any known platform. Callers
+ * check `instanceof PackagePlatformError` to surface the message instead of the generic
+ * "Download failed".
  */
 export class PackagePlatformError extends Error {
   constructor(message: string) {
@@ -34,11 +24,9 @@ export class PackagePlatformError extends Error {
 }
 
 /**
- * Infers the platform a package targets from its `CFBundleSupportedPlatforms`.
- * A universal app lists several; the first non-iPhoneOS entry distinguishes
- * tvOS (`AppleTVOS`) and visionOS (`XROS`). When only `iPhoneOS` is present the
- * package is an iOS/iPad build. macOS packages are `.pkg` (xar), not IPAs, so
- * they never reach this function.
+ * Infers the platform a package targets from its `CFBundleSupportedPlatforms`. A universal
+ * app lists several; the first non-iPhoneOS entry distinguishes tvOS (`AppleTVOS`) and
+ * visionOS (`XROS`); only `iPhoneOS` means an iOS/iPad build. `.pkg` (xar) never reaches this.
  */
 export function platformFromSupported(
   infoPlist: Record<string, unknown> | null,
@@ -54,11 +42,10 @@ export function platformFromSupported(
 }
 
 /**
- * Validates that the downloaded IPA declares support for at least one known
- * platform in its `CFBundleSupportedPlatforms`, and returns that platform so the
- * caller can correct the task when the request's platform was wrong (e.g. a
- * by-ID download that pinned a tvOS version id with the selector on iOS).
- * Throws {@link PackagePlatformError} when no known platform is declared.
+ * Validates that the downloaded IPA declares support for at least one known platform in its
+ * `CFBundleSupportedPlatforms`, returning that platform so the caller can correct the task
+ * when the request's was wrong (e.g. a tvOS version id pinned with the selector on iOS).
+ * Throws {@link PackagePlatformError} when none is declared.
  */
 export async function validatePackagePlatform(
   ipaPath: string,
@@ -86,32 +73,19 @@ export async function validatePackagePlatform(
 }
 
 /**
- * What Apple hands a macOS task when the version pin it sent named another
- * platform's build. Named once because both ends of the macOS pipeline report
- * it: the archive check and the decrypter's pre-flight.
+ * What Apple hands a macOS task when the version pin it sent named another platform's build.
+ * Named once because both the archive check and the decrypter's pre-flight report it.
  */
 export const IPA_SERVED_TO_MACOS =
   "a macOS download was served an IPA instead of a Mac package (.pkg)";
 
 /**
- * Refuses a macOS download whose package is not a `.pkg`.
- *
- * Asking for macOS does not guarantee a Mac build comes back. The pin the
- * version flow sends can name an iOS build: Apple's MDM catalogue answers an
- * iOS offer even when it is asked with `platform=osx`, and a pin guessed from
- * a neighbouring platform's version list names that platform's build. Apple
- * then serves an IPA to a task the user asked for as macOS, and nothing after
- * this point would notice — an IPA carries no sinfs either, so it looks like a
- * finished Mac package right up until it is installed.
- *
- * macOS packages are xar containers and IPAs are zip archives, so the archive
- * magic is the one signal the package itself gives about what it is. A zip gets
- * the wrong-platform message above; anything else is a file Apple should not
- * have served a macOS task at all — the one sample this was written from
- * carried real package guts (a `pbzx` payload) behind four bytes that were
- * neither magic — so the message reports those bytes rather than claiming an
- * IPA it is not. Ciphertext lands here too when decryption was skipped; its
- * bytes are equally meaningless to this check, and its own step reports why.
+ * Refuses a macOS download whose package is not a `.pkg`. Asking macOS does not guarantee a Mac
+ * build: the pin can name an iOS build (Apple's MDM answers an iOS offer even when asked
+ * `platform=osx`) and then serve an IPA nothing later would catch — no sinfs, so it looks finished
+ * until installed. xar vs zip magic is the only self-signal the package gives: a zip gets
+ * {@link IPA_SERVED_TO_MACOS}, anything else reports its leading bytes. Skipped-decryption
+ * ciphertext lands here too; its own step reports why.
  */
 export async function assertMacOSPackage(pkgPath: string): Promise<void> {
   const magic = await readArchiveMagic(pkgPath);

@@ -3,12 +3,11 @@ import type { VersionMetadata } from "../types";
 import { dateComesFromPackage } from "./versionMetadataSource";
 
 /**
- * The date a version row may print: only one that was read out of the build's
- * own package (see `versionMetadataSource`). Apple's exchange metadata dates the
- * *app* — the same day comes back whichever version is pinned, and the
- * `iTunesMetadata.plist` inside a download says the same thing — so a package
- * read (the backend's `packageVersionMetadata`, ipatool's way) is the only
- * source a date can come from without being wrong for every other row.
+ * The date a version row may print: only one read out of the build's own package
+ * (see `versionMetadataSource`). Apple's exchange metadata dates the *app* — the
+ * same day for whichever version is pinned — so a package read (the backend's
+ * `packageVersionMetadata`, ipatool's way) is the only source that is right for
+ * every row.
  */
 function datedLabel(versionId: string, meta: VersionMetadata): string {
   if (dateComesFromPackage(meta.source) && meta.releaseDate) {
@@ -19,11 +18,10 @@ function datedLabel(versionId: string, meta: VersionMetadata): string {
 
 /**
  * Option text for the download version pickers (ProductDetail's, and the
- * downloads page's update picker):
- * the display version leads, the external id stays in parentheses because it is
- * the value the picker submits, and the release date follows when a package
- * vouches for it. A version being looked up right now appends a fetching
- * marker, date or not — the row is still waiting on its lookup.
+ * downloads page's update picker): the display version leads, the external id
+ * stays in parentheses because it is the value the picker submits, and the
+ * release date follows when a package vouches for it. A lookup in flight appends
+ * a fetching marker, date or not.
  */
 export function versionOptionLabel(
   versionId: string,
@@ -35,10 +33,9 @@ export function versionOptionLabel(
 }
 
 /**
- * Row text for version browsing (the downloads page's update picker):
- * the same shape as {@link versionOptionLabel}, so the version menus
- * read alike. Uncached rows show the raw id; a lookup in flight appends the
- * fetching marker.
+ * Row text for version browsing (the downloads page's update picker) — the same
+ * shape as {@link versionOptionLabel}, so the version menus read alike. Uncached
+ * rows show the raw id; a lookup in flight appends the fetching marker.
  */
 export function versionRowLabel(
   versionId: string,

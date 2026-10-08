@@ -8,9 +8,8 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }));
 
-// The automatic reload is production-only. Vitest runs with MODE=test and
-// PROD=false, so without this stub the reload branch would be dead code here
-// and every reload assertion below would pass vacuously.
+// The automatic reload is production-only; vitest runs with PROD=false, so without
+// this stub the reload branch is dead code and every assertion below passes vacuously.
 vi.stubEnv("PROD", true);
 
 const { default: AppErrorBoundary } = await import(
@@ -193,9 +192,8 @@ describe("lazyWithRetry", () => {
     await renderLazy(First, 4);
     expect(reload).toHaveBeenCalledTimes(1);
 
-    // A second failing chunk in the same session must NOT reload again —
-    // otherwise a chunk that genuinely cannot load reloads the page forever.
-    // Instead the error reaches the boundary, which is the recovery path.
+    // A second failing chunk in the same session must NOT reload again — otherwise a chunk
+    // that genuinely cannot load reloads forever; the error reaches the boundary instead.
     const Second = lazyWithRetry(async () => {
       throw chunkError();
     });
@@ -243,9 +241,8 @@ describe("lazyWithRetry", () => {
     expect(reload).toHaveBeenCalledTimes(1);
     expect(window.sessionStorage.getItem("asspp:chunk-reload")).toBe("1");
 
-    // Any chunk that then loads proves the build is fine, so the guard must be
-    // cleared — otherwise one unlucky failure would disable automatic recovery
-    // for the rest of the tab's life.
+    // Any chunk that then loads proves the build is fine, so the guard must be cleared —
+    // otherwise one unlucky failure disables automatic recovery for the tab's life.
     const Fine = lazyWithRetry(async () => ({
       default: () => <p>healthy again</p>,
     }));
@@ -268,9 +265,8 @@ describe("lazyWithRetry", () => {
       value: { ...window.location, reload },
     });
 
-    // The wording an app-level fetch rejection carries — `appleRequest` throws
-    // exactly this when Apple cannot be reached. Reloading the page because a
-    // request to Apple failed would discard in-flight downloads for nothing.
+    // The wording an app-level fetch rejection carries — `appleRequest` throws exactly this
+    // when Apple is unreachable. Reloading for it would discard in-flight downloads.
     const AppleUnreachable = lazyWithRetry(async () => {
       throw new TypeError("Failed to fetch");
     });

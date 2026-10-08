@@ -141,9 +141,8 @@ describe("ChunkedDownloader.download", () => {
         String((init?.headers as Record<string, string> | undefined)?.Range ?? ""),
       );
       if (!range) {
-        // The whole-file answer. Its header states `declared` while the stream
-        // carries whatever `body` holds — which is how a transfer that stops
-        // early looks, and the case the size check exists for.
+        // The whole-file answer: the header states `declared` while the stream carries
+        // whatever `body` holds — the shape of a transfer that stops early.
         return new Response(streamOf(body), {
           status: 200,
           headers: { "content-length": String(declared) },

@@ -1,11 +1,7 @@
-// Main-thread SAP signer manager.
-//
-// The signer is kept as a module-level singleton bound to the hardware id it
-// was initialized with: creating the worker copies the ~22.5 MB asset bundle
-// into it, and repeating that per sign-in (2FA retries included) is pure
-// waste. `prepareSigner` reuses a matching signer or rebuilds for a different
-// account; concurrent callers share the same preparation. The zustand store
-// in store/sap.ts carries progress for the UI.
+// Main-thread SAP signer manager. A module-level singleton bound to the
+// hardware id it was built with, since making the worker copies the ~22.5 MB
+// asset bundle. `prepareSigner` reuses a matching signer or rebuilds for another
+// account, sharing concurrent callers; UI progress lives in store/sap.ts.
 
 import { SapSigner, type SapMachineDriver } from "./signer";
 import { exchangeSetupBuffer, fetchSetupCertificate } from "./protocol";
@@ -27,15 +23,11 @@ interface WorkerError {
 }
 
 /**
- * How long one call into the emulation may take.
- *
- * Nothing else bounds these calls: they run before the Apple request that they
- * are preparing a signature for, so the request's own timeout never sees them,
- * and a worker that stops answering would leave the sign-in button spinning
- * with no way out. The interpreter is deterministic — the same input arrives at
- * the same answer in seconds (the whole preparation measured ~4 s) — so a call
- * still out at two minutes is not slow, it is wedged, and the signer has to be
- * given up rather than waited on.
+ * How long one call into the emulation may take. Nothing else bounds these —
+ * calls run before the Apple request they sign for, so its timeout never sees
+ * them and a wedged worker would leave the sign-in button spinning. The
+ * interpreter is deterministic (~4 s per preparation), so a call still out at
+ * two minutes is wedged, not slow: give the signer up.
  */
 export const SAP_CALL_TIMEOUT_MS = 2 * 60 * 1000;
 
@@ -51,9 +43,8 @@ class WorkerMachineDriver implements SapMachineDriver {
   constructor(
     private readonly worker: Worker,
     /**
-     * Called when a call has gone past {@link SAP_CALL_TIMEOUT_MS}. The worker
-     * is not coming back, so nothing may keep using it — and nothing may keep
-     * offering it to the next attempt either.
+     * Called after a call passes {@link SAP_CALL_TIMEOUT_MS}: the worker is not
+     * coming back, so it must not be reused or re-offered to the next attempt.
      */
     private readonly onWedged: () => void = () => undefined,
   ) {
@@ -77,8 +68,7 @@ class WorkerMachineDriver implements SapMachineDriver {
     transfer?: Transferable[],
   ): Promise<WorkerResult> {
     if (this.wedged) {
-      // The worker is gone; anything else asking it something would wait out
-      // another whole timeout for an answer that cannot come.
+      // The worker is gone; any further call would just wait out another timeout.
       return Promise.reject(new Error(i18n.t("errors.auth.signerTimeout")));
     }
 
@@ -116,8 +106,8 @@ class WorkerMachineDriver implements SapMachineDriver {
 
   /** Drops the worker without waiting for it to acknowledge anything. */
   terminate(): void {
-    // Anything still in flight has lost its worker: rejecting settles those
-    // callers now rather than leaving them on a promise nothing can resolve.
+    // In-flight calls lost their worker; reject now so callers are not left on
+    // a promise nothing can resolve.
     for (const entry of this.pending.values()) {
       entry.reject(new Error(i18n.t("errors.auth.signerTimeout")));
     }
@@ -134,11 +124,10 @@ class WorkerMachineDriver implements SapMachineDriver {
     },
     wasmBinary: ArrayBuffer,
   ): Promise<void> {
-    // Hand the buffers over instead of copying ~22.5 MB twice (the old
-    // slice() copies plus postMessage's structured clone): the emulation is
-    // the only consumer, and a rebuild re-reads the assets from the Cache
-    // API, so nothing on this side touches them after open(). Only the
-    // module-level wasm cache outlives a preparation and is copied.
+    // Transfer the buffers instead of copying ~22.5 MB: the emulation is the
+    // only consumer and a rebuild re-reads from the Cache API, so nothing here
+    // touches them after open(). Only the module-level wasm cache outlives a
+    // preparation, so it is copied.
     const buffers = {
       commerceKit: assets.commerceKit.buffer as ArrayBuffer,
       commerceCore: assets.commerceCore.buffer as ArrayBuffer,
@@ -223,9 +212,8 @@ async function loadWorkerWasmBinary(): Promise<ArrayBuffer> {
 }
 
 /**
- * Returns a ready signer for the hardware id, reusing the current one when
- * it matches. Concurrent callers share a single preparation; the setup
- * network exchange rides the wisp tunnel on the main thread.
+ * Returns a ready signer for the hardware id, reusing a matching one. Concurrent
+ * callers share a single preparation; the setup exchange rides the wisp tunnel.
  */
 export async function prepareSigner(
   hardwareID: string,
@@ -280,9 +268,8 @@ async function runPreparation(
     const worker = new Worker(new URL("./worker.ts", import.meta.url), {
       type: "module",
     });
-    // A wedged worker must not outlive the attempt that found it: the cached
-    // signer would keep being handed back, and every retry would spend another
-    // two minutes waiting on the same dead emulation.
+    // A wedged worker must not outlive the attempt that found it, or the cached
+    // signer keeps being handed back and every retry waits out another timeout.
     const wedged = new WorkerMachineDriver(worker, () => {
       if (prepared?.driver === wedged) prepared = null;
       wedged.terminate();
@@ -309,10 +296,9 @@ async function runPreparation(
     useSapStore.getState().setReady();
     return result;
   } catch (error) {
-    // The worker above holds ~160 MB of wasm heap (see the note at the top of
-    // this file) and nothing outside this function can reach it once the
-    // preparation is called off — a transient Apple 502 on the setup exchange
-    // is enough to get here. Left running, each retry would add another one.
+    // The worker holds ~160 MB of wasm heap and nothing outside this function
+    // can reach it once preparation is called off (a transient Apple 502 on the
+    // setup exchange suffices). Left running, each retry would add another one.
     driver?.terminate();
     useSapStore
       .getState()

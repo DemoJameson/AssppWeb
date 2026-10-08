@@ -1,7 +1,6 @@
-// SAP setup protocol: fetches the Apple certificate and performs the key
-// exchange. Both endpoints are public Apple services (no credentials);
-// requests travel through the wisp tunnel via appleRequest like every other
-// Apple API call. Ported from ipatool's internal/sap/protocol.go.
+// SAP setup protocol: fetches the Apple certificate and performs the key exchange.
+// Both endpoints are public Apple services (no credentials), reached through the
+// wisp tunnel via appleRequest. Ported from ipatool's internal/sap/protocol.go.
 
 import { appleRequest } from "../request";
 import { buildPlist, parsePlist } from "../plist";

@@ -8,9 +8,8 @@ import { detectInstallDevice, isAppleSiliconMac } from '../../src/utils/device';
 import { openInstallUrl, openDownloadUrl, getInstallInfo } from '../../src/api/install';
 import type { DownloadTask } from '../../src/types';
 
-// The install links are minted by the server (they carry a signature this side
-// cannot produce), so the fetch that asks for them is stubbed at the module
-// boundary. The download-link fetch below stays real and asserts on `fetch`.
+// The install links are minted by the server (a signature this side cannot produce), so the
+// fetch asking for them is stubbed at the module boundary; the download-link fetch stays real.
 const INSTALL_MANIFEST_URL =
   'https://example.test/api/install/real-download-task/manifest.plist?exp=9999999999999&sig=abc';
 const INSTALL_URL = `itms-services://?action=download-manifest&url=${encodeURIComponent(

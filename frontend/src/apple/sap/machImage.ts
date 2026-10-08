@@ -1,8 +1,6 @@
-// Minimal Mach-O (x86_64) image parser/relocator for the SAP guest images.
-// Ported from ipatool's internal/sap/machimage (which uses blacktop/go-macho).
-//
-// Supports exactly what the SAP guest needs: fat-binary slicing, LC_SEGMENT_64,
-// LC_SYMTAB symbol lookup, and classic dyld_info rebase/bind/weak/lazy fixups.
+// Minimal Mach-O (x86_64) parser/relocator for SAP guest images; a port of
+// ipatool's internal/sap/machimage (blacktop/go-macho). Supports only what the
+// guest needs: fat slicing, LC_SEGMENT_64, LC_SYMTAB, dyld_info rebase/bind/weak/lazy.
 
 const MACHO_MAGIC_64 = 0xfeedfacf;
 const FAT_MAGIC = 0xcafebabe;
@@ -94,10 +92,9 @@ class UlebReader {
   }
 
   readUleb(): number {
-    // Returns the uleb128 value wrapped to uint64, as a JS number (exact up
-    // to 2^53; larger values keep only their low bits' magnitude and are only
-    // used for address arithmetic in segments < 2^48). Callers that must
-    // distinguish negative deltas (bind ADD_ADDR_ULEB) use readUlebBig.
+    // uleb128 wrapped to uint64 as a JS number (exact below 2^53; only used for
+    // address arithmetic in segments < 2^48). Callers distinguishing negative
+    // deltas (bind ADD_ADDR_ULEB) use readUlebBig.
     return Number(this.readUlebBig());
   }
 
@@ -452,12 +449,11 @@ export class MachImage {
 
     let type = 0;
     let segment: Segment | null = null;
-    // Offsets move in uint64 space (negative ADD_ADDR_ULEB deltas are legal).
+    // uint64 space: negative ADD_ADDR_ULEB deltas are legal.
     let offset = 0n;
 
     const readOriginalPointer = (): number => {
-      // The pre-rebase pointer value lives in the image itself; rebasing
-      // computes slide + original (go-macho/dyld semantics).
+      // Pre-rebase pointer lives in the image; rebase = slide + original (dyld).
       const fileOffset = this.requireCurrentSegmentFileOffset(
         segment,
         Number(offset),
@@ -585,8 +581,7 @@ export class MachImage {
     let addend = 0;
     let symbolName = "";
     let segment: Segment | null = null;
-    // Segment offsets move in uint64 space: ADD_ADDR_ULEB deltas are 64-bit
-    // encodings of negative steps, so all arithmetic stays in BigInt.
+    // uint64 space: ADD_ADDR_ULEB deltas encode negative steps, so keep BigInt.
     let segOffset = 0n;
 
     const bind = () => {
@@ -610,8 +605,7 @@ export class MachImage {
             if (!isLazy) {
               return;
             }
-            // Lazy streams terminate each entry with DONE and continue with
-            // the next; reset the per-entry state (go-macho/dyld semantics).
+            // Lazy streams end each entry with DONE and continue; reset per-entry state.
             type = 0;
             addend = 0;
             symbolName = "";
@@ -645,8 +639,8 @@ export class MachImage {
         case 0x80: // ADD_ADDR_ULEB
           segOffset = BigInt.asUintN(64, segOffset + reader.readUlebBig());
           break;
-        // NOTE: the bind opcode table has no ADD_ADDR_IMM_SCALED (that is a
-        // rebase-only opcode), so DO_BIND sits at 0x90, one slot below rebase.
+        // Bind opcodes have no ADD_ADDR_IMM_SCALED (rebase-only), so DO_BIND is
+        // at 0x90, one slot below rebase.
         case 0x90: // DO_BIND
           bind();
           segOffset = BigInt.asUintN(64, segOffset + BigInt(POINTER_SIZE));
@@ -734,10 +728,9 @@ export class MachImage {
   }
 
   /**
-   * File offset for a fixup, or -1 when it targets the segment's BSS tail
-   * (within vmsize but past fileSize). dyld applies such fixups to the
-   * zero-filled memory at load time; for our purposes the loaded image is
-   * equally zero there, so callers skip them.
+   * File offset for a fixup, or -1 when it lands in the segment's BSS tail
+   * (within vmsize but past fileSize); the loaded image is zero there too, so
+   * callers skip such fixups.
    */
   private segmentFileOffsetOrBss(
     name: string,
@@ -800,8 +793,7 @@ function amd64Slice(input: Uint8Array): Uint8Array {
     if (cputype !== CPU_TYPE_X86_64) {
       continue;
     }
-    // fat_arch(32): cputype, cpusubtype, offset, size, align (5 x u32).
-    // fat_arch_64: cputype, cpusubtype, offset(u64), size(u64), align, reserved.
+    // fat_arch: cputype, cpusubtype, offset, size, align (offset/size are u64 in fat_arch_64).
     const offset = wide
       ? Number(view.getBigUint64(entry + 8, false))
       : view.getUint32(entry + 8, false);

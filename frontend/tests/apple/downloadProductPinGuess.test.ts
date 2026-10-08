@@ -6,9 +6,8 @@ import {
 } from "../../src/apple/downloadProduct";
 import type { Account, Software } from "../../src/types";
 
-// The exchange hits the network through `appleRequest`; faking it here drives
-// the whole `requestDownloadProduct` path — including the guess's probes —
-// without touching libcurl.
+// The exchange hits the network through `appleRequest`; faking it drives the whole
+// `requestDownloadProduct` path — including the guess's probes — without libcurl.
 vi.mock("../../src/apple/request", () => ({
   appleRequest: vi.fn(),
 }));
@@ -86,10 +85,9 @@ describe("downloadProduct direct-download pin guess", () => {
   it("guesses a tvOS pin for a delisted app when no pin is supplied", async () => {
     const calls: Array<{ pinned: boolean }> = [];
     vi.mocked(appleRequest).mockImplementation(async (opts) => {
-      // The volumeStore payload carries externalVersionId only when a pin is
-      // set; an unpinned request is the iOS list fetch the guess starts from,
-      // and a pinned one serves the tvOS history — a distinct id sequence,
-      // which the fingerprint check requires of an accepted candidate.
+      // The volumeStore payload carries externalVersionId only when pinned: unpinned is
+      // the iOS list fetch the guess starts from, pinned serves the tvOS history — a
+      // distinct id sequence, which the fingerprint check requires of a candidate.
       const pinned = opts.body?.includes("externalVersionId") ?? false;
       calls.push({ pinned });
       return pinned
@@ -104,10 +102,9 @@ describe("downloadProduct direct-download pin guess", () => {
     expect(reply.data?.songList).toBeDefined();
     expect(reply.data?.songList).toHaveLength(1);
 
-    // Eight exchanges: the iOS version list (unpinned), six neighbour probes
-    // in the first batch (pinned), and the download itself (pinned). The
-    // probes run concurrently via Promise.all, so all six fire even though
-    // the first one already hits.
+    // Eight exchanges: the iOS version list (unpinned), six neighbour probes (pinned),
+    // and the download itself (pinned). The probes run concurrently via Promise.all, so
+    // all six fire even though the first one already hits.
     expect(calls).toHaveLength(8);
     expect(calls[0]).toEqual({ pinned: false });
     expect(calls.slice(1, 7).every((c) => c.pinned)).toBe(true);

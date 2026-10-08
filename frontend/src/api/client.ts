@@ -8,9 +8,9 @@ export function authHeaders(): Record<string, string> {
 }
 
 /**
- * Builds the Error thrown for a non-2xx response. The backend answers with
- * `{"error": "..."}` JSON — surface that field as the message instead of the
- * raw JSON text, falling back to the body text or the status code.
+ * Builds the Error thrown for a non-2xx response: surfaces the backend's
+ * `{"error": "..."}` field as the message, falling back to the body text or the
+ * status code.
  */
 async function toError(res: Response): Promise<Error> {
   const text = await res.text();

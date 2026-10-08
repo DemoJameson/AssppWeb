@@ -23,29 +23,22 @@ interface IpaMetadata {
   infoPlist: Record<string, unknown> | null;
   /** The ZIP entry modification time of Info.plist — a fallback release date. */
   infoPlistDate: Date | null;
-  /**
-   * The parsed `iTunesMetadata.plist` at the archive root, when a previous
-   * injection wrote one. It carries what Apple said about the download.
-   */
+  /** The parsed `iTunesMetadata.plist` written by a previous injection. */
   storeMetadata: Record<string, unknown> | null;
   /** Images sitting at the top of the app bundle, any of which may be the icon. */
   iconCandidates: IconCandidate[];
 }
 
 /**
- * `Payload/<App>.app/<name>` — a file at the top of the app bundle. Requiring
- * exactly two slashes keeps icons of nested bundles (extensions, watch apps) out
- * of the running.
+ * `Payload/<App>.app/<name>` — a file at the top of the app bundle. Exactly two
+ * slashes keeps nested bundles' icons (extensions, watch apps) out.
  */
 const APP_ROOT_IMAGE_RE = /^Payload\/[^/]+\.app\/([^/]+\.(?:png|jpe?g))$/i;
 
 /** Apple names the loose icon files it ships; nothing else at the root does. */
 const ICON_HINT_RE = /^(?:app)?icon(?:[-_@.~]|\d|$)/i;
 
-/**
- * A PNG of several megabytes sitting at the bundle root is artwork rather than
- * the app icon, and nothing downstream needs to move that much data around.
- */
+/** A multi-MB PNG at the bundle root is artwork, not the app icon. */
 const MAX_ICON_BYTES = 4 * 1024 * 1024;
 /** Upper bound on an in-package plist read back whole (iTunesMetadata / manifests / Info.plist). */
 const MAX_PLIST_ENTRY = 16 * 1024 * 1024;
@@ -76,35 +69,30 @@ export interface PackageMetadata {
   primaryGenreName?: string;
   releaseDate?: string;
   /**
-   * Where Apple serves the app's icon. The download response carries it and the
-   * injector writes it into the package, so it is available even for packages
-   * that keep no icon of their own — a tvOS build ships its icon inside
-   * Assets.car, which is not something worth parsing.
+   * Where Apple serves the app's icon, written into the package by injection.
+   * The only option for packages with no loose image (a tvOS build keeps its
+   * icon inside `Assets.car`).
    */
   artworkURL?: string;
   /** Apple's external version identifier, read from the store metadata. */
   externalVersionId?: string;
   /**
-   * The platform the package actually targets, inferred from
-   * `CFBundleSupportedPlatforms` in the app's Info.plist. This is the authority
-   * over the platform the search or download request named: a universal app
-   * searched as tvOS may have served its iOS build, and the package knows which.
+   * The platform the package targets, from `CFBundleSupportedPlatforms`. The
+   * authority over the requested platform: an app searched as tvOS may have
+   * served its iOS build.
    */
   platform?: Platform;
 }
 
 export interface InjectResult {
   /**
-   * Metadata read out of the package: the app's Info.plist plus the
-   * iTunesMetadata.plist written during injection. The package is the source of
-   * truth for what it contains, which is what lets a download created from a
-   * bare app id still report real values.
+   * Metadata read out of the package (Info.plist plus the injected
+   * iTunesMetadata.plist) — the source of truth for what it contains.
    */
   metadata: PackageMetadata;
   /**
-   * The app's icon, when the bundle carries one. The App Store hands the icon
-   * out to clients as a CDN URL, so a download that never saw storefront
-   * metadata (a bare app id) has no other way to show one.
+   * The app's icon, when the bundle carries one — the only way a bare-app-id
+   * download can show one.
    */
   icon?: PackageIcon;
 }
@@ -117,8 +105,8 @@ export async function inject(
   const { bundleName, manifest, info, infoPlist, infoPlistDate, iconCandidates } =
     await readIpaMetadata(ipaPath);
 
-  // Read the icon before the archive is rewritten, so a package that fails to
-  // yield one still compiles normally.
+  // Read the icon before the archive is rewritten, so a missing one still
+  // compiles.
   const icon = await readPackageIcon(
     ipaPath,
     bundleName,
@@ -151,9 +139,7 @@ export async function inject(
     throw new Error("Could not read manifest or info plist");
   }
 
-  // Inject iTunesMetadata.plist at the archive root if provided
-  // Frontend sends base64-encoded XML plist; convert to binary plist
-  // to match Apple's native format (PropertyListSerialization .binary)
+  // Frontend sends base64 XML; convert to Apple's binary plist format.
   let storeMetadata: Record<string, unknown> | null = null;
   if (iTunesMetadata) {
     const xmlBuffer = Buffer.from(iTunesMetadata, "base64");
@@ -180,11 +166,8 @@ export async function inject(
 }
 
 /**
- * Reads what an already compiled package can still tell us, without touching it:
- * the metadata Apple handed out with the download — which is where the icon URL
- * lives — and, when the bundle carries one, the icon itself. This is what fills
- * in a task that was compiled before any of this existed: recovering it costs a
- * few reads instead of downloading the app again.
+ * Reads what an already compiled package can still tell us without touching it:
+ * the store metadata (where the icon URL lives) and, if present, the icon.
  */
 export async function readPackageInfo(
   ipaPath: string,
@@ -221,10 +204,9 @@ function firstString(
 }
 
 /**
- * Reads the release date from the package's Info.plist, mirroring ipatool's
- * `readVersionMetadataFromIPA`: Apple's download API can return stale values,
- * so the IPA itself is the source of truth. The ZIP entry's modification time
- * is the fallback when Info.plist carries no date field.
+ * Reads the release date from Info.plist (mirrors ipatool's
+ * `readVersionMetadataFromIPA`): Apple's API can return stale values, so the
+ * package is the source of truth. ZIP entry mtime is the fallback.
  */
 function releaseDateFromPackage(
   infoPlist: Record<string, unknown> | null,
@@ -248,8 +230,8 @@ function releaseDateFromPackage(
 }
 
 /**
- * Like {@link firstString} but also coerces numbers to strings — Apple's
- * `softwareVersionExternalIdentifier` is an integer in the plist, not a string.
+ * Like {@link firstString} but also coerces numbers — Apple's
+ * `softwareVersionExternalIdentifier` is an integer in the plist.
  */
 function firstValue(
   source: Record<string, unknown> | null,
@@ -274,10 +256,8 @@ function firstValue(
 }
 
 /**
- * Collects what the package says about the app. Apple's own store metadata
- * (the iTunesMetadata.plist the App Store hands out with a download) names the
- * app the way the storefront does, so it wins where both are available; the
- * Info.plist covers whatever the store metadata leaves out.
+ * Collects what the package says about the app. Apple's store metadata wins
+ * where both are available; Info.plist covers what it leaves out.
  */
 function packageMetadata(
   store: Record<string, unknown> | null,
@@ -309,11 +289,9 @@ function packageMetadata(
 }
 
 /**
- * mzstatic thumbnails carry the size they were requested at in the path
- * (`…/AppIcon…png/114x114bb.jpg`), and Apple sized this one for a 57pt slot —
- * soft in the 80px package view on a retina screen. The CDN renders any size on
- * demand, so ask for one with room to spare. A URL that does not look like one
- * of these is left alone rather than risked.
+ * mzstatic thumbnails encode their size in the path (`…/114x114bb.jpg`);
+ * Apple's 57pt one is soft at 80px, and the CDN renders any size, so ask for a
+ * larger one. URLs that don't match are left alone.
  */
 const THUMBNAIL_SIZE_RE = /\/(\d+)x(\d+)(bb\.(?:png|jpe?g))$/i;
 const PREFERRED_ICON_SIZE = 512;
@@ -334,10 +312,9 @@ async function streamToBuffer(stream: Readable): Promise<Buffer> {
   for await (const chunk of stream) {
     const buffer = chunk as Buffer;
     total += buffer.length;
-    // The three entries read this way (iTunesMetadata, Business/Manifest,
-    // Info.plist) are plists of a few KB each. A package may declare any size,
-    // so refuse one that would balloon memory instead of trusting the archive's
-    // central-directory lengths.
+    // These entries are a few-KB plists; a package may declare any size, so
+    // refuse one that would balloon memory rather than trust the archive's
+    // declared lengths.
     if (total > MAX_PLIST_ENTRY) {
       stream.destroy();
       throw new Error("plist entry too large");
@@ -360,16 +337,14 @@ async function readIpaMetadata(ipaPath: string): Promise<IpaMetadata> {
     for await (const entry of zip) {
       const filename = entry.filename;
 
-      // The store metadata this package was built with, written by a previous
-      // injection. Reading it back is how an already compiled package reports
-      // what Apple said about the app, icon included.
+      // Store metadata written by a previous injection; reading it back is how
+      // a compiled package reports what Apple said, icon included.
       if (!storeMetadataData && filename === "iTunesMetadata.plist") {
         const stream = await entry.openReadStream();
         storeMetadataData = await streamToBuffer(stream);
       }
 
-      // Collect the images that could be the app icon. Choosing among them
-      // needs the Info.plist, so this only gathers what the archive lists.
+      // Gather candidate icons; choosing among them needs the Info.plist.
       const candidate = iconCandidateForEntry(filename, entry);
       if (candidate) iconCandidates.push(candidate);
 
@@ -467,8 +442,8 @@ function iconCandidateForEntry(
 
 /**
  * Lifts the app icon out of the package, or nothing when the bundle carries no
- * usable image. The archive is opened again: which entry is the icon depends on
- * the Info.plist, which the first pass was reading at the same time.
+ * usable image. The archive is reopened: the chosen entry depends on the
+ * Info.plist the first pass was reading.
  */
 async function readPackageIcon(
   ipaPath: string,
@@ -493,10 +468,9 @@ async function readPackageIcon(
 }
 
 /**
- * Apple repacks the icons it ships with `pngcrush -iphone`, and the result
- * (a CgBI PNG) is only decodable by Safari. Handing one to a browser means the
- * image silently fails and the UI shows a placeholder, so convert it back to a
- * standard PNG. Anything else is already renderable and passes straight through.
+ * Apple repacks shipped icons with `pngcrush -iphone` into CgBI PNGs, which
+ * only Safari decodes; in a browser they silently fail. Convert back to a
+ * standard PNG. Anything else passes through.
  */
 function toRenderableIcon(data: Buffer): Buffer {
   if (!isCgbiPng(data)) return data;
@@ -529,17 +503,9 @@ async function readArchiveEntry(
 }
 
 /**
- * Picks which of the bundle's images is the app icon. Apple ships the icon as a
- * set of loose files at the bundle root (`AppIcon60x60@2x.png` and friends), so
- * the largest one is the best source: it downsamples cleanly, which is what the
- * install manifest and the download list both need.
- *
- * Only two kinds of file are considered: those the Info.plist names as the
- * primary icon, and those named like an icon (`AppIcon…`, `Icon-60@2x`). The
- * bundle root of a real app is full of unrelated artwork — one shipping app puts
- * hundreds of numbered resource images there — so anything else is left alone.
- * Guessing among those would trade a missing icon for a wrong one, and the
- * caller has a storefront icon to fall back on. Returning nothing is deliberate.
+ * Picks which bundle image is the app icon — the largest loose icon at the root,
+ * among Info.plist-declared or icon-named files only. Guessing would trade a
+ * missing icon for a wrong one; returning nothing is deliberate.
  */
 function selectIcon(
   candidates: IconCandidate[],
@@ -568,9 +534,8 @@ function compareIcons(a: IconCandidate, b: IconCandidate): number {
 }
 
 /**
- * The pixel size Apple encodes in an icon's name — `AppIcon60x60@2x` is a
- * 120-point icon. Names that do not follow the convention score zero and fall
- * back to comparing file sizes.
+ * The pixel size encoded in an icon's name (`AppIcon60x60@2x` → 120). Names not
+ * following the convention score zero and fall back to file size.
  */
 function iconPoints(name: string): number {
   const match = /(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)(?:@(\d)x)?/i.exec(name);
@@ -589,12 +554,9 @@ interface DeclaredIconNames {
 }
 
 /**
- * The icon names the Info.plist declares as the app's own.
- *
- * Only the *primary* icon counts. `CFBundleAlternateIcons` lists the alternates
- * a user can choose, and apps that offer themes register hundreds of them — one
- * shipping app files its entire skin catalogue there — so treating those as
- * candidates would let any resource image in the bundle pass for the icon.
+ * The icon names the Info.plist declares. Only the *primary* icon counts:
+ * `CFBundleAlternateIcons` can list hundreds of theme alternates, which would
+ * let any resource image pass for the icon.
  */
 function declaredIconNames(
   infoPlist: Record<string, unknown> | null,
@@ -636,8 +598,7 @@ function collectIconFiles(node: unknown, bases: Set<string>, depth = 0): void {
 
   if (Array.isArray(node)) {
     for (const item of node) {
-      // `CFBundleIconFiles` is a list of names; anything else in there is a
-      // container to walk.
+      // `CFBundleIconFiles` is a list of names; anything else is a container.
       if (typeof item === "string") bases.add(iconBase(item));
       else collectIconFiles(item, bases, depth + 1);
     }
@@ -695,9 +656,8 @@ async function addFilesToZip(
       relativePaths.push(file.entryPath);
     }
 
-    // Use zip to update the archive in-place
-    // -0: store without compression (SINF/plist files are tiny)
-    // "--" after archive name prevents file args from being parsed as flags
+    // In-place zip update: -0 stores uncompressed (SINF/plist are tiny); "--"
+    // stops file args from being parsed as flags.
     await execFile("zip", ["-0", ipaPath, "--", ...relativePaths], {
       cwd: tmpDir,
       maxBuffer: 1024 * 1024,
@@ -721,13 +681,11 @@ function hasZipCommand(): Promise<boolean> {
 }
 
 /**
- * Rewrites the archive with the built-in streaming writer. Only used when no
- * `zip` command exists, so that a download fails for a real reason instead of
- * "spawn zip ENOENT". Entries are piped one at a time from yauzl to archiver
- * — a full entry is in flight at most — so memory stays bounded no matter how
- * large the package is. The 512 MB ceiling the previous in-memory writer
- * (adm-zip) needed is deliberately gone: a bare host can now compile any
- * package the container image can.
+ * Rewrites the archive with the built-in streaming writer, used only when no
+ * `zip` command exists so a download fails for a real reason instead of
+ * "spawn zip ENOENT". Entries are piped one at a time (yauzl → archiver), so
+ * memory stays bounded regardless of package size — the old adm-zip writer's
+ * 512 MB ceiling is gone.
  */
 async function rewriteZipStreaming(
   ipaPath: string,
@@ -737,8 +695,8 @@ async function rewriteZipStreaming(
     "[sinfInjector] `zip` not found on PATH; rewriting the IPA with the built-in streaming zip writer",
   );
 
-  // Normalize and traversal-check the incoming entries up front; an entry
-  // whose name collides with an existing archive entry replaces it.
+  // Normalize and traversal-check entries up front; a name collision replaces
+  // the existing archive entry.
   const injected = new Map<string, Buffer>();
   for (const file of files) {
     const normalized = path.posix.normalize(file.entryPath);
@@ -754,8 +712,8 @@ async function rewriteZipStreaming(
   const archive = new ZipArchive();
   archive.pipe(output);
 
-  // Rejects on any archive or output error; resolves only once the rebuilt
-  // file has been fully flushed to disk.
+  // Rejects on any archive/output error; resolves once the rebuilt file is
+  // flushed.
   const settled = new Promise<void>((resolve, reject) => {
     output.on("close", resolve);
     output.on("error", reject);
@@ -784,10 +742,9 @@ async function rewriteZipStreaming(
         date: entry.getLastMod(),
         mode: unixModeOf(entry),
       });
-      // One entry in flight at a time: yauzl streams are consumed strictly
-      // sequentially, and a package of any size is rewritten with bounded
-      // memory. The race against `settled` keeps a mid-rewrite archive error
-      // from hanging on a stream that will never be drained.
+      // One entry in flight: yauzl streams are sequential (bounded memory). The
+      // race against `settled` stops a mid-rewrite error from hanging on an
+      // undrained stream.
       await Promise.race([
         new Promise<void>((resolve, reject) => {
           stream.on("end", resolve);
@@ -797,8 +754,7 @@ async function rewriteZipStreaming(
       ]);
     }
 
-    // The injected files go in uncompressed (they are tiny), matching the
-    // `zip -0` the command path uses.
+    // Injected files go in uncompressed, matching the command path's `zip -0`.
     for (const [name, data] of injected) {
       archive.append(data, { name, store: true });
     }

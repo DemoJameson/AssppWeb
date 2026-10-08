@@ -1,28 +1,22 @@
 // Command macdecrypt turns an App Store macOS package into an installable one.
+// Apple serves a FairPlay-encrypted .pkg that is not a xar until decrypted, and
+// only Apple's StoreAgent can do that, driven by the download's dpInfo blob
+// (sinfs) and hardware id — the same emulation ipatool uses, in one file.
 //
-// Apple serves a macOS download as a FairPlay-encrypted .pkg: the bytes are not
-// a xar archive at all until they have been decrypted, and the only thing that
-// can decrypt them is Apple's own StoreAgent, driven by the `dpInfo` blob that
-// arrives in the download response's sinfs plus the hardware id the download was
-// requested with. ipatool does the same thing by emulating StoreAgent; this
-// command is that path, reduced to a single file.
-//
-// This directory is its own module, and its path sits under
-// github.com/majd/ipatool/v2/ on purpose: the emulation, the Mach-O loader and
-// the Unicorn binding all live in that module's internal packages, which Go
-// only lets packages under its own path import. The dependency itself comes
-// from the module proxy at the version pinned in go.mod.
+// This directory is its own module, deliberately under
+// github.com/majd/ipatool/v2/ so it may import that module's internal packages
+// (emulation, Mach-O loader, Unicorn binding); the dependency comes from the
+// module proxy at the version pinned in go.mod.
 //
 //	macdecrypt -in encrypted.pkg -out app.pkg \
 //	           -hardware-id 05ca1a6f5004 -dp-info <base64|@file>
 //
-// Progress goes to stdout as one `progress <written> <total>` line per step, so
-// a caller can drive a progress bar; errors go to stderr, prefixed with the
-// command name.
+// Progress: one `progress <written> <total>` line per step on stdout; errors on
+// stderr, prefixed with the command name.
 //
-// Environment: XDG_CACHE_HOME (or HOME) decides where the Apple assets and the
+// Environment: XDG_CACHE_HOME (or HOME) picks where the Apple assets and the
 // Unicorn runtime are cached — point it at a persistent directory so a container
-// only downloads them once.
+// downloads them only once.
 package main
 
 import (
@@ -42,14 +36,12 @@ import (
 
 const decryptTimeout = 30 * time.Minute
 
-// How much output between progress reports. Decryption runs at a couple of MB/s
-// (a 67 MB package takes about half a minute), so this lands a report every
-// second or two on the sizes where anyone is waiting.
+// How much output between progress reports; at decryption's ~MB/s, this lands a
+// report every second or two (a 67 MB package takes about half a minute).
 const progressStep = 4 << 20
 
 // progressWriter reports how far the decrypted output has got. `total` is the
-// encrypted input's size: StoreAgent's stream is a byte-for-byte transform, so
-// the two share a length.
+// input size: StoreAgent's stream is byte-for-byte, so lengths match.
 type progressWriter struct {
 	destination io.Writer
 	total       int64
@@ -119,8 +111,8 @@ func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), decryptTimeout)
 	defer cancel()
 
-	// Apple's own machinery, emulated: the SAP assets are the same four files
-	// the signing path uses, plus the StoreAgent image the decryption runs in.
+	// Apple's machinery, emulated: the same four SAP assets the signing path
+	// uses, plus the StoreAgent image the decryption runs in.
 	bundle, err := assets.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("load Apple SAP assets: %w", err)
@@ -161,8 +153,7 @@ func run() error {
 		return err
 	}
 
-	// A closing report even when the package never filled a whole step, so a
-	// caller driving a bar always sees it reach the end.
+	// A closing report even if no step was filled, so the bar always reaches the end.
 	fmt.Printf("progress %d %d\n", written, info.Size())
 
 	fmt.Printf("decrypted %d bytes to %s\n", written, *outputPath)
@@ -170,8 +161,7 @@ func run() error {
 	return nil
 }
 
-// readDPInfo accepts the blob inline (base64) or from a file, because it is
-// small enough to pass on a command line but also arrives from a request.
+// readDPInfo accepts the blob inline (base64) or from a file.
 func readDPInfo(argument string) ([]byte, error) {
 	encoded := argument
 
@@ -196,9 +186,8 @@ func readDPInfo(argument string) ([]byte, error) {
 	return decoded, nil
 }
 
-// checkArchiveMagic fails fast when the decryption produced nothing usable —
-// a hardware id that does not match the dpInfo yields bytes that are still
-// ciphertext, and the caller should see that here rather than downstream.
+// checkArchiveMagic fails fast when decryption produced nothing usable: a
+// hardware id that does not match the dpInfo yields still-ciphertext bytes.
 func checkArchiveMagic(path string) error {
 	file, err := os.Open(path)
 	if err != nil {
@@ -208,9 +197,7 @@ func checkArchiveMagic(path string) error {
 
 	magic := make([]byte, 4)
 
-	// ReadFull, because a plain Read may legally return fewer bytes than asked
-	// even on a file this size — a short read would read as "not xar" for the
-	// wrong reason.
+	// ReadFull, since a short read would read as "not xar" for the wrong reason.
 	if _, err := io.ReadFull(file, magic); err != nil {
 		return fmt.Errorf("read decrypted package: %w", err)
 	}

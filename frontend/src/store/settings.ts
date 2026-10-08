@@ -28,9 +28,8 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: "asspp-settings",
       version: 2,
-      // v0 stored the search entity as "iPhone"/"iPad", and the default
-      // country/platform lived here through v1. The search page keeps its own
-      // last-used pair now, so those fields are dropped rather than migrated.
+      // v0 stored the search entity and v1 the default country/platform; the search
+      // page keeps its own last-used pair now, so these are dropped, not migrated.
       migrate: (persisted) => {
         const state = (persisted ?? {}) as Record<string, unknown>;
         delete state.defaultEntity;

@@ -22,9 +22,8 @@ vi.mock("../../src/api/client", () => ({
 
 const LOOKUP_HOST = "uclient-api.itunes.apple.com";
 const DISPATCH_HOST = "downloaddispatch.itunes.apple.com";
-// The storefront product page: another *lookup* transport (macOS/visionOS pins,
-// and the lookups the pin guess consults to rule other platforms' ids out), not
-// part of the download exchange.
+// The storefront product page: another *lookup* transport (macOS/visionOS pins, and the
+// lookups the pin guess consults to rule other platforms' ids out), not the download exchange.
 const STOREFRONT_HOST = "apps.apple.com";
 const isLookupCall = (options: RequestOptions) =>
   options.host === LOOKUP_HOST || options.host === STOREFRONT_HOST;
@@ -218,9 +217,8 @@ describe("apple/versionFinder", () => {
   });
 
   it("reads an item-less answer as a missing app", async () => {
-    // Nothing to serve and no failure type: the shape an App ID the storefront
-    // and the account both disown produces, so the caller may conclude that
-    // nothing can be fetched for it.
+    // Nothing to serve and no failure type: the shape an App ID the storefront and the
+    // account both disown produces, so the caller may conclude nothing is fetchable.
     vi.mocked(fetchBag).mockResolvedValue({ authURL: "https://auth.example" });
     downloadReplies = [reply(emptyDoc())];
 
@@ -239,9 +237,8 @@ describe("apple/versionFinder", () => {
   });
 
   it("keeps a version that cannot be pinned anywhere open-ended", async () => {
-    // No catalogue offer and no recorded pin: no build can be named yet, but
-    // that is not proof of a missing app — a known version id can still serve
-    // a delisted app, so the id stays usable.
+    // No catalogue offer and no recorded pin: no build can be named yet, but that is not
+    // proof of a missing app — a known version id can still serve a delisted app.
     const tvosApp = { ...app, platform: "tvos" } as Software;
     lookupReply = JSON.stringify({ results: { "1492142120": { offers: [] } } });
     vi.mocked(apiGet).mockResolvedValue({ pins: [] });
@@ -370,9 +367,8 @@ describe("apple/versionFinder", () => {
   });
 
   it("guesses the platform pin from the ids adjacent to the newest iOS one", async () => {
-    // A bare delisted tvOS app with nothing recorded: the neighbours of the
-    // newest iOS build are probed, nearest first, and the first one Apple
-    // serves becomes the pin.
+    // A bare delisted tvOS app with nothing recorded: the newest iOS build's neighbours
+    // are probed nearest first, and the first one Apple serves becomes the pin.
     const tvosApp = {
       ...app,
       platform: "tvos",
@@ -438,9 +434,8 @@ describe("apple/versionFinder", () => {
   });
 
   it("keeps the raw storefront failure out of the caller's message", async () => {
-    // A delisted id's visionOS/macOS storefront page is gone (404): the raw
-    // "version lookup returned 404" text must not reach the caller — the same
-    // clean missing-version failure the other platforms raise is used instead.
+    // A delisted id's visionOS/macOS storefront page is gone (404): the raw "version lookup
+    // returned 404" must not reach the caller — the clean missing-version failure is used instead.
     const visionApp = { ...app, platform: "visionos" } as Software;
     vi.mocked(appleRequest).mockImplementation(
       async (options: RequestOptions) => {

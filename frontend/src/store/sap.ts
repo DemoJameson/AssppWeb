@@ -1,9 +1,8 @@
 import { create } from "zustand";
 
-// Readiness of the SAP signer, shared so any screen can show what it is
-// doing. Preparation means ~14 MB of assets (first run only) plus the
-// emulation setup; both are quick here (~1 s total), but the download makes
-// a progress line worth showing while it lasts.
+// Readiness of the SAP signer, shared so any screen can show progress. Prep is
+// ~14 MB of assets (first run only) plus emulation setup — quick (~1 s total), but
+// the download is worth a progress line while it lasts.
 
 export type SapStage = "idle" | "assets" | "setup" | "ready" | "error";
 

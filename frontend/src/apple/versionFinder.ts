@@ -31,11 +31,9 @@ import i18n from "../i18n";
 
 export interface VersionListOutput {
   /**
-   * External version identifiers, newest first. Apple returns them oldest
-   * first; the version pickers (ProductDetail's, and the downloads page's
-   * update picker)
-   * render the array in order, so the reversal happens here rather than in
-   * each caller.
+   * External version identifiers, newest first. Apple returns them oldest first;
+   * the reversal happens here so the version pickers, which render in order, need
+   * not each do it.
    */
   versions: string[];
   /** Apple's own pointer to the newest version, as ipatool reports it. */
@@ -44,12 +42,10 @@ export interface VersionListOutput {
 
 /**
  * Lists the versions an account can download, mirroring ipatool's `ListVersions`
- * (pkg/appstore/appstore_list_versions.go). It drives the same
- * download-product exchange the download flow uses, which is what makes the
- * endpoint fallbacks apply here too.
- *
- * A caller-provided version id pins the exchange directly, skipping the
- * platform lookup — the path that reaches a delisted app's version list.
+ * (pkg/appstore/appstore_list_versions.go). It drives the same download-product
+ * exchange the download flow uses, which is what makes the endpoint fallbacks
+ * apply here too. A caller-provided version id pins the exchange directly,
+ * skipping the platform lookup — the path that reaches a delisted app's list.
  */
 export async function listVersions(
   account: Account,
@@ -59,9 +55,8 @@ export async function listVersions(
   const session = createDownloadSession(account, app);
 
   // ipatool's ListVersions pins macOS/tvOS/visionOS before the exchange so the
-  // version list reflects the requested platform, not the account's default
-  // device class (iOS). iOS/iPad pass an empty pin and let the exchange resolve
-  // one itself when it falls back.
+  // version list reflects the requested platform, not the default device class
+  // (iOS). iOS/iPad pass an empty pin and let the exchange resolve one on fallback.
   const requestedPin = pinnedVersionId?.trim();
   const pin = requestedPin ? requestedPin : await platformVersionPin(session);
 
@@ -83,13 +78,11 @@ export async function listVersions(
 
 /**
 
- * Resolves the platform-specific version pin for the version list exchange.
- * Mirrors ipatool's `ListVersions`: macOS/tvOS/visionOS pin before the
- * exchange so the listed versions belong to the requested platform; iOS/iPad
- * pass an empty pin and let the exchange resolve one on fallback.
- *
- * When the catalogue cannot name a version — a delisted app is the case this
- * exists for — the pin recorded from a previous download is used instead.
+ * Resolves the platform-specific version pin for the version list exchange
+ * (ipatool's `ListVersions`): macOS/tvOS/visionOS pin before the exchange so the
+ * listed versions belong to the requested platform; iOS/iPad pass an empty pin.
+ * When the catalogue cannot name a version — the delisted-app case this exists
+ * for — the pin recorded from a previous download is used instead.
  */
 async function platformVersionPin(
   session: ReturnType<typeof createDownloadSession>,
@@ -120,16 +113,11 @@ async function platformVersionPin(
   );
 
   if (!versionId) {
-    // Nothing can name a build for this platform: no catalogue offer, and no
-    // past download recorded a version id *for it*. That is not the same as
-    // knowing nothing about the app — a `local` record is a compiled package
-    // from some other platform (an iOS build, typically), so the app is real
-    // while this platform's build is still unknown.
-    //
-    // Either way the iOS version list answers the open question: a release's
-    // builds share adjacent ids across platforms, though an id the iOS list
-    // itself carries never is one of them. Only a storefront record — whose
-    // platform offers Apple already enumerated — has nothing to guess.
+    // Nothing can name a build for this platform: no catalogue offer and no pin
+    // recorded *for it* — not the same as knowing nothing about the app, since a
+    // `local` record is a compiled package from another platform. The iOS version
+    // list can answer the open question, as a release's builds share adjacent ids
+    // across platforms.
     if (needsVersionExchange(session.app)) {
       const guessed = await guessPlatformPinFromIOSList(session);
       if (guessed) {
@@ -140,9 +128,9 @@ async function platformVersionPin(
       }
     }
 
-    // Nothing could name a build for this platform. That is not proof of a
-    // missing app — a known version id can still serve a delisted app — but it
-    // does settle the platform: there is nothing here to fetch.
+    // No build could be named for this platform: not proof of a missing app — a
+    // known version id can still serve a delisted app — but it settles that this
+    // platform has nothing to fetch.
     throw new PlatformVersionUnavailableError(
       i18n.t("errors.download.missingVersion"),
     );

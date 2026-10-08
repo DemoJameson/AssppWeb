@@ -1,6 +1,5 @@
-// macOS, iOS and modern Linux desktops (GNOME/Nautilus) use decimal units
-// (1 MB = 1000^2 bytes); Windows uses binary units (1 MB = 1024^2 bytes).
-// Match the host so the displayed size agrees with the platform's file manager.
+// Decimal units on macOS, iOS and modern Linux desktops (1 MB = 1000^2); binary
+// on Windows (1 MB = 1024^2). Match the host so the size agrees with its file manager.
 export const BYTE_BASE =
   typeof navigator !== 'undefined' &&
   /Win/i.test(navigator.userAgent)

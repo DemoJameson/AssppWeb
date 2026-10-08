@@ -15,22 +15,11 @@ import {
 } from "./downloadProduct";
 import i18n from "../i18n";
 
-/**
- * Reads the display version and release date of one version, mirroring ipatool's
- * `GetVersionMetadata` (pkg/appstore/appstore_get_version_metadata.go): the same
- * download-product exchange, pinned to the requested version.
- *
- * One deliberate deviation: ipatool reads the values out of the IPA itself
- * (range requests against the CDN, "the IPA Info.plist is the source of truth")
- * because Apple's reply can carry stale values. Fetching app assets from the
- * browser would mean widening the Wisp host allowlist and duplicating what the
- * backend already downloads, so the reply's metadata is used instead. The caller
- * treats a failure here as non-fatal.
- *
- * Note on the returned `releaseDate`: Apple's item metadata dates the *app*,
- * not the pinned build — the same day comes back for every version of a list
- * (the display version is per-version, the date is not). Callers must not
- * present it as the pinned version's release date (see `utils/versionLabels`).
+/** Reads the display version and release date of one version, mirroring ipatool's `GetVersionMetadata`:
+ * the same download-product exchange, pinned to the requested version. ipatool reads the IPA's Info.plist
+ * (Apple's reply can carry stale values), so the reply's metadata is used instead — fetching the assets in
+ * the browser would widen the Wisp host allowlist. The `releaseDate` dates the *app*, not the pinned build,
+ * so callers must not present it as that build's date (see `utils/versionLabels`).
  */
 export async function getVersionMetadata(
   account: Account,

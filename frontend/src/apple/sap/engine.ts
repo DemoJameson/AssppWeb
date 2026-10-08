@@ -1,9 +1,8 @@
 // Unicorn 2.x WASM engine wrapper (x86_64 guest) for the SAP signer.
 //
-// The vendored emscripten build exposes a double-based glue API (see
-// frontend/scripts/build-unicorn-wasm.sh): all 64-bit guest addresses cross
-// the boundary as JS numbers, which is exact for integers below 2^53 — the
-// SAP guest memory map stays below 2^48.
+// The vendored emscripten build has a double-based glue API (see
+// frontend/scripts/build-unicorn-wasm.sh): 64-bit addresses cross as JS numbers,
+// exact below 2^53; the SAP guest memory map stays below 2^48.
 
 // Unicorn x86_64 register IDs (unicorn/x86.h).
 export const X86_REG = {

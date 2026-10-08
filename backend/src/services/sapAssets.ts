@@ -1,15 +1,6 @@
-// SAP asset extraction service.
-//
-// Apple's SAP signer runs four binaries extracted from a public OS X 10.9
-// software update package on swcdn.apple.com. The backend downloads the
-// package's xar Payload once via HTTP range requests, decompresses the bzip2
-// stream from a fixed offset, and pulls the four files out of the cpio
-// archive — verifying each against its pinned SHA-256 digest before caching
-// them under DATA_DIR/sap-assets. All data is public Apple content; no
-// credentials are involved at any point.
-//
-// Wire format details mirror ipatool's internal/sap/assets (and the
-// extraction pipeline verified against the pinned digests on 2026-09-02).
+// SAP asset extraction: pulls four binaries from a public OS X 10.9 update
+// package via range requests, bzip2 and cpio, verifying pinned SHA-256 before
+// caching under DATA_DIR/sap-assets. No credentials. Mirrors ipatool's assets.
 
 import https from "node:https";
 import zlib from "node:zlib";
@@ -32,12 +23,9 @@ export interface SapAssetSpec {
   /** Original Apple file: size + digest verify the extraction itself. */
   size: number;
   sha256: string;
-  /**
-   * Distributed file: fat binaries are stripped to their x86_64 slice (the
-   * emulated guest architecture) before caching, halving CoreFP. The
-   * stripped digest is a deterministic function of the original — the
-   * extraction still only accepts bytes matching the Apple digest above.
-   */
+  /** Distributed file: fat binaries are stripped to their x86_64 slice (the
+   * emulated guest arch) before caching; the stripped digest is deterministic,
+   * so extraction still only accepts bytes matching the Apple digest above. */
   strippedSize: number;
   strippedSha256: string;
 }
@@ -139,11 +127,8 @@ function verifyStripped(spec: SapAssetSpec, data: Buffer): boolean {
   );
 }
 
-/**
- * Extracts the x86_64 slice from a fat (universal) Mach-O, returning the
- * input untouched for thin images and non-Mach-O data. Mirrors the browser's
- * amd64Slice in frontend/src/apple/sap/machImage.ts.
- */
+/** Extracts the x86_64 slice from a fat Mach-O, returning thin/non-Mach-O
+ * input untouched. Mirrors amd64Slice in frontend/src/apple/sap/machImage.ts. */
 function stripToX86_64(data: Buffer): Buffer {
   if (data.length < 8) {
     return data;
@@ -175,10 +160,8 @@ function stripToX86_64(data: Buffer): Buffer {
   return data;
 }
 
-/**
- * Directory of assets prebaked into the container image (see Dockerfile).
- * When present, a fresh volume is seeded from it without any network use.
- */
+/** Directory of assets prebaked into the container image (see Dockerfile);
+ * when present a fresh volume is seeded from it with no network use. */
 export function bundledSapAssetsDir(): string {
   return process.env.BUNDLED_SAP_ASSETS ?? "/opt/asspp/sap-assets";
 }
@@ -269,10 +252,8 @@ async function runExtraction(): Promise<void> {
       }
     });
 
-    // unbzip2-stream pulls a native crc32 accelerator as a transitive
-    // dependency; cross-built images (buildx BUILDPLATFORM stages) may not
-    // carry a binary matching the runtime architecture. Load it lazily so
-    // images with prebaked assets never touch this path.
+    // unbzip2-stream pulls a native crc32 binary that cross-built images may
+    // not match the runtime arch; load lazily so prebaked-asset images skip it.
     let decompress: () => import("through").ThroughStream;
     try {
       decompress = (await import("unbzip2-stream")).default;
@@ -283,9 +264,8 @@ async function runExtraction(): Promise<void> {
       );
     }
 
-    // "BZh9" + the raw tail reconstructs the bz2 member the same way the
-    // reference implementation does. The prepended header must be a real
-    // byte stream (Readables concatenated as values would corrupt it).
+    // "BZh9" prepended to the raw tail reconstructs the bz2 member; the header
+    // must be a real byte stream (concatenating Readables as values corrupts it).
     const bz2Stream = new PrependStream(Buffer.from("BZh9", "latin1"), cdnStream);
     const pipeline = bz2Stream.pipe(decompress()).pipe(skipper).pipe(extractor);
 
@@ -294,12 +274,9 @@ async function runExtraction(): Promise<void> {
       pipeline.on("error", (error: Error) => reject(error));
     });
 
-    // The extractor resolves as soon as the last wanted member is captured;
-    // racing it against the stream end aborts the download early. The bz2
-    // stream is truncated mid-file (the package heap contains other data
-    // after it), so the decoder may emit a late crc error once the wanted
-    // members are already captured — that must never surface as an
-    // unhandled rejection, which crashes Node outright.
+    // The extractor resolves on the last wanted member, so racing it against
+    // the stream end aborts the download early. The bz2 stream is truncated
+    // mid-file, so a late crc error must never become an unhandled rejection.
     finished.catch(() => undefined);
     await Promise.race([
       allFound,
@@ -510,11 +487,9 @@ class SkipStream extends Transform {
   }
 }
 
-/**
- * Parses cpio members (odc "070707" and newc "070701" formats) and captures
- * the wanted files. macOS package payloads historically use the portable
- * ASCII odc format: 76-byte headers, octal text fields, no padding.
- */
+/** Parses odc ("070707") and newc ("070701") cpio members, capturing the
+ * wanted files. macOS package payloads use odc: 76-byte headers, octal fields,
+ * no padding. */
 class CpioExtractor extends Transform {
   private buffer: Buffer = Buffer.alloc(0);
   private found = 0;

@@ -28,10 +28,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("react-i18next", () => ({
-  // `t` keeps one identity per language in the real react-i18next (it lives in
-  // a useState, see its useTranslation), and the hook's actions take `t` as a
-  // useCallback dependency: a mock that hands out a fresh arrow per render
-  // would make every action unstable for a reason the app does not have.
+  // The hook's actions take `t` as a useCallback dependency, and the real
+  // react-i18next keeps one `t` per language: a mock handing out a fresh arrow per
+  // render would make every action unstable for a reason the app does not have.
   useTranslation: () => ({ t: mocks.stableT }),
   // The real i18n module (pulled in via apple/download) still initialises,
   // so the plugin slot has to exist.
@@ -108,9 +107,8 @@ const account: Account = {
   deviceIdentifier: "aabbccddeeff",
 };
 
-// The key the queue files a package under: the duplicate check asks whether
-// *this* account holds the build, so a fixture task has to wear this account's
-// digest to speak for it (see `utils/downloaded`).
+// The queue keys a package by account: the duplicate check asks whether *this* account
+// holds the build, so a fixture must wear this account's digest (see `utils/downloaded`).
 const accountKey = await accountHash(account);
 
 const app: Software = {
@@ -218,10 +216,9 @@ describe("useDownloadAction", () => {
   });
 
   it("leaves a recalled record's per-build facts out of the request", async () => {
-    // A record recalled from the package index describes the build it was
-    // recalled from, while the picker can serve a different one. The date is
-    // re-read from the archive that arrives and the size measured on disk, so
-    // carrying the record's values would hand the task another build's day.
+    // A record recalled from the package index describes the build it came from,
+    // while the picker may serve another. The date is re-read from the arriving
+    // archive and the size measured on disk, so the record's values must not carry.
     const recalled: Software = {
       ...app,
       metadataSource: "local",
@@ -266,9 +263,8 @@ describe("useDownloadAction", () => {
   });
 
   it("drops them when Apple serves another version than the record named", async () => {
-    // The storefront's date is the *current* version's; picking an older build
-    // in the picker (or the update dialog) serves that one instead, so the date
-    // on hand is another build's — the compiled package supplies its own.
+    // The storefront's date is the *current* version's, but the picker (or the update
+    // dialog) may serve an older build — so the compiled package supplies its own date.
     vi.mocked(getDownloadInfo).mockResolvedValue({
       output: { ...output, bundleShortVersionString: "3.4.4" },
       updatedCookies: [],
@@ -288,9 +284,8 @@ describe("useDownloadAction", () => {
     expect(body.software.releaseDate).toBe("");
     expect(body.software.fileSizeBytes).toBeUndefined();
     expect(body.software.externalVersionId).toBeUndefined();
-    // The floor is the current build's too: an app may raise its minimum OS
-    // between versions, so it drops with the date rather than travelling along
-    // with a build it was never quoted for.
+    // The floor is the current build's too: an app may raise its minimum OS between
+    // versions, so it drops with the date rather than travel with a build that never quoted it.
     expect(body.software.minimumOsVersion).toBe("");
   });
 
@@ -381,9 +376,8 @@ describe("useDownloadAction", () => {
   });
 
   it("hands the server what a macOS package is decrypted with", async () => {
-    // Apple's macOS packages arrive encrypted, and the two pieces that open
-    // them — the key material from the reply and the hardware id the download
-    // was requested with — exist only on this side of the boundary.
+    // Apple's macOS packages arrive encrypted; the two pieces that open them — the
+    // reply's key material and the download's hardware id — exist only on this side.
     const macApp = { ...app, platform: "macos" as const };
     vi.mocked(getDownloadInfo).mockResolvedValue({
       output: { ...output, dpInfo: "QUJDRA==" },
@@ -416,9 +410,8 @@ describe("useDownloadAction", () => {
   });
 
   it("refuses a macOS download this account could not decrypt", async () => {
-    // A device id that is not hex — an imported serial number, say — cannot be
-    // the hardware id StoreAgent derives its key from, so the package is never
-    // fetched: nothing could open it.
+    // A non-hex device id (an imported serial, say) cannot be the hardware id
+    // StoreAgent derives its key from, so the package is never fetched.
     const macApp = { ...app, platform: "macos" as const };
     vi.mocked(getDownloadInfo).mockResolvedValue({
       output: { ...output, dpInfo: "QUJDRA==" },
@@ -478,9 +471,8 @@ describe("useDownloadAction", () => {
   });
 
   it("downloads the same build for another account", async () => {
-    // The build is already here under a different account. A package belongs to
-    // the account that fetched it, so asking for it here is not a repeat — the
-    // queue's copy of it is not this account's.
+    // The build is here under another account, but a package belongs to the account
+    // that fetched it: asking here is not a repeat.
     mocks.tasks = [
       heldTask({ externalVersionId: "900", accountHash: "another-account" }),
     ];
@@ -543,10 +535,9 @@ describe("useDownloadAction", () => {
   });
 
   it("borrows the cached newest version when the platform needs a pin", async () => {
-    // A tvOS download has to name a version id up front; for a delisted app the
-    // catalogue and the recorded pin both have nothing, but the version list —
-    // fetched through the pin guess — names real builds, so its newest entry is
-    // borrowed instead of failing with "no version to pin".
+    // A tvOS download must name a version id up front; for a delisted app the
+    // catalogue and recorded pin are both empty, but the version list names real
+    // builds, so its newest entry is borrowed instead of failing with "no version to pin".
     const tvosApp = { ...app, platform: "tvos" as const };
     rememberVersionList(versionListKey(app.id, "tvos", "US"), ["900", "800"]);
 
@@ -559,9 +550,8 @@ describe("useDownloadAction", () => {
   });
 
   it("borrows the pin from the page's region when one is supplied", async () => {
-    // The page keys its list cache with its own `country` state; on the first
-    // frame that can differ from the account's storefront, so the fallback must
-    // read the key the page wrote under.
+    // The page keys its list cache by its own `country` state, which on the first frame
+    // can differ from the account's storefront; the fallback reads the key the page wrote.
     const tvosApp = { ...app, platform: "tvos" as const };
     rememberVersionList(versionListKey(app.id, "tvos", "JP"), ["900"]);
 
@@ -711,9 +701,8 @@ describe("useDownloadAction", () => {
   });
 
   describe("lookupNewestServableVersion", () => {
-    // The record the backend answers with for an app the storefront has
-    // forgotten: the build already on disk, which is why its own version can
-    // never be the comparison.
+    // The record the backend answers with for an app the storefront has forgotten: the
+    // build already on disk — which is why its own version can never be the comparison.
     const recalled: Software = {
       ...app,
       version: "3.4.4",
@@ -800,9 +789,8 @@ describe("useDownloadAction", () => {
     });
 
     it("reads the display version on the session the license step stored", async () => {
-      // The list exchange may have renewed the session on its way, and the
-      // stored account is where that lands — the caller's snapshot predates it,
-      // so the second exchange must not run on that.
+      // The list exchange may renew the session, landing in the stored account; the
+      // caller's snapshot predates that, so the second exchange must not run on it.
       vi.mocked(listVersions)
         .mockRejectedValueOnce(new DownloadError("license", "9610"))
         .mockResolvedValueOnce({ versions: ["333"], updatedCookies: [] });
@@ -822,11 +810,10 @@ describe("useDownloadAction", () => {
   });
 
   it("hands out actions of stable identity, so an effect does not re-run for having rendered", () => {
-    // The detail page's probe effect takes these as dependencies. A closure that
-    // is new on every render re-runs that effect on every render — and the
-    // effect reads the backend and writes a store the page subscribes to, which
-    // is the request loop `AGENTS.md` describes. Rendering again must hand the
-    // same functions back.
+    // The detail page's probe effect takes these as dependencies; a closure that is
+    // new every render re-runs it, and the effect reads the backend and writes a store
+    // the page subscribes to — the request loop `AGENTS.md` describes. Re-rendering
+    // must hand the same functions back.
     const { result, rerender } = renderHook(() => useDownloadAction());
     const first = result.current;
 

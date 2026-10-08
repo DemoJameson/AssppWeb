@@ -107,9 +107,8 @@ describe("Downloads Route", () => {
   });
 
   it("POST /api/downloads should reject a macOS download it could not decrypt", async () => {
-    // Apple serves a macOS package encrypted, so a request has to say what to
-    // decrypt it with. Without that a package nothing can open would be
-    // fetched in full and then thrown away, so it is refused up front.
+    // Apple serves a macOS package encrypted, so a request must say what to decrypt it with;
+    // without it a package nothing can open would be fetched in full and then thrown away.
     const macRequest = (extra: Record<string, unknown>) => ({
       software: {
         id: 6443975850,
@@ -252,8 +251,7 @@ describe("Packages Route", () => {
   });
 
   it("DELETE /api/packages/:id should return 404 for a task that is not there", async () => {
-    // The handler hands the deletion to the download manager rather than
-    // unlinking the file itself, which is what keeps a `completed` task from
+    // The handler hands deletion to the download manager, keeping a `completed` task from
     // outliving its package — `downloadManager.test.ts` covers that removal.
     const res = await request(app).delete(
       "/api/packages/nonexistent-id?accountHash=abcdef1234567890",
@@ -379,10 +377,9 @@ describe("getBaseUrl", () => {
   });
 
   it("uses the configured origins instead once they are set", () => {
-    // The list is read per request, so a test can stand one up and hand the
-    // real value back without going near the environment. Restored in a
-    // `finally` because the rest of this describe expects the unconfigured
-    // path.
+    // The list is read per request, so a test can stand one up and restore the real value
+    // without touching the environment. Restored in a `finally` because the rest of this
+    // describe expects the unconfigured path.
     const original = config.publicBaseUrls;
     config.publicBaseUrls = ["https://asspp.example.com"];
     try {

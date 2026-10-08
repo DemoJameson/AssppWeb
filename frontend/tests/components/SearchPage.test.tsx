@@ -369,9 +369,8 @@ describe('SearchPage App ID probe', () => {
   });
 
   it('keeps a package-index record closed with its reason when the platform serves nothing', async () => {
-    // An iOS-only record asked for as tvOS: the app exists, but nothing can name
-    // a tvOS build — the card says so and stays closed instead of walking the
-    // user into a view with nothing to fetch.
+    // An iOS-only record asked for as tvOS: the app exists but nothing can name a tvOS
+    // build — the card says so and stays closed rather than walk into a view with nothing.
     mocks.listVersions.mockRejectedValue(
       new DownloadError('缺少所需的版本信息'),
     );
@@ -391,9 +390,8 @@ describe('SearchPage App ID probe', () => {
   });
 
   it('names the missing platform outright when the exchange settles it', async () => {
-    // The exchange answered "no build for this platform" — an answer, not a
-    // failure to ask — so the card says which platform has nothing instead of
-    // reading as an open question, and still does not walk the user in.
+    // The exchange answered "no build for this platform" — an answer, not a failure to ask
+    // — so the card names the empty platform rather than read as an open question.
     mocks.listVersions.mockRejectedValue(
       new PlatformVersionUnavailableError('no build for platform'),
     );
@@ -415,11 +413,10 @@ describe('SearchPage App ID probe', () => {
   });
 
   it('re-verifies when the platform switch lands while a search is in flight', async () => {
-    // tvOS search: the record carries its build, so it needs no verification.
-    // Switching to macOS fires a new search — and while it is in flight the
-    // old tvOS record is still on screen. Probing that stale record must not
-    // mark the macOS key as already-asked, or the fresh result (which has no
-    // macOS build and needs the verdict) never gets asked at all.
+    // tvOS search: the record carries its build, so it needs no verification. Switching
+    // to macOS fires a new search while the old tvOS record is still on screen; probing
+    // that stale record must not mark the macOS key as already-asked, or the fresh result
+    // (no macOS build, needs the verdict) never gets asked at all.
     useSearch.setState({
       term: 'forward',
       country: 'US',
@@ -539,9 +536,8 @@ describe('SearchPage App ID probe', () => {
   });
 
   it('does not probe another region and asks for its account', async () => {
-    // Asking from the wrong storefront only earns "Account Not In This Store",
-    // which says nothing about the app — so nothing is asked, and the card says
-    // which region has no account and where to add one.
+    // Asking from the wrong storefront only earns "Account Not In This Store", which says
+    // nothing about the app — so nothing is asked, and the card points at where to add one.
     mocks.accounts = [account];
     useSearch.setState({ country: 'JP' });
 
@@ -602,9 +598,9 @@ describe('SearchPage App ID probe', () => {
   });
 
   it('settles the probe under StrictMode (mount effects re-arm)', async () => {
-    // React StrictMode runs mount effects setup → cleanup → setup; a
-    // mountedRef only cleared on cleanup would mute the settled probe forever
-    // (the dev-server hang this guards against) — its setup must re-arm it.
+    // StrictMode runs mount effects setup → cleanup → setup; a mountedRef cleared only
+    // on cleanup would mute the settled probe forever — the dev-server hang this guards
+    // against — so setup must re-arm it.
     mocks.listVersions.mockResolvedValue({
       versions: ['883003118'],
       updatedCookies: [],
@@ -733,10 +729,9 @@ describe('SearchPage App ID probe', () => {
   });
 
   it('re-locks the card when returning to a region whose probe never settled', async () => {
-    // Leaving a region mid-probe resets its verdict, so a quick return must
-    // re-ask (and re-lock) rather than leave a clickable-but-unverified card:
-    // the probe state is gone while the prefetch marker used to block the
-    // re-fetch.
+    // Leaving a region mid-probe resets its verdict, so a quick return must re-ask (and
+    // re-lock) rather than leave a clickable-but-unverified card — the probe state is
+    // gone while the prefetch marker used to block the re-fetch.
     const jpAccount = { ...account, email: 'jp@example.test', store: '143462' };
     mocks.accounts = [account, jpAccount];
 

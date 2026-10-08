@@ -43,10 +43,8 @@ const SAFE_SEGMENT_RE = /^[a-zA-Z0-9._-]+$/;
 
 /** Validate and sanitize a path segment. Rejects traversal, replaces unsafe chars. */
 function safePathSegment(value: string, label: string): string {
-  // `value` is only *declared* a string; callers pass unchecked request-body
-  // fields (accountHash, software.version). Regex `.test()` coerces a number to
-  // a string and `return value` would hand a number straight to `path.join`,
-  // which throws ERR_INVALID_ARG_TYPE. Refuse non-strings up front.
+  // Callers pass unchecked request-body fields; a non-string would reach
+  // `path.join` and throw. Refuse non-strings up front.
   if (typeof value !== "string" || !value || value === "." || value === "..") {
     throw new Error(`Invalid ${label}`);
   }
@@ -59,10 +57,8 @@ function safePathSegment(value: string, label: string): string {
 }
 
 /**
- * Directory segment identifying the app of a task: its bundle id when known,
- * otherwise the numeric app id. ipatool keys a download off the app id and
- * simply omits the fields it does not know, so a download started from a bare
- * app id still gets a valid, collision-free layout.
+ * Directory segment for a task's app: its bundle id, else the numeric app id,
+ * so a download started from a bare app id still gets a collision-free layout.
  */
 export function appPathSegment(software: Software): string {
   return safePathSegment(
@@ -72,13 +68,8 @@ export function appPathSegment(software: Software): string {
 }
 
 /**
- * Fills in what a task could not know up front from what the compiled package
- * declares. A value the storefront reported always wins, so a download created
- * from search results is left untouched.
- *
- * A download created from a bare app id labels the app `App <id>` (see
- * `bareSoftwareById` in the frontend's `utils/software`); that label counts as
- * "no name yet" so the package can supply the real one.
+ * Fills in what a task could not know up front from the compiled package's own
+ * declarations. A value the storefront reported always wins.
  */
 /** Fields of `Software` that a package can supply when the request did not. */
 type FillableField =
@@ -100,9 +91,7 @@ export function applyPackageMetadata(
 ): boolean {
   let changed = false;
 
-  // A download created from a bare app id labels the app `App <id>` (see
-  // `bareSoftwareById` in the frontend's `utils/software`); that label counts
-  // as "no name yet" so the package can supply the real one.
+  // `App <id>` (see the frontend's `bareSoftwareById`) counts as "no name yet".
   if (
     metadata.name &&
     (!software.name || software.name === `App ${software.id}`)
@@ -123,9 +112,8 @@ export function applyPackageMetadata(
   fill("artworkUrl", metadata.artworkURL);
   fill("externalVersionId", metadata.externalVersionId);
 
-  // The package's own CFBundleSupportedPlatforms is the authority over the
-  // platform the search or download request named: a universal app searched as
-  // tvOS may have served its iOS build, and the package knows which.
+  // CFBundleSupportedPlatforms is the authority over the requested platform: an
+  // app searched as tvOS may have served its iOS build, and the package knows.
   const platformChanged =
     !!metadata.platform && software.platform !== metadata.platform;
   if (platformChanged) {
@@ -134,11 +122,8 @@ export function applyPackageMetadata(
   }
 
   // A minimum OS version belongs to the platform that declared it, so a record
-  // corrected to another platform cannot keep the value it was quoted: the row
-  // would pair one platform's name with another's floor (an iOS build shown as
-  // "iOS 17.0" because the record carried the tvOS build's 17.0). The package's
-  // own value replaces it, and the field goes back to unknown when the package
-  // declared none — a dash beats a confidently wrong floor.
+  // corrected to another platform cannot keep the old value. The package's own
+  // value replaces it; unknown when the package declared none.
   if (platformChanged) {
     if (software.minimumOsVersion !== (metadata.minimumOsVersion ?? "")) {
       changed = true;
@@ -164,16 +149,13 @@ function fillIn(
 // --- App icon extracted from the compiled package ---
 
 /**
- * The icon is parked beside the IPA under this name, so its location is a
- * function of the task's own file path and needs no extra bookkeeping.
+ * The icon sits beside the IPA under this name, so its location derives from the
+ * task's file path and needs no extra bookkeeping.
  */
 const ICON_BASENAME = "icon";
 const ICON_EXTENSIONS = ["png", "jpg"] as const;
 
-/**
- * The icon a task's package carried, or null when it had none — a package
- * without a usable image simply falls back to whatever the UI shows instead.
- */
+/** The icon a task's package carried, or null when it had none. */
 export function iconPathFor(task: DownloadTask): string | null {
   if (!task.filePath) return null;
 
@@ -243,18 +225,10 @@ export function validateDownloadURL(url: string): void {
 }
 
 /**
- * Refuses a macOS package for a task that is not a macOS one.
- *
- * macOS downloads arrive as `.pkg` (a xar container): they carry no sinfs and
- * cannot be unpacked the way an IPA is, so the task would fail only after the
- * whole package had been fetched. The platform is the caller's choice while the
- * build is selected by the version pin — and that pin can have been *guessed*
- * (see the frontend's `versionFinder`, which probes neighbouring version ids) —
- * so a tvOS or visionOS task really can be handed a Mac package. The URL says
- * so, so the task is refused before anything is downloaded.
- *
- * Only this direction is checked: the other one — an IPA handed to a macOS task
- * — is caught by `assertMacOSPackage` once the package is on disk.
+ * Refuses a macOS package (.pkg, a xar container with no sinfs) for a non-macOS
+ * task. A guessed version pin (see the frontend's `versionFinder`) can hand a
+ * tvOS task a Mac package, which would only fail after the whole download. The
+ * other direction — an IPA for a macOS task — is caught by `assertMacOSPackage`.
  */
 export function assertPackageMatchesPlatform(
   url: string,
@@ -269,13 +243,9 @@ export function assertPackageMatchesPlatform(
 }
 
 /**
- * Turns a macOS task's downloaded bytes into a package the Mac can install.
- *
- * Apple hands a macOS download out encrypted, so the transfer is only half the
- * work: StoreAgent has to decrypt it first, and that takes minutes on a large
- * package. It runs under the `injecting` status because the download is over
- * but the task is not usable yet — leaving the transfer's 100% on screen would
- * read as a stall for as long as the decryption lasts.
+ * Turns a macOS task's downloaded bytes into an installable package. Apple
+ * serves it encrypted, and StoreAgent's decryption takes minutes, so the task
+ * runs under `injecting` rather than sitting at the transfer's 100%.
  */
 async function decryptTaskPackage(
   task: DownloadTask,
@@ -288,28 +258,21 @@ async function decryptTaskPackage(
     throw new PackagePlatformError("macOS package could not be read");
   }
 
-  // An IPA has nothing in it to decrypt, and it is refused with the same words
-  // the archive check below would use.
+  // An IPA has nothing to decrypt; refused with the archive check's words.
   if (magic.startsWith("PK")) {
     throw new PackagePlatformError(IPA_SERVED_TO_MACOS);
   }
 
-  // A pause or a delete that landed as the transfer ended removed this
-  // attempt's registration, and the abort it recorded owns the task's status:
-  // pausing set `paused`, and this attempt must not run on — overwriting the
-  // status with `injecting` here would leave a row that no button could move
-  // again (pause refuses anything but `downloading`, and resume only takes
-  // `paused`). It unwinds as the stale attempt the catch already knows to
-  // drop. No other abort can reach this point: the timeout was cleared with
-  // the transfer.
+  // A pause/delete that landed as the transfer ended already set the task's
+  // status; overwriting it with `injecting` would strand the row (pause only
+  // takes `downloading`, resume only `paused`). Unwinds as a stale attempt.
   if (signal.aborted) {
     const aborted = new Error("Aborted");
     aborted.name = "AbortError";
     throw aborted;
   }
 
-  // Already a package: Apple served this one unencrypted, which leaves nothing
-  // to do (and decrypting it would corrupt it).
+  // Already a package (served unencrypted); decrypting it would corrupt it.
   if (magic === "xar!") return;
 
   if (!task.dpInfo || !task.hardwareId) {
@@ -336,9 +299,7 @@ async function decryptTaskPackage(
 
 /**
  * Lets go of the material a macOS decryption rode on once the task is terminal.
- * It is never persisted and never sent to a client, but a failed task sits in
- * memory until the user deletes it, and there is no retry that could reuse it —
- * a retry asks Apple again and arrives with fresh material.
+ * It is never persisted, and a retry arrives with fresh material anyway.
  */
 function stripDecryptionMaterial(task: DownloadTask): void {
   task.dpInfo = undefined;
@@ -374,11 +335,8 @@ export function sanitizeTaskForResponse(
 }
 
 /**
- * The software shape persisted with a finished task. `metadataSource` marks where the
- * search found the record (`bare`/`local`) — a per-request hint, not a property
- * of the compiled package — so it is dropped before persistence: reloading a
- * finished task would otherwise read it back as a stale verdict. Files that
- * already carry it still load fine, since nothing reads the field off a task.
+ * The software shape persisted with a finished task. `metadataSource` is a
+ * per-request hint, not a package property, so it is dropped before persistence.
  */
 export function softwareForPersistence(software: Software): Software {
   const { metadataSource: _metadataSource, ...rest } = software;
@@ -424,7 +382,6 @@ function persistTasks() {
     for (const row of existingRows) {
       if (!currentIds.has(row.id)) stmtDeleteTask.run(row.id);
     }
-    // Upsert the current completed tasks.
     for (const t of completed) {
       stmtUpsertTask.run(
         t.id,
@@ -545,20 +502,16 @@ function initOnStartup() {
   // Open the DB (creates tables if absent) before the stores below use it.
   getDb();
 
-  // Load the shared version metadata cache before the repair pass below seeds
-  // it from finished packages.
+  // Load the version metadata cache before the repair pass seeds it.
   initVersionMetadataCache();
 
-  // Load the recorded version pins before the repair pass tops them up from
-  // finished packages.
+  // Load version pins before the repair pass tops them up.
   initVersionPinStore();
 
-  // Load the package-app index before the repair pass records what finished
-  // packages know about their apps.
+  // Load the package-app index before the repair pass fills it.
   initPackageAppStore();
 
-  // Legacy JSON files (tasks.json and the improve-branch stores) are migrated
-  // into SQLite on the first open of the DB, handled centrally in db.ts.
+  // Legacy JSON files are migrated into SQLite on first DB open — see db.ts.
 
   // Load completed tasks from previous run
   ensurePersistStmts();
@@ -605,9 +558,8 @@ function initOnStartup() {
   // Clean up orphaned IPA files (files without a task)
   cleanOrphanedPackages();
 
-  // Bring already compiled packages up to what the current code reads out of
-  // them. Deliberately not awaited: it is file work over packages that may be
-  // hundreds of megabytes, and it must not hold up the server.
+  // Deliberately not awaited: file work over packages of hundreds of MB must
+  // not hold up the server.
   void repairFinishedPackages().catch(() => {});
 
   // Run time-based cleanup once on startup, then schedule daily
@@ -616,20 +568,9 @@ function initOnStartup() {
 }
 
 /**
- * Brings what a finished package reports back to what that package actually
- * contains, under the rules the extractor applies today.
- *
- * Re-deriving rather than only filling gaps is deliberate: the stored values are
- * cached answers, so a rule fix has to reach packages that are already on disk,
- * and the alternative is asking the user to download the app again. Two things
- * are refreshed: the icon, and the store metadata the package carries — the icon
- * URL among it, which is the only icon a package with no loose image can offer
- * (a tvOS build keeps its icon inside `Assets.car`).
- *
- * Runs in the background: it reads archives that can be hundreds of megabytes,
- * and it must not hold up the server. The frontend picks the result up as soon
- * as it next lists the downloads, since `hasIcon` is answered from the file
- * system on every request.
+ * Re-derives what a finished package actually contains, so a rule fix reaches
+ * packages already on disk without forcing a re-download. Refreshes the icon
+ * and the store metadata (icon URL included). Runs in the background.
  */
 async function repairFinishedPackages(): Promise<void> {
   const finished = Array.from(tasks.values()).filter(
@@ -777,9 +718,8 @@ export function getTask(id: string): DownloadTask | undefined {
 }
 
 /**
- * Removes a task, its files, and its bookkeeping without writing to the
- * database — the cleanup loops call this repeatedly and persist once at the
- * end instead of issuing a transaction per deletion.
+ * Removes a task, its files, and its bookkeeping without writing to the DB —
+ * cleanup loops call this repeatedly and persist once at the end.
  */
 function deleteTaskInternal(id: string): boolean {
   const task = tasks.get(id);
@@ -802,8 +742,8 @@ function deleteTaskInternal(id: string): boolean {
     const resolved = path.resolve(task.filePath);
     const packagesBase = path.resolve(PACKAGES_DIR);
     if (resolved.startsWith(packagesBase + path.sep)) {
-      // A paused task's downloader is no longer registered, so its .part
-      // leftovers must be swept here or they survive until the next restart.
+      // A paused task's downloader is gone, so its .part leftovers are swept
+      // here.
       removePartFiles(resolved);
 
       if (fs.existsSync(resolved)) {
@@ -868,10 +808,8 @@ export function resumeTask(id: string): boolean {
 }
 
 /**
- * What a macOS task needs to be decrypted once Apple's package has arrived.
- * Both pieces come from the client, which is the only side that ever talked to
- * Apple: the `dpInfo` Apple answered the download with, and the hardware id the
- * download was requested with.
+ * What a macOS task needs to decrypt Apple's package: the `dpInfo` the download
+ * answered with and the hardware id it was requested with, both from the client.
  */
 export interface MacOSDecryption {
   /** Base64 `dpInfo` from the download response's sinfs. */
@@ -884,9 +822,8 @@ export interface MacOSDecryption {
 const HARDWARE_ID_RE = /^([0-9a-fA-F]{2})+$/;
 
 /**
- * Refuses a macOS task that could not be decrypted afterwards. Failing at
- * creation is the point: the alternative is fetching a package — tens or
- * hundreds of megabytes — only to find out that nothing can open it.
+ * Refuses a macOS task that could not be decrypted, so a tens-of-MB package is
+ * not fetched only to find nothing can open it.
  */
 function assertMacOSDecryption(decryption?: MacOSDecryption): void {
   if (!decryption) {
@@ -912,14 +849,12 @@ export function createTask(
   iTunesMetadata?: string,
   decryption?: MacOSDecryption,
 ): DownloadTask {
-  // Validate download URL
   validateDownloadURL(downloadURL);
   // …and that what Apple offered is a package this task's platform can use.
   assertPackageMatchesPlatform(downloadURL, software.platform);
 
-  // Validate path segments. The app id is the one field a download cannot do
-  // without: it is what Apple is asked for, and it names the directory when the
-  // bundle id is unknown.
+  // The app id is required: it is what Apple is asked for and names the
+  // directory when the bundle id is unknown.
   if (!Number.isInteger(software.id) || software.id <= 0) {
     throw new Error("Invalid app id");
   }
@@ -952,24 +887,20 @@ export function createTask(
 }
 
 async function startDownload(task: DownloadTask) {
-  // A resumed task keeps its progress: the downloader seeds the real byte
-  // count from the .part files a pause left behind.
+  // A resumed task keeps its progress: the downloader seeds the byte count from
+  // the .part files a pause left behind.
   const resuming = task.status === "paused";
 
-  // Pre-download cleanup: expire old files + enforce space limit. Both run
-  // before the attempt registers itself — a throw here is reported by
-  // `startDownloadSafely`, and there is nothing registered to release yet.
+  // Pre-download cleanup runs before the attempt registers itself, so a throw
+  // here has nothing registered to release (reported by `startDownloadSafely`).
   runTimeCleanup();
   runSpaceCleanup();
 
   const controller = new AbortController();
-  // The attempt owns this registration for its whole lifecycle — the transfer,
-  // the package checks, the injection, the write — and releases it in the
-  // `finally` below. The guard in the `catch` reads it to tell a superseded
-  // attempt from the current one, so releasing it any earlier made every
-  // failure after the download look stale: the task stayed `downloading` at
-  // 100% with its reason thrown away (a macOS task handed a non-package did
-  // exactly that).
+  // The attempt owns this registration for its whole lifecycle and releases it
+  // in the `finally` below. The `catch` guard reads it to tell a superseded
+  // attempt from the current one — releasing it earlier made post-download
+  // failures look stale (task stuck `downloading` at 100%, reason discarded).
   abortControllers.set(task.id, controller);
 
   // Set a global timeout for the entire download
@@ -984,7 +915,6 @@ async function startDownload(task: DownloadTask) {
     task.error = undefined;
     notifyProgress(task);
 
-    // Sanitize path segments
     const safeAccountHash = safePathSegment(task.accountHash, "accountHash");
     const safeAppSegment = appPathSegment(task.software);
     const safeVersion = safePathSegment(task.software.version, "version");
@@ -1005,8 +935,8 @@ async function startDownload(task: DownloadTask) {
 
     fs.mkdirSync(dir, { recursive: true });
 
-    // macOS App Store packages arrive as .pkg (a xar container), not as an IPA:
-    // they carry no sinfs to inject and cannot be unpacked the way an IPA is.
+    // macOS packages arrive as .pkg (a xar container), not an IPA: no sinfs to
+    // inject and not unpackable as an IPA.
     const isMacOSPackage = task.software.platform === "macos";
     const filePath = path.join(
       dir,
@@ -1030,35 +960,27 @@ async function startDownload(task: DownloadTask) {
 
     await downloader.download(controller.signal);
 
-    // The transfer is over; the registration stays for the steps below (see the
-    // note where it was taken), so their failures still reach the task.
+    // Registration stays for the steps below, so their failures reach the task.
     clearTimeout(timeout);
 
-    // Validate the package declares support for a known platform before
-    // injecting — mirrors ipatool's validatePackagePlatform. macOS packages are
-    // .pkg (xar), not IPAs, so the check is skipped for them. The package's own
-    // declaration is the authority over the request's platform: a by-ID download
-    // can pin a tvOS version id with the selector on iOS, and the IPA that comes
-    // back is a tvOS build.
+    // Validates the package's declared platform before injecting — mirrors
+    // ipatool's validatePackagePlatform, and its declaration is the authority
+    // over the request's. Skipped for macOS (.pkg, not IPA).
     if (!isMacOSPackage) {
       const actualPlatform = await validatePackagePlatform(filePath);
       if (actualPlatform && actualPlatform !== task.software.platform) {
         task.software.platform = actualPlatform;
       }
     } else {
-      // Apple serves a macOS download FairPlay-encrypted, so it is not a .pkg
-      // yet: decrypting it is what turns it into one, and the archive check
-      // below then confirms what came out. A macOS task can still be served an
-      // IPA instead — the MDM catalogue answers an iOS offer even when asked
-      // with platform=osx, and a pin guessed from another platform names that
-      // platform's build — and decryption refuses that loudly rather than
-      // quietly producing something an installer cannot use.
+      // Apple serves a macOS download FairPlay-encrypted, so it is not yet a
+      // .pkg; decrypting makes it one. A macOS task can still be served an IPA
+      // (the MDM catalogue answers an iOS offer even for platform=osx), which
+      // decryption refuses loudly.
       await decryptTaskPackage(task, filePath, controller.signal);
       await assertMacOSPackage(filePath);
     }
 
-    // Inject sinfs — macOS packages cannot carry them, so the download is the
-    // final artifact as-is.
+    // Inject sinfs; macOS packages cannot carry them, so the download is final.
     const compiled = task.sinfs.length > 0 && !isMacOSPackage;
     if (compiled) {
       task.status = "injecting";
@@ -1071,33 +993,27 @@ async function startDownload(task: DownloadTask) {
         task.iTunesMetadata,
       );
 
-      // A download started from a bare app id knows almost nothing about the
-      // app it asked for. The package does, so fill in whatever is still
-      // missing before the task is persisted: every view then reports the real
-      // values instead of the placeholder the request carried.
+      // A bare-app-id download knows almost nothing; fill in what the package
+      // declares before persisting, so every view reports real values.
       applyPackageMetadata(task.software, metadata);
 
       // The package is the trusted source for the shared version metadata
-      // cache — the same read-back, recorded for every client of the instance.
+      // cache.
       seedVersionMetadata(task.software.id, metadata);
       writeTaskIcon(task, icon);
     }
 
-    // Apple's fileSizeBytes is the installed (uncompressed) size, not the
-    // IPA file size. Overwrite it with the real on-disk size so the UI shows
-    // what the user actually downloads. Injection rewrites the archive, so the
-    // measurement has to come after it — and it is the size the app index
-    // records below, the only one a delisted app can report.
+    // Apple's fileSizeBytes is the installed (uncompressed) size, not the file
+    // size. Overwrite with the real on-disk size; it must come after injection
+    // (which rewrites the archive) and is what the app index records below.
     task.software.fileSizeBytes = String(fs.statSync(filePath).size);
 
-    // And the app index: a delisted app stays findable by bundle id, and
-    // answers the detail page with everything its package knew — the size above
-    // included.
+    // The app index: a delisted app stays findable by bundle id with everything
+    // its package knew, the size above included.
     if (compiled) rememberPackageApp(task.software);
 
-    // The finished package is the last place a delisted app's version id is
-    // still readable; record it so later version queries have a pin to fall
-    // back to.
+    // Record the version pin: the package is the last place a delisted app's
+    // version id is readable.
     recordVersionPin(
       task.software.id,
       task.software.platform,
@@ -1118,9 +1034,8 @@ async function startDownload(task: DownloadTask) {
     persistTasks();
     notifyProgress(task);
   } catch (err) {
-    // A rapid pause → resume replaces this attempt's registration (and a new
-    // download is already running): the newer attempt owns the task's lifecycle
-    // now, so this stale catch must not overwrite the task's status.
+    // A rapid pause → resume replaced this registration: the newer attempt owns
+    // the task now, so this stale catch must not overwrite its status.
     if (abortControllers.get(task.id) !== controller) {
       clearTimeout(timeout);
       return;
@@ -1128,9 +1043,8 @@ async function startDownload(task: DownloadTask) {
 
     clearTimeout(timeout);
     if (err instanceof Error && err.name === "AbortError") {
-      // The abort came from this attempt's own timeout: pauseTask() has
-      // already removed the controller from the map (caught above), so
-      // reaching here means the download genuinely timed out.
+      // pauseTask() already removed the controller (caught above), so reaching
+      // here means the download genuinely timed out.
       task.status = "failed";
       task.error = "Download timed out";
       stripDecryptionMaterial(task);
@@ -1144,13 +1058,12 @@ async function startDownload(task: DownloadTask) {
       err instanceof Error ? err.message : err,
     );
     // The specific reason (platform mismatch, chunk HTTP error, decryption,
-    // injection failure) is what the user can act on; the generic text hid it.
+    // injection) is actionable; generic text hid it.
     task.error = err instanceof Error ? err.message : "Download failed";
     stripDecryptionMaterial(task);
     notifyProgress(task);
   } finally {
-    // Only this attempt's own registration is released — a newer attempt has put
-    // its own in place by now, and pause/delete have already taken theirs.
+    // Only this attempt's registration is released; a newer one has its own.
     if (abortControllers.get(task.id) === controller) {
       abortControllers.delete(task.id);
       chunkDownloaders.delete(task.id);
@@ -1159,10 +1072,9 @@ async function startDownload(task: DownloadTask) {
 }
 
 /**
- * Fires a download without awaiting it, and absorbs an out-of-band rejection
- * so it can never take down the process as an unhandled rejection. Only the
- * pre-download cleanup runs ahead of the attempt's own `try`, so a rejection
- * reaching here has no registration to release — the attempt releases its own.
+ * Fires a download without awaiting it and absorbs any out-of-band rejection as
+ * an unhandled rejection would take down the process. A rejection reaching here
+ * has no registration to release — the attempt releases its own.
  */
 function startDownloadSafely(task: DownloadTask): void {
   void startDownload(task).catch((error: unknown) => {

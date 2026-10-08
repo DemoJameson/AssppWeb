@@ -13,38 +13,29 @@ interface Bucket {
 }
 
 /**
- * Key a request by its client address.
- *
- * `X-Forwarded-For` is not read here — a client can forge it, and this app is
- * single-tenant with one shared access password. Behind a reverse proxy that
- * means every request arrives from the proxy's address, so all clients share a
- * bucket: the intended reading of "one tenant, one quota", but it also lets one
- * caller burn the quota and lock the real user out for a window. Express's
- * `trust proxy` setting is what resolves that — with it on, `req.ip` is the
- * client the proxy reports, and each caller gets its own bucket, at the cost of
- * trusting the proxy's word for it (see `TRUST_PROXY` in config.ts).
+ * Key a request by its client address. `X-Forwarded-For` is not read — a client
+ * can forge it, and this app is single-tenant with one shared password. Behind a
+ * proxy every request arrives from the proxy's address, so all clients share one
+ * bucket: Express's `trust proxy` (see `TRUST_PROXY` in config.ts) is what keys
+ * each caller separately instead.
  */
 export function rateLimitKey(req: Request): string {
   return req.ip ?? req.socket?.remoteAddress ?? "unknown";
 }
 
 /**
- * In-memory fixed-window rate limiter. The caller decides what counts as a
- * hit — the auth route only records failed verifications, so successful
- * logins never consume quota.
+ * In-memory fixed-window rate limiter. The caller decides what counts as a hit:
+ * the auth route only records failed verifications, so successful logins never
+ * consume quota.
  */
 export function createRateLimiter({ windowMs, max }: RateLimitOptions) {
   const buckets = new Map<string, Bucket>();
 
   /**
-   * Drops every bucket whose window has closed.
-   *
-   * A bucket is created for each key the limiter is *asked* about, not only for
-   * the ones that fail, so without this the map would keep one entry per address
-   * that ever reached the route for the life of the process — an unbounded map
-   * fed by the very endpoint that exists to bound traffic. The limiter guards
-   * one login route, so a sweep per call is cheaper than a timer that has to be
-   * owned and cleaned up.
+   * Drops every bucket whose window has closed. A bucket is created for every
+   * key the limiter is *asked* about, not only the failures, so without this the
+   * map would keep one entry per address ever seen for the process's life. The
+   * limiter guards one login route, so a sweep per call beats an owned timer.
    */
   function pruneExpired(now: number): void {
     for (const [key, bucket] of buckets) {

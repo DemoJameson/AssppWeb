@@ -273,9 +273,8 @@ describe("apple/authenticate", () => {
     expect(appleRequest).toHaveBeenCalledTimes(2);
     const [first, second] = vi.mocked(appleRequest).mock.calls;
     expect(second[0].host).toBe("p30-buy.itunes.apple.com");
-    // Apple answers a sign-in only on the slashed path — the bare one hands
-    // back an HTML page — so the hop keeps the slash even though the Location
-    // omitted it.
+    // Apple answers a sign-in only on the slashed path — the bare one returns HTML — so the
+    // hop keeps the slash even though the Location omitted it.
     expect(second[0].path).toBe(
       "/WebObjects/MZFinance.woa/wa/authenticate/?guid=aabbccddeeff",
     );

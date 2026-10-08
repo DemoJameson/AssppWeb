@@ -27,9 +27,7 @@ export function firstAccountCountry(accounts: Account[]): string | undefined {
 /**
  * The one name an account goes by, wherever it is offered or reported: the
  * storefront, then the person, then the address — `JP · Demo User
- * (demo@example.test)`. Parts an account does not have are left out rather than
- * left blank: an account with no name on it is its address alone, and one with
- * no storefront known is named without the separator that would introduce it.
+ * (demo@example.test)`. Missing parts are left out rather than left blank.
  */
 export function accountSelectLabel(account: Account, t: TFunction): string {
   const cc = accountStoreCountry(account);
@@ -41,10 +39,9 @@ export function accountSelectLabel(account: Account, t: TFunction): string {
 
 /**
  * How a package names the account it was downloaded with: the same label the
- * account pickers offer (`storefront · name (email)`), so a download list row
- * and the package detail page call one account by one name. `fallback` is what
- * is left to say when that account is gone — the record's own key (its hash),
- * or a preview row's own name.
+ * account pickers offer (`storefront · name (email)`), so a download row and the
+ * package detail page call one account by one name. `fallback` is what is left
+ * to say when that account is gone — the record's hash, or a preview row's name.
  */
 export function packageAccountLabel(
   account: Account | undefined,
@@ -65,11 +62,10 @@ const HARDWARE_ID_RE = /^([0-9a-fA-F]{2})+$/;
 
 /**
  * The hardware id a download is requested with (`guid`), in the hex form the
- * macOS decrypter reads it in — the two are the same bytes, one hex-encoded
- * the other raw, and StoreAgent derives its key from them. `undefined` when the
- * account carries something that is not a hex id (an imported serial number,
- * say): a macOS package could not be decrypted with it, and the caller says so
- * rather than fetching a package nothing can open.
+ * macOS decrypter reads it in — the two are the same bytes, and StoreAgent
+ * derives its key from them. `undefined` when the account carries something that
+ * is not a hex id (an imported serial number, say): a macOS package could not be
+ * decrypted with it.
  */
 export function accountHardwareId(account: Account): string | undefined {
   const id = account.deviceIdentifier;

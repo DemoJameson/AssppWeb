@@ -6,29 +6,26 @@ import {
 } from "../utils/downloadTicket.js";
 
 /**
- * `GET /downloads/:id/icon` is drawn by an `<img>`, which cannot carry the access
- * token header. The image is public app artwork — the same file the install
- * manifest hands to iOS — and reaching a task still requires its id and account
- * hash, so it is exempt.
+ * `GET /downloads/:id/icon` is drawn by an `<img>`, which cannot carry the
+ * access-token header. The image is public app artwork and reaching a task still
+ * needs its id and account hash, so it is exempt.
  */
 const ICON_PATH_RE = /^\/downloads\/[^/]+\/icon$/;
 
 /**
- * `GET /packages/:id/file` may be opened as a browser-native download, which —
- * like the icon — cannot attach the access-token header. Those links instead
- * carry a short-lived `exp`+`sig` pair issued by `GET /packages/:id/file-url`
- * (itself behind this middleware), scoped to the task and account hash.
+ * `GET /packages/:id/file` may be opened as a browser-native download, which
+ * cannot attach the token header; those links instead carry a short-lived
+ * `exp`+`sig` pair issued by `GET /packages/:id/file-url` (itself behind this
+ * middleware).
  */
 const DOWNLOAD_FILE_PATH_RE = /^\/packages\/([^/]+)\/file$/;
 
 /**
- * The install routes are fetched by iOS out of a manifest, with no way to
- * attach the access token — the manifest itself included, since the
- * `itms-services://` link handed to the device is a plain navigation. They
- * carry the same kind of short-lived pair instead, issued by
- * `GET /install/:id/url` (itself behind this middleware) and scoped to the
- * task. `GET /install/:id/url` is deliberately *not* listed here: it is read by
- * the SPA, which does hold the token.
+ * iOS fetches the install routes out of a manifest with no way to attach the
+ * token — the manifest itself included, since the `itms-services://` link is a
+ * plain navigation. They carry a short-lived pair issued by `GET /install/:id/url`
+ * (itself behind this middleware); that URL is deliberately not listed — the SPA
+ * holds the token and reads it.
  */
 const INSTALL_PATH_RE =
   /^\/install\/([^/]+)\/(?:manifest\.plist|payload\.ipa|icon-small\.png|icon-large\.png)$/;

@@ -235,9 +235,8 @@ describe('readVersionMetadataFromRanges', () => {
         method: 8,
       },
     ]);
-    // Rewrite the central directory's uncompressed-size field to claim far more
-    // than the output cap: a small deflated payload that lies about its size
-    // must be refused before it is inflated (a zip bomb).
+    // Rewrite the central directory's uncompressed-size field to claim far more than the
+    // output cap: a small payload that lies about its size must be refused before inflation.
     const directoryOffset = zip.readUInt32LE(zip.length - 22 + 16);
     zip.writeUInt32LE(0x7fffffff, directoryOffset + 24);
 

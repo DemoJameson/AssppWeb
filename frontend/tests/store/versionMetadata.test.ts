@@ -30,10 +30,9 @@ describe("versionMetadata store", () => {
   });
 
   it("hands the same entries object back when a merge adds nothing", () => {
-    // Cached-first: a merge only ever adds, so an existing id is a no-op — and
-    // a no-op must not look like a change. The pages that fold the shared cache
-    // in subscribe to `entries`; a fresh object would re-render them, and the
-    // read that produced this merge would run again (the request loop).
+    // Cached-first: a merge only adds, so an existing id is a no-op — and a no-op must not
+    // look like a change. Pages that fold the shared cache in subscribe to `entries`, so a
+    // fresh object would re-render them and re-run the read (the request loop).
     useVersionMetadataStore.getState().mergeEntries({ "1": entry });
     const merged = useVersionMetadataStore.getState().entries;
 
@@ -62,9 +61,8 @@ describe("versionMetadata store", () => {
       useVersionMetadataStore.getState().putEntry(id, metadata);
 
     it("lets a package read fill in a version the exchange could only number", () => {
-      // The order the page works in: the fallback puts the exchange's value — a
-      // number, plus a date that dates the app and so is never printed — and the
-      // package read then brings the build's own date as `package-read`.
+      // The order the page works in: the fallback puts the exchange's value (a number plus an
+      // app-level date never printed), then the package read brings the build's own date.
       put("1", {
         displayVersion: "1.0.0",
         releaseDate: "2026-01-01T00:00:00Z",

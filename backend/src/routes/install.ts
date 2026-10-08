@@ -10,14 +10,8 @@ import { getIdParam } from "../utils/route.js";
 const router = Router();
 
 /**
- * The base URL install links are built from.
- *
- * A configured public origin wins — the one whose hostname the request arrived
- * under, so a deployment reachable by several hostnames links each visitor to
- * the hostname they are using. With nothing configured, the request's own view
- * of itself is used (unchanged auto-detection), which is why `PUBLIC_BASE_URL`
- * stays optional: a deployment whose upstreams declare the public scheme needs
- * no configuration at all.
+ * The base URL install links are built from: the configured public origin whose
+ * hostname the request arrived under, else the request's own view of itself.
  */
 export function getBaseUrl(req: Request): string {
   if (config.publicBaseUrls.length > 0) {
@@ -27,21 +21,11 @@ export function getBaseUrl(req: Request): string {
 }
 
 /**
- * Picks the configured origin to build links from for a request that arrived
- * under `host`.
- *
- * Matching is on the hostname alone. The port in a request's `Host` is not an
- * address this app can trust: a proxy that terminates on 443 but dials the
- * origin on another port forwards that port in `Host`, which is how a manifest
- * ends up pointing at a `:12345` no device can reach. The configured entry is
- * the authority on what the public address is, so its whole origin — scheme
- * and port included — is what gets emitted.
- *
- * An unlisted host gets the first entry. A request's port only ever chooses
- * between entries listed for the same hostname, so one hostname listed twice
- * on different ports resolves to the port actually in use; it can never
- * introduce a port of its own. With no candidates at all there is no origin to
- * offer and the empty string comes back — `getBaseUrl` never calls it that way.
+ * Picks the configured origin to build links from for a request under `host`. Matching is on
+ * hostname alone — the port in `Host` is untrusted (a proxy may forward an internal port no device
+ * can reach), so the configured entry's full origin, scheme and port included, is emitted. An
+ * unlisted host gets the first entry; a request port only disambiguates entries for the same
+ * hostname, never adds one.
  */
 export function matchConfiguredBaseUrl(
   candidates: string[],
@@ -78,11 +62,8 @@ function configuredPort(origin: string): string {
   }
 }
 
-/**
- * Splits a `Host` value into its hostname and the port it names, if any. A
- * bracketed IPv6 literal carries colons of its own, so its port is only what
- * follows the closing bracket; a literal written bare has no port to speak of.
- */
+/** Splits a `Host` value into hostname and port. A bracketed IPv6 literal keeps
+ * its brackets; its port is only what follows the closing bracket. */
 function splitHostPort(host: string): { hostname: string; port: string } {
   const bracketed = /^\[([^\]]*)\](?::(\d+))?$/.exec(host);
   if (bracketed) {
@@ -101,21 +82,14 @@ function requestPort(host: string): string {
   return splitHostPort(host).port;
 }
 
-/**
- * The address a request arrived under, read from `Host` and sanitized for
- * inlining into a URL. Brackets survive, so an IPv6 literal stays the authority
- * it is rather than collapsing into a colon run that matches nothing.
- */
+/** The request's `Host`, sanitized for inlining into a URL; IPv6 brackets survive. */
 function requestHost(req: Request): string {
   const host = req.headers["host"] || "localhost";
   // Validate host header to prevent injection
   return host.replace(/[^\w.\-:\[\]]/g, "");
 }
 
-/**
- * The request's own view of the address it reached the app by, used when no
- * public origin is configured.
- */
+/** The request's own view of its address, used when no public origin is configured. */
 function detectedBaseUrl(req: Request): string {
   // Trust x-forwarded-proto for protocol (safe — only affects URL scheme)
   // but use host header directly (not x-forwarded-host) to prevent open redirects
@@ -123,9 +97,9 @@ function detectedBaseUrl(req: Request): string {
   const proto = forwardedProto === "https" || req.secure ? "https" : "http";
   const sanitizedHost = requestHost(req);
 
-  // Support X-Forwarded-Port for reverse proxies that strip port from Host header.
-  // Common when deploying HTTPS on non-443 ports (e.g., nginx with $host instead of $http_host).
-  // Without this, manifest plist URLs default to port 443 and iOS cannot fetch the payload.
+  // Honour X-Forwarded-Port for proxies that strip the port from `Host` (e.g.
+  // HTTPS on a non-443 port). Without it, manifest URLs default to :443 and iOS
+  // cannot fetch the payload.
   if (!sanitizedHost.includes(":")) {
     const forwardedPort = req.headers["x-forwarded-port"];
     if (typeof forwardedPort === "string") {
@@ -149,13 +123,10 @@ function joinUrl(baseUrl: string, path: string): string {
 }
 
 /**
- * Appends an install ticket to a URL the device is expected to fetch itself.
- *
- * Every install URL is opened by iOS as a plain navigation — the manifest from
- * the `itms-services://` link, the payload and the icons from inside the
- * manifest — so none of them can carry the access-token header, and all of them
- * are guarded by the signed pair this appends instead (see `middleware/accessAuth`).
- * Without an instance password nothing is signed: those routes are open anyway.
+ * Appends an install ticket to a URL the device fetches itself: iOS opens these
+ * as plain navigations (no access-token header), so they are guarded by the
+ * signed exp+sig pair instead (see `middleware/accessAuth`). With no instance
+ * password nothing is signed, those routes being open anyway.
  */
 function signedInstallUrl(
   baseUrl: string,
@@ -170,9 +141,8 @@ function signedInstallUrl(
   return `${url}?${params}`;
 }
 
-// The install manifest identifies the app by bundle identifier; iOS rejects a
-// package whose manifest disagrees with it. Tasks created from a bare app id
-// learn it from the compiled package, so this only trips if that failed.
+// iOS rejects a package whose manifest disagrees with its bundle identifier;
+// this only trips when a bare-app-id task failed to learn it from the package.
 function canBuildManifest(task: { software: { bundleID: string } }): boolean {
   return Boolean(task.software.bundleID);
 }
@@ -195,9 +165,8 @@ router.get("/install/:id/manifest.plist", (req: Request, res: Response) => {
   }
 
   const baseUrl = getBaseUrl(req);
-  // Each URL the manifest hands the device carries its own signed window: iOS
-  // fetches them without the access token, and this request has already proven
-  // it may have one by reaching a route `accessAuth` guards.
+  // Each URL the manifest hands the device carries its own signed window, since
+  // iOS fetches them without the access token.
   const payloadUrl = signedInstallUrl(
     baseUrl,
     `/api/install/${id}/payload.ipa`,
@@ -223,8 +192,7 @@ router.get("/install/:id/manifest.plist", (req: Request, res: Response) => {
 
   res.setHeader("Content-Type", "application/xml");
   // The plist inlines the request's Host when no public origin is configured
-  // (via getBaseUrl). Do not let an edge cache — or a CDN — persist a poisoned
-  // plist built from an attacker-supplied Host header.
+  // (getBaseUrl) — never let a cache persist a Host-header-poisoned plist.
   res.setHeader("Cache-Control", "no-store");
   res.send(manifest);
 });
@@ -283,10 +251,9 @@ router.get("/install/:id/payload.ipa", (req: Request, res: Response) => {
   res.setHeader("Content-Length", stats.size);
 
   const stream = fs.createReadStream(resolvedPath);
-  // The read is anonymous — a signed link, not the access token — and racy with
-  // a concurrent delete of the same package. Without a listener an ENOENT
-  // mid-stream would surface as a fatal unhandled 'error' event and take the
-  // whole process down.
+  // The read is anonymous and racy with a concurrent delete; without a listener
+  // an ENOENT mid-stream would surface as a fatal unhandled 'error' event and
+  // take the process down.
   stream.on("error", () => {
     if (!res.headersSent) {
       res.status(404).json({ error: "Package not found" });
@@ -298,14 +265,9 @@ router.get("/install/:id/payload.ipa", (req: Request, res: Response) => {
 });
 
 /**
- * Serves the icon the package carried, which iOS shows on the home screen while
- * the app installs. Both sizes draw from the same file: the manifest asks for a
- * 57x57 and a 512x512 image, but iOS scales, and the package is unlikely to
- * hold anything near 512 anyway.
- *
- * iOS fetches these out of the manifest, carrying the ticket that manifest was
- * fetched with (see `middleware/accessAuth`), and they fall back to a blank
- * image when the package had no icon.
+ * Serves the icon the package carried, shown on the home screen while the app
+ * installs. Both sizes draw from the same file — iOS scales, and a package is
+ * unlikely to hold a 512x512 — and fall back to a blank image when there is none.
  */
 router.get("/install/:id/icon-small.png", (req: Request, res: Response) => {
   sendInstallIcon(getIdParam(req), res);
@@ -326,8 +288,8 @@ function sendInstallIcon(id: string | undefined, res: Response): void {
       "Content-Type",
       iconPath.endsWith(".jpg") ? "image/jpeg" : "image/png",
     );
-    // Revalidated rather than cached blind, so an icon stored in an older
-    // format cannot stay stuck in a cache it cannot be decoded from.
+    // Revalidated, not cached blind, so an older-format icon cannot stay stuck in
+    // a cache it cannot be decoded from.
     res.setHeader("Cache-Control", "public, no-cache");
     res.sendFile(path.resolve(iconPath));
     return;

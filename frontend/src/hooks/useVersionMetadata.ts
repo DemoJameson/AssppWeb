@@ -21,30 +21,20 @@ const PREFETCH_FAST_CONCURRENCY = 5;
 const PREFETCH_SLOW_CONCURRENCY = 1;
 
 /**
- * Whether a version still needs looking up. A version with no entry at all
- * does — and so does one whose entry carries no date from a build's package: it
- * shows a number with no date, and reading its package is the only way to add
- * one, because the exchange's own date is app-level and would be wrong on every
- * row.
- *
- * A `package-read` entry — what a fill leaves behind — therefore reads as done.
- * Naming `package` here instead would mark every version this instance had ever
- * filled as still missing, and the silent pass would re-ask Apple for all of
- * them (up to a hundred a page load) for a date it already had.
+ * Whether a version still needs looking up: no entry, or one with no
+ * package-vouched date (the exchange's own date is app-level and would be wrong
+ * on every row). A `package-read` entry — what a fill leaves behind — reads as
+ * done, else the silent pass would re-ask Apple for already-dated versions.
  */
 function needsFill(entry: VersionMetadata | undefined): boolean {
   return !entry || !(dateComesFromPackage(entry.source) && entry.releaseDate);
 }
 
 /**
- * Fills one version's metadata the ipatool way. One pinned exchange names the
- * build *and* hands back its download URL, and the backend then reads the
- * build's own release date out of that package: Apple's exchange metadata dates
- * the *app* — the same day for every version of a list — so a date taken from
- * it would be wrong for every row but the app's first.
- *
- * When the package read fails, the exchange's reply still fills the display
- * version, minus the date it cannot vouch for.
+ * Fills one version's metadata the ipatool way: a pinned exchange names the build
+ * and its download URL, and the backend reads that package's own release date
+ * (Apple's exchange dates the *app*, wrong for every row but the app's first).
+ * When the package read fails, the reply still fills the display version.
  */
 async function fillAccurate(
   account: Account,
@@ -58,8 +48,7 @@ async function fillAccurate(
       app,
       versionId,
     );
-    // Refresh the session cookies, but never let a failed refresh block the
-    // package read — the date matters more than the bookkeeping.
+    // Refresh cookies, but never let a failed refresh block the package read.
     try {
       await useAccountsStore
         .getState()
@@ -96,25 +85,19 @@ async function fillAccurate(
 
 /**
  * Session-wide version metadata map. `ensureLoaded` pulls the backend's shared
- * cache once a version list has loaded — once per app for the life of the page,
- * so a re-rendering page cannot turn the read into a loop; `recordMetadata`
- * stores a metadata the page fetched live from Apple (and writes it back to the
- * backend); and `prefetchMissing` silently fills versions that still have none
- * — up to a hundred per call, five lookups in flight for the first twenty and
- * the rest one at a time. Leaving the page cancels the queue; lookups already
- * in flight finish and stay written back. Nothing here ever rejects: failures
- * leave the manual per-version button as the fallback.
+ * cache once per app per page (a re-render must not turn the read into a loop);
+ * `recordMetadata` stores a live-fetched entry and writes it back; and
+ * `prefetchMissing` silently fills the rest (bounded — see the constants above).
+ * Leaving the page cancels the queue; in-flight lookups finish and persist.
+ * Nothing here ever rejects — the manual per-version button is the fallback.
  */
 export function useVersionMetadataMap() {
   const versionMeta = useVersionMetadataStore((s) => s.entries);
   const pendingMeta = useVersionMetadataStore((s) => s.pending);
 
   /**
-   * The shared-cache reads this page has already asked for, keyed by app id.
-   * Reading the cache is what every fill starts with, and a page that re-renders
-   * must not re-read it: the answer is the same map, and the read is a request.
-   * One read per app per page visit — a page that has read it once has all it
-   * can use, and the fill's own lookups add the rest as they land.
+   * Shared-cache reads already asked for this page, keyed by app id — one read
+   * per app per visit, since a re-render would otherwise repeat the request.
    */
   const cacheLoads = useRef(new Map<string, Promise<void>>());
 
@@ -134,9 +117,8 @@ export function useVersionMetadataMap() {
   }, []);
 
   /**
-   * Records a metadata the page just fetched live from Apple: it shows up
-   * immediately and is written back to the backend so other browsers can
-   * reuse it (both steps best-effort).
+   * Records a metadata fetched live from Apple: shown immediately and written
+   * back to the backend so other browsers can reuse it (both best-effort).
    */
   const recordMetadata = useCallback(
     (appId: string | number, versionId: string, metadata: VersionMetadata) => {
@@ -147,18 +129,14 @@ export function useVersionMetadataMap() {
   );
 
   const activePrefetches = useRef<Set<{ cancelled: boolean }>>(new Set());
-  /**
-   * False once the page is gone. A fill that starts *after* an await (the
-   * silent policy waits for the shared cache first) would otherwise queue a
-   * hundred lookups for a page nobody is looking at.
-   */
+  /** False once the page is gone — a post-await fill would otherwise queue
+   * lookups for a page nobody is looking at. */
   const mounted = useRef(true);
 
-  // Leaving the page interrupts the silent pass: nothing new is queued while
-  // lookups already in flight finish — and stay written back, each result
-  // persisting the moment it lands. Re-armed on setup, not only cleared on
-  // cleanup: React StrictMode runs setup → cleanup → setup on mount, and the
-  // first cleanup's `false` would otherwise mute every fill (see AGENTS.md).
+  // Leaving the page cancels the queue; in-flight lookups finish and persist.
+  // Re-armed on setup, not only cleared on cleanup: StrictMode runs setup →
+  // cleanup → setup, and the first cleanup's `false` would mute every fill
+  // (see AGENTS.md).
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -169,22 +147,13 @@ export function useVersionMetadataMap() {
   }, []);
 
   /**
-   * Silently fills metadata for versions a package has not vouched a date
-   * for — up to a hundred per call, five lookups in flight for the first
-   * twenty and the rest one at a time — and keeps the session cookies fresh
-   * along the way. It runs on the freshest stored copy of the account: the
-   * caller's object can predate the cookie refresh its version-list exchange
-   * just wrote back.
-   *
-   * A version the automatic pass already tried this session is left alone —
-   * on a delisted app most builds cannot be served, and every visit must not
-   * re-ask for all of them. The manual check passes `force` and does ask
-   * again.
-   *
-   * Fire-and-forget: never blocks, never toasts, per-version failures are
-   * ignored, and the automation switch turns the automatic path off — the
-   * card's manual 查版本号 button passes `force` to run the same fill on
-   * demand. The returned promise settles when the run ends or is cancelled.
+   * Silently fills metadata for versions no package vouched a date for, keeping
+   * session cookies fresh, on the freshest stored copy of the account (the
+   * caller's can predate its version-list cookie refresh). A version the
+   * automatic pass already tried this session is left alone; the manual 查版本号
+   * button passes `force` and re-asks. Fire-and-forget: never blocks, never
+   * toasts, per-version failures ignored, the automation switch disables the
+   * automatic path. Settles when the run ends or is cancelled.
    */
   const prefetchMissing = useCallback(
     (
@@ -207,8 +176,8 @@ export function useVersionMetadataMap() {
             return;
           }
 
-          // Use the freshest session, not the caller's snapshot: the version
-          // list load refreshed the cookies and already stored them.
+          // Freshest session, not the caller's snapshot — the list load
+          // stored refreshed cookies.
           const freshest =
             useAccountsStore
               .getState()
@@ -221,7 +190,7 @@ export function useVersionMetadataMap() {
             .filter((versionId) => {
               if (!needsFill(known[versionId])) return false;
               // The automatic pass does not ask twice in a session; the
-              // manual check does, which is the point of pressing it.
+              // manual check does.
               return (
                 Boolean(options?.force) ||
                 !attempted[`${app.id}:${versionId}`]
@@ -276,23 +245,19 @@ export function useVersionMetadataMap() {
         }
       })().catch(() => undefined);
 
-      // The automatic path drops the promise; the manual one awaits it to
-      // keep its busy label honest.
+      // Automatic path drops the promise; manual awaits it to keep its busy
+      // label honest.
       return runPromise;
     },
     [recordMetadata],
   );
 
   /**
-   * The silent version-number policy a version picker opens with: fold the
-   * backend's shared cache in first — anything it already dated needs no Apple
-   * request — then fill whatever still lacks a package-vouched date in the
-   * background.
-   *
-   * The cache step is awaited on purpose (this is what the old new-download
-   * page did): starting the fill before it lands would ask Apple about versions
-   * the instance already has answers for. A cache failure is swallowed and the
-   * fill runs regardless — it is an optimisation, not a prerequisite.
+   * The silent version-number policy a picker opens with: fold in the backend's
+   * shared cache first, then fill whatever still lacks a package-vouched date in
+   * the background. The cache step is awaited on purpose — filling ahead would
+   * re-ask Apple for what the instance already has. A cache failure is swallowed
+   * and the fill runs regardless: it is an optimisation, not a prerequisite.
    */
   const fillVersionsSilently = useCallback(
     (
@@ -301,16 +266,15 @@ export function useVersionMetadataMap() {
       versions: string[],
       options?: { force?: boolean },
     ) => {
-      // The promise is returned so a caller that wants to wait — the manual
-      // 查版本号 button, which keeps a busy label — can.
+      // Returned so a caller that wants to wait (manual 查版本号 button) can.
       return (async () => {
         try {
           await ensureLoaded(app.id);
         } catch {
           // The shared cache is unavailable; the fill still asks Apple.
         }
-        // The page may have gone away while the cache was loading; a fill
-        // started now would run for nobody.
+        // The page may have gone away while the cache loaded; a fill would
+        // run for nobody.
         if (!mounted.current) return;
         return prefetchMissing(account, app, versions, options);
       })();

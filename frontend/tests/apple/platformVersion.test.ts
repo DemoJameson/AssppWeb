@@ -1,8 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-// The lookup rides libcurl through `request`, which only runs under jsdom with
-// a wisp tunnel; the catalogue transport is mocked out here so the platform
-// routing can be asserted directly.
+// The lookup rides libcurl through `request`, which needs a wisp tunnel under jsdom;
+// the catalogue transport is mocked out here so platform routing can be asserted directly.
 const appleRequest = vi.fn();
 vi.mock("../../src/apple/request", () => ({
   appleRequest: (...args: unknown[]) => appleRequest(...args),
@@ -238,9 +237,8 @@ describe("lookupLatestExternalVersionId", () => {
   });
 
   it("falls back to another storefront when the account's own visionOS page is redirected", async () => {
-    // The same shape as macOS's fallback: from a mainland-China network the
-    // account's own storefront is answered with a redirect to the CN one, so
-    // the page must come from the fallback — after following its redirect.
+    // As with macOS's fallback: from a mainland-China network the account's storefront
+    // redirects to the CN one, so the page must come from the fallback, redirect followed.
     appleRequest.mockResolvedValueOnce(redirectReply("/cn", 302));
     appleRequest.mockResolvedValueOnce({ status: 200, body: storefrontBody({}) });
     appleRequest.mockResolvedValueOnce(
@@ -479,10 +477,9 @@ describe("lookupLatestMacOSVersionId", () => {
   });
 
   it("falls back to another storefront when the account's own Mac page is redirected", async () => {
-    // The shape a mainland-China network gets for any non-CN storefront path:
-    // Apple answers with a redirect instead of the product page — 302 to the
-    // CN storefront, whose own canonical redirect then lands on the storefront
-    // home page — so the account sees no Mac offer for an app that has one.
+    // The shape a mainland-China network gets for any non-CN storefront path: a redirect
+    // instead of the product page — 302 to the CN storefront, whose canonical redirect
+    // lands on its home page — so the account sees no Mac offer for an app that has one.
     appleRequest.mockResolvedValueOnce(redirectReply("/cn", 302));
     appleRequest.mockResolvedValueOnce({ status: 200, body: storefrontBody({}) });
 
@@ -706,9 +703,8 @@ describe("lookupLatestMacOSVersionId", () => {
   });
 
   it("asks the account's own storefront without waiting for the server settings", async () => {
-    // The fallback list is only needed once the account's own attempt has come
-    // up short, so a settings request that never answers must not hold up a
-    // lookup that storefront can answer by itself.
+    // The fallback list is only needed once the account's own attempt comes up short, so a
+    // settings request that never answers must not hold up a lookup the storefront can answer.
     vi.mocked(apiGet).mockImplementation(
       () => new Promise<never>(() => undefined),
     );
@@ -734,9 +730,8 @@ describe("lookupLatestMacOSVersionId", () => {
   });
 
   it("reads the server settings again for the next lookup", async () => {
-    // Read per lookup, not cached past it: an operator change applies to the
-    // next lookup without a rebuild, and a read that never answers cannot hold
-    // the ones after it.
+    // Read per lookup, not cached past it: an operator change applies to the next lookup
+    // without a rebuild, and a read that never answers cannot hold the ones after it.
     appleRequest.mockResolvedValue({ status: 404, headers: {}, body: "" });
 
     await lookupLatestMacOSVersionId(1492142120, "US").catch(() => undefined);
