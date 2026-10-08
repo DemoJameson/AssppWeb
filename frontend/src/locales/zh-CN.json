@@ -445,6 +445,12 @@
     "ZA": "南非"
   },
   "errors": {
+    "ui": {
+      "loadFailed": "页面加载失败",
+      "loadFailedHint": "这通常是临时性的网络问题。可以重试，或刷新页面。",
+      "tryAgain": "重试",
+      "reloadPage": "刷新页面"
+    },
     "request": {
       "timeout": "Apple 在 {{seconds}} 秒内没有回应，请重试。",
       "unreachable": "无法连接到 Apple，请重试。"

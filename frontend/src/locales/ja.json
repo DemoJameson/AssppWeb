@@ -445,6 +445,12 @@
     "ZA": "南アフリカ"
   },
   "errors": {
+    "ui": {
+      "loadFailed": "読み込みに失敗しました",
+      "loadFailedHint": "一時的なネットワークの問題である可能性が高いため、再試行するかページを再読み込みしてください。",
+      "tryAgain": "再試行",
+      "reloadPage": "ページを再読み込み"
+    },
     "request": {
       "timeout": "Apple から {{seconds}} 秒以内に応答がありませんでした。もう一度お試しください。",
       "unreachable": "Apple に接続できませんでした。もう一度お試しください。"

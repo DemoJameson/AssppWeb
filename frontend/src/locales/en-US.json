@@ -445,6 +445,12 @@
     "ZA": "South Africa"
   },
   "errors": {
+    "ui": {
+      "loadFailed": "Something failed to load",
+      "loadFailedHint": "This is usually a temporary network problem. Try again, or reload the page.",
+      "tryAgain": "Try again",
+      "reloadPage": "Reload page"
+    },
     "request": {
       "timeout": "Apple did not answer within {{seconds}} seconds. Please try again.",
       "unreachable": "Could not reach Apple. Please try again."

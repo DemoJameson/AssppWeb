@@ -445,6 +445,12 @@
     "ZA": "남아프리카 공화국"
   },
   "errors": {
+    "ui": {
+      "loadFailed": "불러오지 못했습니다",
+      "loadFailedHint": "일시적인 네트워크 문제일 수 있습니다. 다시 시도하거나 페이지를 새로고침하세요.",
+      "tryAgain": "다시 시도",
+      "reloadPage": "페이지 새로고침"
+    },
     "request": {
       "timeout": "{{seconds}}초 안에 Apple의 응답이 없었습니다. 다시 시도해 주세요.",
       "unreachable": "Apple에 연결하지 못했습니다. 다시 시도해 주세요."

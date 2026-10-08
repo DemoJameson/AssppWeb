@@ -1,24 +1,41 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import MobileHeader from './components/Layout/MobileHeader';
 import MobileNav from './components/Layout/MobileNav';
 import Sidebar from './components/Layout/Sidebar';
+import AppErrorBoundary from './components/common/AppErrorBoundary';
 import GlobalDownloadNotifier from './components/common/GlobalDownloadNotifier';
 import ToastContainer from './components/common/ToastContainer';
 import PasswordGate from './components/Auth/PasswordGate';
 import { useSettingsStore } from './store/settings';
+import { lazyWithRetry } from './utils/lazyWithRetry';
 
-const HomePage = lazy(() => import('./components/Welcome/HomePage'));
-const AccountList = lazy(() => import('./components/Account/AccountList'));
-const AddAccountForm = lazy(
+// lazyWithRetry, not plain lazy: each of these is a separate network fetch
+// fired the moment the user switches to its tab, and a single aborted request
+// (a blinking edge cache) would otherwise blank the page. See utils/lazyWithRetry.
+const HomePage = lazyWithRetry(() => import('./components/Welcome/HomePage'));
+const AccountList = lazyWithRetry(
+  () => import('./components/Account/AccountList'),
+);
+const AddAccountForm = lazyWithRetry(
   () => import('./components/Account/AddAccountForm'),
 );
-const AccountDetail = lazy(() => import('./components/Account/AccountDetail'));
-const SearchPage = lazy(() => import('./components/Search/SearchPage'));
-const ProductDetail = lazy(() => import('./components/Search/ProductDetail'));
-const DownloadList = lazy(() => import('./components/Download/DownloadList'));
-const SettingsPage = lazy(() => import('./components/Settings/SettingsPage'));
+const AccountDetail = lazyWithRetry(
+  () => import('./components/Account/AccountDetail'),
+);
+const SearchPage = lazyWithRetry(
+  () => import('./components/Search/SearchPage'),
+);
+const ProductDetail = lazyWithRetry(
+  () => import('./components/Search/ProductDetail'),
+);
+const DownloadList = lazyWithRetry(
+  () => import('./components/Download/DownloadList'),
+);
+const SettingsPage = lazyWithRetry(
+  () => import('./components/Settings/SettingsPage'),
+);
 
 function Loading() {
   const { t } = useTranslation();
@@ -72,34 +89,39 @@ export default function App() {
         <Sidebar />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden md:pt-[env(safe-area-inset-top)]">
           <MobileHeader />
-          <Suspense fallback={<Loading />}>
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/accounts" element={<AccountList />} />
-              <Route path="/accounts/add" element={<AddAccountForm />} />
-              <Route path="/accounts/:email" element={<AccountDetail />} />
-              <Route path="/search" element={<SearchPage />} />
-              <Route path="/search/:appId" element={<ProductDetail />} />
-              <Route path="/downloads" element={<DownloadList />} />
-              {/* The new-download page is merged into the search page. */}
-              <Route
-                path="/downloads/add"
-                element={<Navigate to="/search" replace />}
-              />
-              <Route
-                path="/downloads/by-id"
-                element={<Navigate to="/search" replace />}
-              />
-              {/* The package detail page is gone — a package is described by
-                  the row it sits in — so a link or bookmark to one lands on
-                  the list it belongs to. */}
-              <Route
-                path="/downloads/:id"
-                element={<Navigate to="/downloads" replace />}
-              />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Routes>
-          </Suspense>
+          {/* Inline variant: a tab whose chunk failed to load is replaced by
+              the recovery panel, while the sidebar and tabs stay live so the
+              user can just click another tab. */}
+          <AppErrorBoundary variant="inline">
+            <Suspense fallback={<Loading />}>
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/accounts" element={<AccountList />} />
+                <Route path="/accounts/add" element={<AddAccountForm />} />
+                <Route path="/accounts/:email" element={<AccountDetail />} />
+                <Route path="/search" element={<SearchPage />} />
+                <Route path="/search/:appId" element={<ProductDetail />} />
+                <Route path="/downloads" element={<DownloadList />} />
+                {/* The new-download page is merged into the search page. */}
+                <Route
+                  path="/downloads/add"
+                  element={<Navigate to="/search" replace />}
+                />
+                <Route
+                  path="/downloads/by-id"
+                  element={<Navigate to="/search" replace />}
+                />
+                {/* The package detail page is gone — a package is described by
+                    the row it sits in — so a link or bookmark to one lands on
+                    the list it belongs to. */}
+                <Route
+                  path="/downloads/:id"
+                  element={<Navigate to="/downloads" replace />}
+                />
+                <Route path="/settings" element={<SettingsPage />} />
+              </Routes>
+            </Suspense>
+          </AppErrorBoundary>
         </main>
         <MobileNav />
       </div>
