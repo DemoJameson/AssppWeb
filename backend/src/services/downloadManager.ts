@@ -965,9 +965,13 @@ async function startDownload(task: DownloadTask) {
 
     // Validates the package's declared platform before injecting — mirrors
     // ipatool's validatePackagePlatform, and its declaration is the authority
-    // over the request's. Skipped for macOS (.pkg, not IPA).
+    // over the request's. Legacy iOS/iPad packages may omit the declaration.
+    // Skipped for macOS (.pkg, not IPA).
     if (!isMacOSPackage) {
-      const actualPlatform = await validatePackagePlatform(filePath);
+      const actualPlatform = await validatePackagePlatform(
+        filePath,
+        task.software.platform,
+      );
       if (actualPlatform && actualPlatform !== task.software.platform) {
         task.software.platform = actualPlatform;
       }

@@ -418,6 +418,7 @@ async function pinnedLatestVersionId(session: DownloadSession): Promise<string> 
             country,
             platform,
             session.cookies,
+            session.app.bundleID || undefined,
           ),
     session.app.id,
     platform,

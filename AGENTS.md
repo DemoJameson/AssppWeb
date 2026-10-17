@@ -174,7 +174,7 @@ The Wisp server validates target hosts via `hostname_whitelist` in `backend/src/
 - `fpinit.itunes.apple.com` — SAP setup exchange endpoint (`sign-sap-setup`)
 - `s.mzstatic.com` — SAP certificate endpoint (`sign-sap-setup-cert`)
 - `uclient-api.itunes.apple.com` — storefront catalogue lookup, used to pin the external version id before the redownload fallback (ipatool does the same)
-- `apps.apple.com` — storefront product pages for the visionOS and macOS version lookups (`/{cc}/app/id{id}?platform=vision|mac`); public content, no credentials, but CORS-blocked so it rides the wisp tunnel
+- `apps.apple.com` — storefront product pages for visionOS/macOS version lookups (`/{cc}/app/id{id}?platform=vision|mac`) and the public iOS/iPad catalog fallback (`/api/apps/v1/catalog/{cc}/apps/{id}`); public content, no credentials, but CORS-blocked so it rides the wisp tunnel
 - Port restricted to `443` only
 - Direct IP targets blocked (`allow_direct_ip = false`)
 - Loopback IP targets blocked (`allow_loopback_ips = false`)
@@ -281,7 +281,14 @@ transports, one per platform family:
   consumer `iphone`/`ipad` catalogues — some storefronts have no enterprise
   listing even when a consumer catalogue has the app (ipatool e5211d6). Each
   lookup keeps the account's country code, and tvOS stays on the single `atv9`
-  catalogue.
+  catalogue. When every iOS/iPad MDM catalogue answers without an app or offer,
+  the public `apps.apple.com/api/apps/v1/catalog/{cc}/apps/{id}` API is the
+  final fallback (ipatool e3932ce). It validates the app id, `type: "apps"`,
+  device family, bundle id and non-zero external version id. Successful answers
+  are cached for 15 minutes, concurrent lookups of the same key share one
+  request, and different apps are serialized through one catalog slot; a 429
+  pauses the fallback for `Retry-After` (default one minute, capped at five),
+  and transport/5xx failures never turn into "app missing".
 - **visionOS** — Apple's MDM catalogue does not carry visionOS offers, so the
   storefront product page at `apps.apple.com/{cc}/app/id{id}?platform=vision`
   is used instead. The `<script id="serialized-server-data">` JSON is parsed
@@ -408,9 +415,11 @@ package knows which. `platformFromSupported` reads the platform out of it
 (`XROS` → visionOS, `AppleTVOS` → tvOS, `iPhoneOS` → iOS) and the completion path
 **rewrites the task's platform** to what the package really is
 (`downloadManager`, right after the download) rather than failing — the task
-then reads as the platform it actually holds. Only a package declaring no known
-platform at all fails the task. macOS packages skip the check (they are not
-IPAs, and `isMacOSPackage` is decided by the task's platform).
+then reads as the platform it actually holds. Legacy iOS/iPad packages may omit
+`CFBundleSupportedPlatforms` entirely; that missing field is accepted only for
+an iOS/iPad task, while an empty, malformed or conflicting declaration still
+fails. macOS packages skip the check (they are not IPAs, and `isMacOSPackage` is
+decided by the task's platform).
 
 The payload both endpoints receive is `creditDisplay`, `guid`, `salableAdamId`
 (integer), `serialNumber: "0"`, plus the endpoint's version key when pinned. The
@@ -790,7 +799,8 @@ where a seller would go.
 - `appleRequest()` in `frontend/src/apple/request.ts` wraps `libcurl.fetch` for all Apple API calls and forces HTTP/1.1 (`_libcurl_http_version: 1.1`)
 - Bag endpoint (`frontend/src/apple/bag.ts`) uses backend proxy (`/api/bag`) and falls back to `https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate` when `authenticateAccount` is missing or bag fetch fails
 - Authentication (`frontend/src/apple/authenticate.ts`) resolves bag endpoint, then sets `guid` via URL query manipulation to avoid duplicate/malformed query parameters
-- Phone-number Apple IDs (China mainland, India — no `@` in the identifier) name no storefront, and Apple sends their verification code only to a request that asks as their region's store, so the auth request carries `X-Apple-Store-Front` from `authStoreFront()` (`apple/config.ts`, mirroring ipatool). Emails get no header
+- Phone-number Apple IDs (China mainland, India — no `@` in the identifier) name no storefront, and Apple sends their verification code only to a request that asks as their region's store, so the auth request carries `X-Apple-Store-Front` from `authStoreFront()` (`apple/config.ts`, mirroring ipatool). Only ASCII spaces/hyphens are removed; every remaining character must be an ASCII digit, so a legacy username cannot be mistaken for a phone number. Emails get no header
+- 2FA input is normalized once at the `authenticate()` boundary: whitespace is removed, exactly six ASCII digits are required, and the password itself is never trimmed or rewritten. The account forms also sanitize pasted input before state is stored and keep the verify button disabled until six digits are present. Invalid input fails before bag lookup or SAP preparation
 - `authenticate()` takes the sign-in identifier (`appleId`), which is what the persisted `Account.email` field holds — that name is load-bearing (it is the IndexedDB object store's `keyPath`, keys `/accounts/:email` and the import dedupe, and travels in the export format), so a phone-number account keeps its number there rather than in another field. The add-account form trims it before signing in, because a pasted phone number carries its own separators and this value is the account's key
 - An empty `failureType` with `customerMessage === 'MZFinance.BadLogin.Configurator_message'` means two different things: Apple wants a code (`errors.auth.requiresVerification`, `codeRequired` set), or Apple refused the one it was sent (`errors.auth.verificationIncomplete`). Only the caller's own input tells them apart, so the raw Apple token never reaches the toast
 - Plist build/parse (`frontend/src/apple/plist.ts`) uses native XML builder and browser-native `DOMParser`

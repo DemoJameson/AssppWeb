@@ -42,13 +42,15 @@ export function platformFromSupported(
 }
 
 /**
- * Validates that the downloaded IPA declares support for at least one known platform in its
- * `CFBundleSupportedPlatforms`, returning that platform so the caller can correct the task
- * when the request's was wrong (e.g. a tvOS version id pinned with the selector on iOS).
- * Throws {@link PackagePlatformError} when none is declared.
+ * Validates the downloaded IPA's declared platform, returning what the package says so a
+ * caller can correct a wrong request platform (e.g. a tvOS version id pinned with the
+ * selector on iOS). Legacy iOS/iPad packages may predate `CFBundleSupportedPlatforms`;
+ * only a wholly missing field is accepted for those platforms. An empty, malformed or
+ * conflicting declaration still fails. Throws {@link PackagePlatformError} otherwise.
  */
 export async function validatePackagePlatform(
   ipaPath: string,
+  expectedPlatform?: Platform,
 ): Promise<Platform | undefined> {
   const zip = await openZip(ipaPath);
   try {
@@ -59,6 +61,17 @@ export async function validatePackagePlatform(
       const data = await streamToBuffer(stream);
       const info = parsePlistBuffer(data);
       if (!info) continue;
+
+      const hasSupportedPlatforms = Object.prototype.hasOwnProperty.call(
+        info,
+        "CFBundleSupportedPlatforms",
+      );
+      if (
+        !hasSupportedPlatforms &&
+        (expectedPlatform === "ios" || expectedPlatform === "ipad")
+      ) {
+        return expectedPlatform;
+      }
 
       const platform = platformFromSupported(info);
       if (platform) return platform;

@@ -17,9 +17,9 @@ wisp.options.hostname_whitelist = [
   /^fpinit\.itunes\.apple\.com$/,
   /^s\.mzstatic\.com$/,
   /^uclient-api\.itunes\.apple\.com$/,
-  // Storefront product pages used by the visionOS and macOS version lookups
-  // (apps.apple.com/{cc}/app/id{id}?platform=vision|mac). Public but CORS-blocked,
-  // so they ride the wisp tunnel like every other Apple request.
+  // Storefront product pages used by visionOS/macOS version lookups and the
+  // public iOS/iPad catalog fallback. Public but CORS-blocked, so they ride
+  // the wisp tunnel like every other Apple request.
   /^apps\.apple\.com$/,
 ];
 wisp.options.port_whitelist = [443];

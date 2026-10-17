@@ -142,48 +142,48 @@ export const countryCodeMap: Record<string, string> = {
  * Apple accounts in China mainland and India may sign in with a phone number
  * (support.apple.com/en-hk/105034). Such an ID names no storefront, so Apple
  * needs X-Apple-Store-Front to send the code (see ipatool authStoreFront).
+ *
+ * Only the separators Apple accepts are removed: ASCII spaces and hyphens.
+ * Anything else in the number rejects the hint, so a legacy username that
+ * happens to contain digits cannot be mistaken for a phone account.
  */
-const phoneAppleIDRegions: {
-  country: string;
-  dialing: string;
-  national: (digits: string) => boolean;
-}[] = [
-  {
-    country: "CN",
-    dialing: "86",
-    national: (d) => d.length === 11 && d[0] === "1",
-  },
-  {
-    country: "IN",
-    dialing: "91",
-    national: (d) => d.length === 10 && d[0] >= "6" && d[0] <= "9",
-  },
-];
-
-/**
- * The forms a region's number may have been dialled in (as written, without a
- * trunk prefix, with the country code, or with `00` before it), all tested
- * against the region's rule — stripping the country code can misread a number.
- */
-function nationalForms(digits: string, dialing: string): string[] {
-  const forms = [digits];
-  if (digits.startsWith("0")) forms.push(digits.slice(1));
-  if (digits.startsWith(dialing)) forms.push(digits.slice(dialing.length));
-  if (digits.startsWith("00" + dialing)) {
-    forms.push(digits.slice(2 + dialing.length));
-  }
-  return forms;
-}
-
 export function authStoreFront(identifier: string): string {
-  if (identifier.includes("@")) return "";
+  let number = identifier.trim().replace(/ /g, "").replace(/-/g, "");
+  let international = false;
 
-  const digits = identifier.replace(/\D/g, "");
+  if (number.startsWith("+")) {
+    international = true;
+    number = number.slice(1);
+  } else if (number.startsWith("00")) {
+    international = true;
+    number = number.slice(2);
+  }
 
-  for (const region of phoneAppleIDRegions) {
-    if (nationalForms(digits, region.dialing).some(region.national)) {
-      return countryCodeMap[region.country];
-    }
+  if (!/^[0-9]*$/.test(number)) return "";
+
+  // Check the full length before removing a country code: a local Indian
+  // number can itself start with 91. Explicit international numbers must
+  // match a supported country code and cannot fall back to a local format.
+  if (number.length === 13 && number.startsWith("861")) {
+    return countryCodeMap.CN;
+  }
+  if (number.length === 12 && number.startsWith("91")) {
+    number = number.slice(2);
+  } else if (international) {
+    return "";
+  }
+
+  if (number.length === 11 && number[0] === "1") {
+    return countryCodeMap.CN;
+  }
+
+  // India also permits a trunk prefix when writing a national number.
+  if (!international && number.length === 11 && number[0] === "0") {
+    number = number.slice(1);
+  }
+
+  if (number.length === 10 && number[0] >= "6" && number[0] <= "9") {
+    return countryCodeMap.IN;
   }
 
   return "";

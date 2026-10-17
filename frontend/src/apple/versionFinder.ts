@@ -107,6 +107,7 @@ async function platformVersionPin(
             country,
             platform,
             session.cookies,
+            session.app.bundleID || undefined,
           ),
     session.app.id,
     platform,

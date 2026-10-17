@@ -7,7 +7,11 @@ import SapStatus from "../common/SapStatus";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useToastStore } from "../../store/toast";
 import { useSapStore } from "../../store/sap";
-import { authenticate, AuthenticationError } from "../../apple/authenticate";
+import {
+  authenticate,
+  AuthenticationError,
+  sanitizeAuthCodeInput,
+} from "../../apple/authenticate";
 import { getErrorMessage } from "../../utils/error";
 import { generateDeviceId } from "../../apple/config";
 
@@ -177,9 +181,10 @@ export default function AddAccountForm() {
                   type="text"
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  maxLength={6}
                   value={code}
-                  onChange={(e) => setCode(e.target.value)}
+                  onChange={(e) =>
+                    setCode(sanitizeAuthCodeInput(e.target.value))
+                  }
                   disabled={loading}
                   placeholder={t("accounts.addForm.codePlaceholder")}
                   className={inputClassName}
@@ -196,7 +201,7 @@ export default function AddAccountForm() {
             <div className="grid grid-cols-1 gap-3 sm:flex sm:flex-wrap sm:items-center">
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || (needsCode && code.length !== 6)}
                 className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading && <Spinner />}

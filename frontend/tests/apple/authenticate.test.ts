@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildPlist } from "../../src/apple/plist";
+import { buildPlist, parsePlist } from "../../src/apple/plist";
 import {
   authenticate,
   AuthenticationError,
+  sanitizeAuthCodeInput,
 } from "../../src/apple/authenticate";
 import { appleRequest } from "../../src/apple/request";
 import { fetchBag } from "../../src/apple/bag";
@@ -61,6 +62,97 @@ describe("apple/authenticate", () => {
     expect(endpoint.searchParams.get("guid")).toBe("aabbccddeeff");
     expect(endpoint.searchParams.getAll("guid")).toHaveLength(1);
     expect(endpoint.searchParams.get("foo")).toBe("1");
+  });
+
+  it("normalizes whitespace in a 2FA code without changing the password", async () => {
+    vi.mocked(fetchBag).mockResolvedValue({
+      authURL:
+        "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate",
+    });
+    vi.mocked(appleRequest).mockResolvedValue({
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      rawHeaders: [],
+      body: buildPlist({
+        accountInfo: { appleId: "test@example.com", address: {} },
+        passwordToken: "token",
+        dsPersonId: "123",
+      }),
+    });
+
+    await authenticate(
+      "test@example.com",
+      "päss word",
+      " 123 456 ",
+      undefined,
+      "aabbccddeeff",
+    );
+
+    const body = parsePlist(
+      vi.mocked(appleRequest).mock.calls[0][0].body ?? "",
+    ) as Record<string, unknown>;
+    expect(body.attempt).toBe("2");
+    expect(body.password).toBe("päss word123456");
+  });
+
+  it.each(["12345", "1234567", "12345a", "１２３４５６", "   "])(
+    "rejects malformed 2FA code %s before contacting Apple",
+    async (code) => {
+      await expect(
+        authenticate(
+          "test@example.com",
+          "password",
+          code,
+          undefined,
+          "aabbccddeeff",
+        ),
+      ).rejects.toMatchObject({ name: "AuthenticationError" });
+
+      expect(fetchBag).not.toHaveBeenCalled();
+      expect(appleRequest).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [" 123 456 ", "123456"],
+    ["12a3456", "123456"],
+    ["１２３４５６", ""],
+    ["1234567", "123456"],
+  ])("sanitizes pasted 2FA input %s", (value, expected) => {
+    expect(sanitizeAuthCodeInput(value)).toBe(expected);
+  });
+
+  it("treats an empty code as no code", async () => {
+    vi.mocked(fetchBag).mockResolvedValue({
+      authURL:
+        "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate",
+    });
+    vi.mocked(appleRequest).mockResolvedValue({
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      rawHeaders: [],
+      body: buildPlist({
+        accountInfo: { appleId: "test@example.com", address: {} },
+        passwordToken: "token",
+        dsPersonId: "123",
+      }),
+    });
+
+    await authenticate(
+      "test@example.com",
+      "password",
+      "",
+      undefined,
+      "aabbccddeeff",
+    );
+
+    const body = parsePlist(
+      vi.mocked(appleRequest).mock.calls[0][0].body ?? "",
+    ) as Record<string, unknown>;
+    expect(body.attempt).toBe("4");
+    expect(body.password).toBe("password");
   });
 
   it.each([

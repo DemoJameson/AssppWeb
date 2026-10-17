@@ -5,7 +5,11 @@ import PageContainer from "../Layout/PageContainer";
 import Spinner from "../common/Spinner";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useToastStore } from "../../store/toast";
-import { authenticate, AuthenticationError } from "../../apple/authenticate";
+import {
+  authenticate,
+  AuthenticationError,
+  sanitizeAuthCodeInput,
+} from "../../apple/authenticate";
 import { getErrorMessage } from "../../utils/error";
 import { storeIdToCountry } from "../../apple/config";
 
@@ -146,9 +150,10 @@ export default function AccountDetail() {
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                maxLength={6}
                 value={reauthCode}
-                onChange={(e) => setReauthCode(e.target.value)}
+                onChange={(e) =>
+                  setReauthCode(sanitizeAuthCodeInput(e.target.value))
+                }
                 disabled={reauthing}
                 placeholder="000000"
                 className="min-h-11 w-full min-w-0 flex-1 rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:opacity-60 dark:bg-gray-800 dark:text-white"
@@ -156,7 +161,7 @@ export default function AccountDetail() {
               />
               <button
                 onClick={handleReauth}
-                disabled={reauthing || !reauthCode}
+                disabled={reauthing || reauthCode.length !== 6}
                 className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {reauthing && <Spinner />}

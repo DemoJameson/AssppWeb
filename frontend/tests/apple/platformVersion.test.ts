@@ -15,6 +15,7 @@ vi.mock("../../src/api/client", () => ({
 import {
   lookupLatestExternalVersionId,
   lookupLatestMacOSVersionId,
+  resetPlatformVersionLookupCache,
 } from "../../src/apple/platformVersion";
 
 function replyWith(externalId: number | string) {
@@ -58,6 +59,38 @@ function noOffersReply() {
   };
 }
 
+function catalogReply(
+  options: {
+    version?: string | number;
+    id?: string;
+    type?: string;
+    deviceFamilies?: string[];
+    bundleId?: string;
+  } = {},
+) {
+  return {
+    status: 200,
+    headers: {},
+    body: JSON.stringify({
+      data: [
+        {
+          id: options.id ?? "1492142120",
+          type: options.type ?? "apps",
+          attributes: {
+            deviceFamilies: options.deviceFamilies ?? ["iphone", "ipad"],
+            platformAttributes: {
+              ios: {
+                bundleId: options.bundleId ?? "com.example.app",
+                externalVersionId: options.version ?? 891116578,
+              },
+            },
+          },
+        },
+      ],
+    }),
+  };
+}
+
 function buyParamsReply(appExtVrsId: string) {
   return {
     status: 200,
@@ -92,6 +125,7 @@ function redirectReply(location: string, status = 301) {
 // Every lookup here resets both transports first: a test that leaves a reply
 // queued or a settings mock in place must not decide what the next one sees.
 beforeEach(() => {
+  resetPlatformVersionLookupCache();
   appleRequest.mockReset();
   apiGet.mockReset();
   apiGet.mockResolvedValue({ storefrontFallbackCountries: ["cn"] });
@@ -316,6 +350,7 @@ describe("lookupLatestExternalVersionId", () => {
     appleRequest.mockResolvedValueOnce(noAppReply());
     appleRequest.mockResolvedValueOnce(noOffersReply());
     appleRequest.mockResolvedValueOnce(noAppReply());
+    appleRequest.mockResolvedValueOnce({ status: 404, headers: {}, body: "" });
 
     await expect(
       lookupLatestExternalVersionId(1492142120, "US", "ios"),
@@ -323,7 +358,313 @@ describe("lookupLatestExternalVersionId", () => {
       "app 1492142120 in storefront US (catalogs: enterprisestore, iphone, ipad)",
     );
 
-    expect(appleRequest).toHaveBeenCalledTimes(3);
+    expect(appleRequest).toHaveBeenCalledTimes(4);
+    expect(pathOf(3)).toBe(
+      "/api/apps/v1/catalog/us/apps/1492142120?platform=iphone",
+    );
+  });
+
+  it("falls back to the public App Store catalog after every MDM catalogue misses", async () => {
+    appleRequest
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(noOffersReply())
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(catalogReply({ version: 891116578 }));
+
+    await expect(
+      lookupLatestExternalVersionId(
+        1492142120,
+        "US",
+        "ios",
+        undefined,
+        "com.example.app",
+      ),
+    ).resolves.toBe("891116578");
+
+    expect(appleRequest).toHaveBeenCalledTimes(4);
+    const [options] = appleRequest.mock.calls[3] as [
+      { host: string; path: string },
+    ];
+    expect(options.host).toBe("apps.apple.com");
+    expect(options.path).toBe(
+      "/api/apps/v1/catalog/us/apps/1492142120?platform=iphone",
+    );
+  });
+
+  it("follows an apps.apple.com redirect for the catalog fallback", async () => {
+    appleRequest
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(
+        redirectReply(
+          "/api/apps/v1/catalog/us/apps/1492142120?platform=iphone",
+        ),
+      )
+      .mockResolvedValueOnce(catalogReply());
+
+    await expect(
+      lookupLatestExternalVersionId(1492142120, "US", "ios"),
+    ).resolves.toBe("891116578");
+
+    expect(appleRequest).toHaveBeenCalledTimes(5);
+    expect(pathOf(3)).toBe(
+      "/api/apps/v1/catalog/us/apps/1492142120?platform=iphone",
+    );
+    expect(pathOf(4)).toBe(
+      "/api/apps/v1/catalog/us/apps/1492142120?platform=iphone",
+    );
+  });
+
+  it.each([
+    ["a different app id", catalogReply({ id: "999999999" }), "different app"],
+    [
+      "a different device family",
+      catalogReply({ deviceFamilies: ["ipad"] }),
+      "no metadata for the requested platform",
+    ],
+    ["a zero version id", catalogReply({ version: 0 }), "no valid external version id"],
+  ])("rejects catalog metadata with %s", async (_label, reply, message) => {
+    appleRequest
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(reply);
+
+    await expect(
+      lookupLatestExternalVersionId(
+        1492142120,
+        "US",
+        "ios",
+        undefined,
+        "com.example.app",
+      ),
+    ).rejects.toThrow(message);
+  });
+
+  it("uses the iPad family in the catalog fallback", async () => {
+    appleRequest
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(
+        catalogReply({
+          deviceFamilies: ["ipad"],
+          version: "818970197",
+        }),
+      );
+
+    await expect(
+      lookupLatestExternalVersionId(
+        1492142120,
+        "US",
+        "ipad",
+        undefined,
+        "com.example.app",
+      ),
+    ).resolves.toBe("818970197");
+
+    expect(pathOf(3)).toBe(
+      "/api/apps/v1/catalog/us/apps/1492142120?platform=ipad",
+    );
+  });
+
+  it("rejects a catalog answer for a different bundle", async () => {
+    appleRequest
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(catalogReply({ bundleId: "com.other.app" }));
+
+    await expect(
+      lookupLatestExternalVersionId(
+        1492142120,
+        "US",
+        "ios",
+        undefined,
+        "com.example.app",
+      ),
+    ).rejects.toThrow(
+      "iOS catalog fallback failed: iOS catalog lookup returned a different bundle identifier",
+    );
+  });
+
+  it("caches a successful catalog fallback", async () => {
+    appleRequest.mockImplementation((options: unknown) => {
+      const host = (options as { host?: string }).host;
+      return Promise.resolve(
+        host === "apps.apple.com" ? catalogReply() : noAppReply(),
+      );
+    });
+
+    await expect(
+      lookupLatestExternalVersionId(
+        1492142120,
+        "US",
+        "ios",
+        undefined,
+        "com.example.app",
+      ),
+    ).resolves.toBe("891116578");
+    await expect(
+      lookupLatestExternalVersionId(
+        1492142120,
+        "US",
+        "ios",
+        undefined,
+        "com.example.app",
+      ),
+    ).resolves.toBe("891116578");
+
+    expect(
+      appleRequest.mock.calls.filter(
+        ([options]) =>
+          (options as { host?: string }).host === "apps.apple.com",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("deduplicates concurrent catalog fallback requests", async () => {
+    let resolveCatalog!: (value: ReturnType<typeof catalogReply>) => void;
+    const catalog = new Promise<ReturnType<typeof catalogReply>>((resolve) => {
+      resolveCatalog = resolve;
+    });
+    appleRequest.mockImplementation((options: unknown) => {
+      const host = (options as { host?: string }).host;
+      return host === "apps.apple.com"
+        ? catalog
+        : Promise.resolve(noAppReply());
+    });
+
+    const first = lookupLatestExternalVersionId(
+      1492142120,
+      "US",
+      "ios",
+      undefined,
+      "com.example.app",
+    );
+    const second = lookupLatestExternalVersionId(
+      1492142120,
+      "US",
+      "ios",
+      undefined,
+      "com.example.app",
+    );
+
+    await vi.waitFor(() => {
+      expect(
+        appleRequest.mock.calls.filter(
+          ([options]) =>
+            (options as { host?: string }).host === "apps.apple.com",
+        ),
+      ).toHaveLength(1);
+    });
+
+    resolveCatalog(catalogReply());
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      "891116578",
+      "891116578",
+    ]);
+  });
+
+  it("serializes catalog fallback requests across different apps", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const releases: Array<() => void> = [];
+
+    appleRequest.mockImplementation((options: unknown) => {
+      const path = (options as { host?: string; path?: string }).path ?? "";
+      const host = (options as { host?: string }).host;
+      if (host !== "apps.apple.com") return Promise.resolve(noAppReply());
+
+      active++;
+      maxActive = Math.max(maxActive, active);
+      return new Promise((resolve) => {
+        releases.push(() => {
+          active--;
+          resolve(
+            catalogReply({
+              id: path.includes("111111111") ? "111111111" : "222222222",
+              bundleId: path.includes("111111111")
+                ? "com.example.one"
+                : "com.example.two",
+            }),
+          );
+        });
+      });
+    });
+
+    const first = lookupLatestExternalVersionId(
+      111111111,
+      "US",
+      "ios",
+      undefined,
+      "com.example.one",
+    );
+    const second = lookupLatestExternalVersionId(
+      222222222,
+      "US",
+      "ios",
+      undefined,
+      "com.example.two",
+    );
+
+    const catalogCalls = () =>
+      appleRequest.mock.calls.filter(
+        ([options]) =>
+          (options as { host?: string }).host === "apps.apple.com",
+      );
+
+    await vi.waitFor(() => expect(catalogCalls()).toHaveLength(1));
+    expect(maxActive).toBe(1);
+
+    releases.shift()?.();
+    await vi.waitFor(() => expect(catalogCalls()).toHaveLength(2));
+    expect(maxActive).toBe(1);
+
+    releases.shift()?.();
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      "891116578",
+      "891116578",
+    ]);
+  });
+
+  it("honors a 429 cooldown instead of hammering the catalog", async () => {
+    appleRequest.mockImplementation((options: unknown) => {
+      const host = (options as { host?: string }).host;
+      return Promise.resolve(
+        host === "apps.apple.com"
+          ? { status: 429, headers: { "retry-after": "60" }, body: "" }
+          : noAppReply(),
+      );
+    });
+
+    await expect(
+      lookupLatestExternalVersionId(
+        1492142120,
+        "US",
+        "ios",
+        undefined,
+        "com.example.app",
+      ),
+    ).rejects.toThrow("iOS catalog lookup returned HTTP 429");
+
+    await expect(
+      lookupLatestExternalVersionId(
+        1492142120,
+        "US",
+        "ios",
+        undefined,
+        "com.example.app",
+      ),
+    ).rejects.toThrow("cooling down after HTTP 429");
+
+    expect(
+      appleRequest.mock.calls.filter(
+        ([options]) =>
+          (options as { host?: string }).host === "apps.apple.com",
+      ),
+    ).toHaveLength(1);
   });
 
   it("throws immediately when a catalogue returns HTTP 503 (no fallback)", async () => {

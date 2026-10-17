@@ -21,6 +21,7 @@ vi.mock("../../src/api/client", () => ({
 }));
 
 const LOOKUP_HOST = "uclient-api.itunes.apple.com";
+const CATALOG_HOST = "apps.apple.com";
 const DISPATCH_HOST = "downloaddispatch.itunes.apple.com";
 
 const account: Account = {
@@ -139,11 +140,15 @@ type RequestOptions = { host: string; path: string; body?: string };
 
 let downloadReplies: (Reply | Error)[] = [];
 let lookupBody = lookupDoc("891042628");
+let catalogBody: Reply = reply("", 404);
 
 const allCalls = () =>
   vi.mocked(appleRequest).mock.calls.map((call) => call[0] as RequestOptions);
 
-const downloadCalls = () => allCalls().filter((options) => options.host !== LOOKUP_HOST);
+const downloadCalls = () =>
+  allCalls().filter(
+    (options) => options.host !== LOOKUP_HOST && options.host !== CATALOG_HOST,
+  );
 
 const lookupCalls = () => allCalls().filter((options) => options.host === LOOKUP_HOST);
 
@@ -159,6 +164,7 @@ describe("apple/download", () => {
 
     downloadReplies = [];
     lookupBody = lookupDoc("891042628");
+    catalogBody = reply("", 404);
 
     vi.mocked(apiGet).mockResolvedValue({ pins: [] });
 
@@ -170,6 +176,9 @@ describe("apple/download", () => {
     vi.mocked(appleRequest).mockImplementation(async (options: RequestOptions) => {
       if (options.host === LOOKUP_HOST) {
         return reply(lookupBody);
+      }
+      if (options.host === CATALOG_HOST) {
+        return catalogBody;
       }
       const next = downloadReplies.shift();
       if (!next) {

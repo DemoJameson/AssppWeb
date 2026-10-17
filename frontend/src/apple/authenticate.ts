@@ -18,6 +18,24 @@ export class AuthenticationError extends Error {
   }
 }
 
+/** The one place 2FA input is normalized: whitespace is ignored, but the
+ * remaining value must be exactly six ASCII digits. The password is untouched.
+ */
+export function sanitizeAuthCodeInput(value: string): string {
+  return value.replace(/[^0-9]/g, "").slice(0, 6);
+}
+
+function normalizeAuthCode(code?: string): string | undefined {
+  if (code === undefined || code === "") return undefined;
+
+  const normalized = code.replace(/\s/gu, "");
+  if (!/^[0-9]{6}$/.test(normalized)) {
+    throw new AuthenticationError(i18n.t("errors.auth.invalidCode"));
+  }
+
+  return normalized;
+}
+
 export async function authenticate(
   appleId: string,
   password: string,
@@ -25,6 +43,7 @@ export async function authenticate(
   existingCookies?: Cookie[],
   deviceId: string = "",
 ): Promise<Account> {
+  const normalizedCode = normalizeAuthCode(code);
   let cookies: Cookie[] = existingCookies ? [...existingCookies] : [];
   let storeFront = "";
   let lastError: Error | null = null;
@@ -63,9 +82,9 @@ export async function authenticate(
     try {
       const body: Record<string, string> = {
         appleId,
-        attempt: code ? "2" : "4",
+        attempt: normalizedCode ? "2" : "4",
         guid: deviceId,
-        password: code ? `${password}${code}` : password,
+        password: normalizedCode ? `${password}${normalizedCode}` : password,
         rmp: "0",
         why: "signIn",
       };
@@ -156,11 +175,11 @@ export async function authenticate(
       ) {
         throw new AuthenticationError(
           i18n.t(
-            code
+            normalizedCode
               ? "errors.auth.verificationIncomplete"
               : "errors.auth.requiresVerification",
           ),
-          !code,
+          !normalizedCode,
         );
       }
 

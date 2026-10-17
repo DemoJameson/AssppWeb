@@ -494,6 +494,7 @@
     "auth": {
       "requiresVerification": "2단계 인증 코드가 필요합니다. 인증 코드 팝업이 뜨지 않으면 https://account.apple.com 에 로그인하여 알림을 트리거한 후 2FA 코드 필드에 입력하세요.",
       "verificationIncomplete": "Apple이 인증을 완료하지 못했습니다. 코드를 새로 받아 다시 입력하세요.",
+      "invalidCode": "2단계 인증 코드는 숫자 6자리여야 합니다.",
       "redirectLocation": "리디렉션 주소를 가져올 수 없습니다",
       "redirectHost": "Apple의 리디렉션이 Apple 도메인 밖을 가리켜 따르지 않았습니다",
       "emptyBody": "인증 실패: 서버가 빈 본문과 함께 HTTP {{status}}를 반환했습니다",

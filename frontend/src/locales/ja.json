@@ -494,6 +494,7 @@
     "auth": {
       "requiresVerification": "2ファクタ認証コードが必要です。ポップアップが出ない場合は、https://account.apple.com でサインインしてアラートをトリガーし、コード欄に入力してください。",
       "verificationIncomplete": "Apple による確認が完了しませんでした。新しい確認コードを取得して、もう一度入力してください。",
+      "invalidCode": "2ファクタ認証コードは6桁の数字で入力してください。",
       "redirectLocation": "リダイレクト先を取得できませんでした",
       "redirectHost": "Apple のリダイレクト先が Apple のドメイン外だったため、追跡しませんでした",
       "emptyBody": "認証失敗: サーバーが空のボディでHTTP {{status}}を返しました",

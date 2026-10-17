@@ -494,6 +494,7 @@
     "auth": {
       "requiresVerification": "驗證需要雙重認證代碼。如果沒有彈出驗證碼，請嘗試在 https://account.apple.com 登入以觸發提示，然後在雙重認證代碼欄位中填寫該代碼。",
       "verificationIncomplete": "Apple 未完成驗證。請重新取得驗證碼並填寫最新的那一個。",
+      "invalidCode": "雙重認證代碼必須正好包含 6 位數字。",
       "redirectLocation": "無法取得重新導向位址",
       "redirectHost": "Apple 的重新導向指向非 Apple 網域，因此未跟隨",
       "emptyBody": "認證失敗：伺服器傳回 HTTP {{status}} 且回應主體為空",

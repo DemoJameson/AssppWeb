@@ -1,6 +1,7 @@
 // Apple's platform version lookup, mirroring ipatool's `lookupLatestExternalVersionID` and `lookupLatestMacOSExternalVersionID`.
 // iOS/iPad/tvOS use the MDM catalogue at uclient-api.itunes.apple.com (p=mdm-lockup): iOS/iPad try the enterprise
 // catalogue then the consumer iphone/ipad ones (some storefronts lack an enterprise listing), tvOS stays on atv9.
+// When every iOS/iPad MDM catalogue has no app or offer, the public apps.apple.com catalog API is the final fallback.
 // visionOS/macOS instead read the storefront product page (apps.apple.com/{cc}/app/id{id}?platform=vision|mac):
 // MDM carries no visionOS offers, and its legacy macOS lookup can return an iOS offer even with platform=osx.
 
@@ -19,6 +20,88 @@ const STOREFRONT_HOST = "apps.apple.com";
  * plus the request whose redirect trips it.
  */
 const MAX_STOREFRONT_REDIRECTS = 5;
+
+/** The public App Store catalog fallback is rate limited in practice, so a
+ * successful answer is reused for Apple's advertised 15-minute cache window.
+ * A 429 pauses the fallback for a minute (or Retry-After, capped at five).
+ */
+const IOS_CATALOG_CACHE_TTL_MS = 15 * 60_000;
+const IOS_CATALOG_RATE_LIMIT_COOLDOWN_MS = 60_000;
+const IOS_CATALOG_MAX_COOLDOWN_MS = 5 * 60_000;
+/** The fallback is a last resort and the public endpoint rate-limits bursts. */
+const IOS_CATALOG_MAX_CONCURRENT = 1;
+
+type IOSCatalogPlatform = "iphone" | "ipad";
+
+interface IOSCatalogCacheEntry {
+  expiresAt: number;
+  /** Undefined records a cached HTTP 404, so a missing app is not hammered. */
+  versionId?: string;
+}
+
+interface IOSCatalogResponse {
+  data?: Array<{
+    id?: string;
+    type?: string;
+    attributes?: {
+      deviceFamilies?: string[];
+      platformAttributes?: {
+        ios?: {
+          bundleId?: string;
+          externalVersionId?: string | number;
+        };
+      };
+    };
+  }>;
+}
+
+const iosCatalogCache = new Map<string, IOSCatalogCacheEntry>();
+const iosCatalogInFlight = new Map<string, Promise<string>>();
+const iosCatalogQueue: Array<() => void> = [];
+let iosCatalogActive = 0;
+let iosCatalogCooldownUntil = 0;
+
+class MDMVersionLookupExhaustedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MDMVersionLookupExhaustedError";
+  }
+}
+
+class IOSCatalogAppNotFoundError extends Error {
+  constructor() {
+    super("iOS catalog lookup returned HTTP 404");
+    this.name = "IOSCatalogAppNotFoundError";
+  }
+}
+
+function acquireIOSCatalogSlot(): Promise<void> {
+  if (iosCatalogActive < IOS_CATALOG_MAX_CONCURRENT) {
+    iosCatalogActive++;
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    iosCatalogQueue.push(() => {
+      iosCatalogActive++;
+      resolve();
+    });
+  });
+}
+
+function releaseIOSCatalogSlot(): void {
+  iosCatalogActive = Math.max(0, iosCatalogActive - 1);
+  iosCatalogQueue.shift()?.();
+}
+
+/** Test hook: keeps one test's cached answer or 429 cooldown out of the next. */
+export function resetPlatformVersionLookupCache(): void {
+  iosCatalogCache.clear();
+  iosCatalogInFlight.clear();
+  iosCatalogQueue.length = 0;
+  iosCatalogActive = 0;
+  iosCatalogCooldownUntil = 0;
+}
 
 /** The storefronts to consult after the account's own, from server config
  * (`STOREFRONT_FALLBACK_COUNTRIES`; CN by default, none configured disables it).
@@ -131,13 +214,15 @@ async function lookupAcrossStorefronts(
  * answers without one (the caller then retries unpinned). visionOS goes through
  * the storefront product page, not the MDM catalogue; macOS is handled by {@link
  * lookupLatestMacOSVersionId}. iPhone/iPad walk the MDM catalogues from {@link
- * mdmCataloguesFor} in order, throwing once none answers so a failure surfaces.
+ * mdmCataloguesFor} in order, then try the public App Store catalog when every
+ * MDM catalogue has answered without an app or offer.
  */
 export async function lookupLatestExternalVersionId(
   appId: string | number,
   countryCode: string,
   platform?: Platform,
   cookies?: Cookie[],
+  bundleId?: string,
 ): Promise<string | undefined> {
   if (platform === "visionos") {
     return lookupLatestVisionOSVersionId(appId, countryCode, cookies);
@@ -152,7 +237,39 @@ export async function lookupLatestExternalVersionId(
     return undefined;
   }
 
-  return lookupLatestMDMVersionId(appId, countryCode, catalogues, cookies);
+  try {
+    return await lookupLatestMDMVersionId(
+      appId,
+      countryCode,
+      catalogues,
+      cookies,
+    );
+  } catch (error) {
+    if (
+      !(error instanceof MDMVersionLookupExhaustedError) ||
+      !catalogPlatformFor(platform)
+    ) {
+      throw error;
+    }
+
+    try {
+      return await lookupLatestIOSCatalogVersionId(
+        appId,
+        countryCode,
+        platform,
+        bundleId,
+      );
+    } catch (catalogError) {
+      // A 404 is a definitive answer about this app, not a transport failure.
+      // Keep the existing "all MDM catalogues exhausted" message for callers
+      // that already use it to mean "no version for this platform".
+      if (catalogError instanceof IOSCatalogAppNotFoundError) throw error;
+
+      throw new Error(
+        `${error.message}; iOS catalog fallback failed: ${messageOf(catalogError)}`,
+      );
+    }
+  }
 }
 
 /** The newest version id the platform's *own* source names — MDM catalogue for
@@ -171,7 +288,178 @@ export async function latestVersionIdForPlatform(
   if (platform === "macos") {
     return lookupLatestMacOSVersionId(appId, countryCode, bundleId, cookies);
   }
-  return lookupLatestExternalVersionId(appId, countryCode, platform, cookies);
+  return lookupLatestExternalVersionId(
+    appId,
+    countryCode,
+    platform,
+    cookies,
+    bundleId,
+  );
+}
+
+function catalogPlatformFor(platform?: Platform): IOSCatalogPlatform | undefined {
+  if (platform === "ipad") return "ipad";
+  if (platform === "ios" || platform === undefined) return "iphone";
+  return undefined;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function rateLimitCooldownMs(value: string | undefined): number {
+  const text = value?.trim();
+  if (!text) return IOS_CATALOG_RATE_LIMIT_COOLDOWN_MS;
+
+  if (/^[0-9]+$/.test(text)) {
+    return Math.min(
+      Math.max(Number(text) * 1000, 1000),
+      IOS_CATALOG_MAX_COOLDOWN_MS,
+    );
+  }
+
+  const until = Date.parse(text);
+  if (Number.isFinite(until)) {
+    return Math.min(
+      Math.max(until - Date.now(), 1000),
+      IOS_CATALOG_MAX_COOLDOWN_MS,
+    );
+  }
+
+  return IOS_CATALOG_RATE_LIMIT_COOLDOWN_MS;
+}
+
+async function lookupLatestIOSCatalogVersionId(
+  appId: string | number,
+  countryCode: string,
+  platform: Platform | undefined,
+  bundleId?: string,
+): Promise<string> {
+  const catalogPlatform = catalogPlatformFor(platform);
+  if (!catalogPlatform) {
+    throw new Error("iOS catalog fallback only supports iOS and iPad");
+  }
+
+  const id = String(appId);
+  const country = countryCode.toLowerCase();
+  const key = `${id}|${country}|${catalogPlatform}|${bundleId ?? ""}`;
+  const cached = iosCatalogCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    if (cached.versionId) return cached.versionId;
+    throw new IOSCatalogAppNotFoundError();
+  }
+  if (cached) iosCatalogCache.delete(key);
+
+  if (Date.now() < iosCatalogCooldownUntil) {
+    throw new Error("iOS catalog lookup is cooling down after HTTP 429");
+  }
+
+  const existing = iosCatalogInFlight.get(key);
+  if (existing) return existing;
+
+  let request: Promise<string>;
+  request = (async () => {
+    await acquireIOSCatalogSlot();
+    try {
+      // A request may have waited behind another app's 429 response.
+      if (Date.now() < iosCatalogCooldownUntil) {
+        throw new Error("iOS catalog lookup is cooling down after HTTP 429");
+      }
+
+      return await requestIOSCatalogVersionId(
+        id,
+        country,
+        catalogPlatform,
+        key,
+        bundleId,
+      );
+    } finally {
+      releaseIOSCatalogSlot();
+    }
+  })().finally(() => {
+    if (iosCatalogInFlight.get(key) === request) {
+      iosCatalogInFlight.delete(key);
+    }
+  });
+  iosCatalogInFlight.set(key, request);
+  return request;
+}
+
+async function requestIOSCatalogVersionId(
+  id: string,
+  country: string,
+  catalogPlatform: IOSCatalogPlatform,
+  cacheKey: string,
+  bundleId?: string,
+): Promise<string> {
+  const query = new URLSearchParams({ platform: catalogPlatform });
+  const response = await fetchStorefrontPage(
+    `/api/apps/v1/catalog/${encodeURIComponent(country)}/apps/${encodeURIComponent(id)}?${query.toString()}`,
+  );
+
+  if (response.status === 429) {
+    iosCatalogCooldownUntil = Math.max(
+      iosCatalogCooldownUntil,
+      Date.now() + rateLimitCooldownMs(response.headers?.["retry-after"]),
+    );
+    throw new Error("iOS catalog lookup returned HTTP 429");
+  }
+
+  if (response.status === 404) {
+    iosCatalogCache.set(cacheKey, {
+      expiresAt: Date.now() + IOS_CATALOG_CACHE_TTL_MS,
+    });
+    throw new IOSCatalogAppNotFoundError();
+  }
+
+  if (response.status !== 200) {
+    throw new Error(`iOS catalog lookup returned HTTP ${response.status}`);
+  }
+
+  let parsed: IOSCatalogResponse;
+  try {
+    parsed = JSON.parse(response.body) as IOSCatalogResponse;
+  } catch {
+    throw new Error("iOS catalog lookup returned invalid JSON");
+  }
+
+  if (!Array.isArray(parsed.data) || parsed.data.length !== 1) {
+    throw new Error("iOS catalog lookup must return exactly one app");
+  }
+
+  const item = parsed.data[0];
+  if (item.id !== id || item.type !== "apps") {
+    throw new Error("iOS catalog lookup returned a different app");
+  }
+
+  const attributes = item.attributes;
+  if (
+    !attributes ||
+    !Array.isArray(attributes.deviceFamilies) ||
+    !attributes.deviceFamilies.includes(catalogPlatform)
+  ) {
+    throw new Error("iOS catalog lookup returned no metadata for the requested platform");
+  }
+
+  const platformAttributes = attributes.platformAttributes?.ios;
+  if (!platformAttributes) {
+    throw new Error("iOS catalog lookup returned no iOS platform metadata");
+  }
+
+  if (bundleId && platformAttributes.bundleId !== bundleId) {
+    throw new Error("iOS catalog lookup returned a different bundle identifier");
+  }
+
+  const versionId = String(platformAttributes.externalVersionId ?? "");
+  if (!/^[1-9][0-9]*$/.test(versionId)) {
+    throw new Error("iOS catalog lookup returned no valid external version id");
+  }
+
+  iosCatalogCache.set(cacheKey, {
+    expiresAt: Date.now() + IOS_CATALOG_CACHE_TTL_MS,
+    versionId,
+  });
+  return versionId;
 }
 
 /** The newest macOS external version id from the Mac storefront product page
@@ -316,7 +604,7 @@ async function lookupLatestMDMVersionId(
     throw new Error("Version lookup returned no external version id");
   }
 
-  throw new Error(
+  throw new MDMVersionLookupExhaustedError(
     `app ${id} in storefront ${countryCode} (catalogs: ${catalogues.join(", ")}): ${lastError?.message ?? "no catalogue answered"}`,
   );
 }
