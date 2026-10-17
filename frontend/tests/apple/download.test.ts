@@ -240,6 +240,23 @@ describe("apple/download", () => {
     expect(output.sinfs).toEqual([]);
   });
 
+  it("keeps the preflight package URL a legacy Mac reply advertises", async () => {
+    const macApp = { ...app, platform: "macos" } as Software;
+    downloadReplies = [
+      reply(
+        macReply({
+          preflightPackageURL: "https://iosapps.example.com/preflight.pkg",
+        }),
+      ),
+    ];
+
+    const { output } = await getDownloadInfo(account, macApp, "891042628");
+
+    expect(output.preflightPackageURL).toBe(
+      "https://iosapps.example.com/preflight.pkg",
+    );
+  });
+
   it("refuses a macOS reply that carries no dpInfo", async () => {
     // Without it the delivered package could never be opened, and no later step
     // could do anything but fail — so it is refused before a task exists.
@@ -248,6 +265,26 @@ describe("apple/download", () => {
 
     await expect(getDownloadInfo(account, macApp, "891042628")).rejects.toThrow(
       i18n.t("errors.download.missingDPInfo"),
+    );
+  });
+
+  it("allows a legacy Mac metadata read without dpInfo when preflight metadata is available", async () => {
+    const macApp = { ...app, platform: "macos" } as Software;
+    downloadReplies = [
+      reply(
+        macPackageDoc({
+          preflightPackageURL: "https://iosapps.example.com/preflight.pkg",
+        }),
+      ),
+    ];
+
+    const { output } = await getDownloadInfo(account, macApp, "891042628", {
+      allowMissingDPInfo: true,
+    });
+
+    expect(output.dpInfo).toBeUndefined();
+    expect(output.preflightPackageURL).toBe(
+      "https://iosapps.example.com/preflight.pkg",
     );
   });
 

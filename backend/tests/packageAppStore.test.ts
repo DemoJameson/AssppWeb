@@ -68,14 +68,19 @@ describe("packageAppStore", () => {
     store.rememberPackageApp(
       software({ platform: "tvos", version: "4.9.1", minimumOsVersion: "17.0" }),
     );
+    store.rememberPackageApp(
+      software({ platform: "watchos", version: "2.0.0", minimumOsVersion: "10.0" }),
+    );
 
     const record = store.findPackageAppByAppId(6503940939);
     expect(record?.builds.ios?.version).toBe("4.8.2");
     expect(record?.builds.tvos?.version).toBe("4.9.1");
+    expect(record?.builds.watchos?.version).toBe("2.0.0");
 
     // The lookup answers with the requested platform's build...
     expect(store.buildForPlatform(record, "ios")?.version).toBe("4.8.2");
     expect(store.buildForPlatform(record, "tvos")?.version).toBe("4.9.1");
+    expect(store.buildForPlatform(record, "watchos")?.version).toBe("2.0.0");
     // ...and with nothing when that platform has no recorded package.
     expect(store.buildForPlatform(record, "macos")).toBeUndefined();
     // Without a requested platform, any build will do.

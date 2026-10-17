@@ -1,6 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { deflateRawSync } from 'node:zlib';
-import { readVersionMetadataFromRanges } from '../src/services/packageVersionMetadata.js';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { createHash } from 'node:crypto';
+import { deflateRawSync, deflateSync } from 'node:zlib';
+import {
+  readVersionMetadataFromRanges,
+  readVersionMetadataFromXarRanges,
+  versionMetadataFromDownloadURL,
+} from '../src/services/packageVersionMetadata.js';
 
 /**
  * Builds a zip in memory, entries stored (method 0) or deflated (method 8).
@@ -90,8 +95,35 @@ const infoPlist = (version: string, extra = '') =>
   );
 
 /** Serves ranges the way the CDN would: [start, end] inclusive. */
-const readerOver = (zip: Buffer) => async (start: number, end: number) =>
-  zip.subarray(start, end + 1);
+const readerOver = (archive: Buffer) => async (start: number, end: number) =>
+  archive.subarray(start, end + 1);
+
+function buildPreflightXar(distribution: string): Buffer {
+  const data = Buffer.from(distribution, 'utf8');
+  const extractedChecksum = createHash('sha1').update(data).digest('hex');
+  const file = `<file id="1"><type>file</type><name>Distribution</name><data><length>${data.length}</length><offset>20</offset><size>${data.length}</size><encoding style="application/octet-stream"/><archived-checksum style="sha1">${extractedChecksum}</archived-checksum><extracted-checksum style="sha1">${extractedChecksum}</extracted-checksum></data></file>`;
+  const toc = Buffer.from(
+    `<?xml version="1.0" encoding="UTF-8"?><xar><toc><checksum style="sha1"><offset>0</offset><size>20</size></checksum>${file}</toc></xar>`,
+    'utf8',
+  );
+  const compressedToc = deflateSync(toc);
+  const tocChecksum = createHash('sha1').update(compressedToc).digest();
+  const archive = Buffer.alloc(28 + compressedToc.length + 20 + data.length);
+  archive.write('xar!', 0, 'latin1');
+  archive.writeUInt16BE(28, 4);
+  archive.writeUInt16BE(1, 6);
+  archive.writeBigUInt64BE(BigInt(compressedToc.length), 8);
+  archive.writeBigUInt64BE(BigInt(toc.length), 16);
+  archive.writeUInt32BE(1, 24);
+  compressedToc.copy(archive, 28);
+  tocChecksum.copy(archive, 28 + compressedToc.length);
+  data.copy(archive, 28 + compressedToc.length + 20);
+  return archive;
+}
+
+function preflightDistribution(version: string, packageVersion: string): string {
+  return `<installer-gui-script><product id="com.example.mac" version="${version}"/><pkg-ref id="com.example.pkg"><relocate><bundle id="com.example.mac"/></relocate></pkg-ref><pkg-ref id="com.unrelated.pkg" version="9.9.9.0.1.1700000000"/><pkg-ref id="com.example.pkg" version="${packageVersion}"/><pkg-ref id="com.example.pkg" version="${packageVersion}"/></installer-gui-script>`;
+}
 
 describe('readVersionMetadataFromRanges', () => {
   it('reads the version out of the payload and dates it from the entry time', async () => {
@@ -243,5 +275,92 @@ describe('readVersionMetadataFromRanges', () => {
     await expect(
       readVersionMetadataFromRanges(readerOver(zip), zip.length),
     ).rejects.toThrow('entry too large');
+  });
+});
+
+
+describe('readVersionMetadataFromXarRanges', () => {
+  it('reads the selected legacy Mac version and its installer timestamp', async () => {
+    const archive = buildPreflightXar(
+      preflightDistribution('4.2', '4.2.0.0.1.1341568473'),
+    );
+
+    const metadata = await readVersionMetadataFromXarRanges(
+      readerOver(archive),
+      archive.length,
+      'com.example.mac',
+    );
+
+    expect(metadata.displayVersion).toBe('4.2');
+    expect(metadata.releaseDate).toBe('2012-07-06T09:54:33.000Z');
+  });
+
+  it('rejects a preflight archive for a different bundle', async () => {
+    const archive = buildPreflightXar(
+      preflightDistribution('4.2', '4.2.0.0.1.1341568473'),
+    );
+
+    await expect(
+      readVersionMetadataFromXarRanges(
+        readerOver(archive),
+        archive.length,
+        'com.other.mac',
+      ),
+    ).rejects.toThrow('requested bundle');
+  });
+
+  it('rejects a package version that is not a legacy build timestamp', async () => {
+    const archive = buildPreflightXar(
+      preflightDistribution('4.2', '4.2.0'),
+    );
+
+    await expect(
+      readVersionMetadataFromXarRanges(readerOver(archive), archive.length),
+    ).rejects.toThrow('supported build timestamp');
+  });
+});
+
+
+describe('versionMetadataFromDownloadURL', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('recognizes a legacy Mac preflight XAR and validates its bundle', async () => {
+    const archive = buildPreflightXar(
+      preflightDistribution('4.2', '4.2.0.0.1.1341568473'),
+    );
+    vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        return new Response(null, {
+          status: 200,
+          headers: { 'content-length': String(archive.length) },
+        });
+      }
+
+      const range = String(
+        (init?.headers as Record<string, string> | undefined)?.Range ?? '',
+      );
+      const match = /bytes=(\d+)-(\d+)/.exec(range);
+      if (!match) return new Response(archive, { status: 200 });
+      const start = Number(match[1]);
+      const end = Math.min(Number(match[2]), archive.length - 1);
+      return new Response(archive.subarray(start, end + 1), {
+        status: 206,
+        headers: {
+          'content-range': `bytes ${start}-${end}/${archive.length}`,
+        },
+      });
+    });
+
+    await expect(
+      versionMetadataFromDownloadURL(
+        'https://example.apple.com/preflight.pkg',
+        'com.example.mac',
+      ),
+    ).resolves.toEqual({
+      displayVersion: '4.2',
+      releaseDate: '2012-07-06T09:54:33.000Z',
+    });
   });
 });

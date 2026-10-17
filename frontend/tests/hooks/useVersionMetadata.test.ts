@@ -386,6 +386,7 @@ describe("useVersionMetadataMap", () => {
       app.id,
       "102",
       "https://iosapps.example.com/app.ipa",
+      "com.example.utility",
     );
     await vi.waitFor(() => {
       expect(mocks.updateAccount).toHaveBeenCalledTimes(2);
@@ -394,6 +395,74 @@ describe("useVersionMetadataMap", () => {
       ...account,
       cookies: [],
     });
+  });
+
+  it("reads a legacy Mac build from its preflight package", async () => {
+    const macApp = { ...app, platform: "macos" as const };
+    vi.mocked(getDownloadInfo).mockResolvedValue({
+      output: {
+        downloadURL: "https://iosapps.example.com/encrypted.pkg",
+        preflightPackageURL: "https://iosapps.example.com/preflight.pkg",
+        sinfs: [],
+        bundleShortVersionString: "4.3",
+        bundleVersion: "4.3",
+        bundleID: "com.example.utility",
+      },
+      updatedCookies: [],
+    });
+    vi.mocked(fetchPackageVersionMetadata).mockResolvedValue({
+      displayVersion: "4.2",
+      releaseDate: "2012-07-06T09:54:33.000Z",
+      source: "package-read",
+    });
+
+    const { result } = renderHook(() => useVersionMetadataMap());
+    await act(async () => {
+      await result.current.prefetchMissing(account, macApp, ["12013122"]);
+    });
+
+    expect(fetchPackageVersionMetadata).toHaveBeenCalledWith(
+      macApp.id,
+      "12013122",
+      "https://iosapps.example.com/preflight.pkg",
+      "com.example.utility",
+    );
+    expect(result.current.versionMeta["12013122"].releaseDate).toBe(
+      "2012-07-06T09:54:33.000Z",
+    );
+  });
+
+  it("uses the actual Mac package when dpInfo is present", async () => {
+    const macApp = { ...app, platform: "macos" as const };
+    vi.mocked(getDownloadInfo).mockResolvedValue({
+      output: {
+        downloadURL: "https://iosapps.example.com/encrypted.pkg",
+        preflightPackageURL: "https://iosapps.example.com/preflight.pkg",
+        sinfs: [],
+        bundleShortVersionString: "4.3",
+        bundleVersion: "4.3",
+        bundleID: "com.example.utility",
+        dpInfo: "QUJDRA==",
+      },
+      updatedCookies: [],
+    });
+    vi.mocked(fetchPackageVersionMetadata).mockResolvedValue({
+      displayVersion: "4.3",
+      releaseDate: "2026-01-01T00:00:00.000Z",
+      source: "package-read",
+    });
+
+    const { result } = renderHook(() => useVersionMetadataMap());
+    await act(async () => {
+      await result.current.prefetchMissing(account, macApp, ["12013123"]);
+    });
+
+    expect(fetchPackageVersionMetadata).toHaveBeenCalledWith(
+      macApp.id,
+      "12013123",
+      "https://iosapps.example.com/encrypted.pkg",
+      "com.example.utility",
+    );
   });
 
   it("prefetches with the freshest stored copy of the account", async () => {

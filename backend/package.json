@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@mercuryworkshop/wisp-js": "^0.4.1",
+    "@xmldom/xmldom": "^0.8.11",
     "archiver": "^8.0.0",
     "better-sqlite3": "^13.0.3",
     "bplist-creator": "^0.1.1",

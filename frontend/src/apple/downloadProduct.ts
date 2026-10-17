@@ -80,8 +80,9 @@ export async function requestDownloadProduct(
   let externalVersionId = pinnedVersionId;
 
   // volumeStore answers by the account's device class (iOS by default), not the
-  // requested platform: an unpinned tvOS/visionOS request returns the iOS ipa, so
-  // pin that platform's version first. macOS ships under its own adam ids (no pin).
+  // requested platform: an unpinned tvOS/watchOS/visionOS request can return
+  // the iOS ipa, so pin that platform's version first. macOS ships under its own
+  // adam ids (no pin).
   if (!externalVersionId && needsPlatformPin(session.app.platform)) {
     externalVersionId = await pinnedLatestVersionId(session);
   }
@@ -427,7 +428,7 @@ async function pinnedLatestVersionId(session: DownloadSession): Promise<string> 
   if (!versionId) {
     // No catalogue offer and no recorded pin names this platform, but a
     // `local`/`bare` record is a real app, so guess a neighbour id from the iOS
-    // list (as `listVersions` does) — else a delisted tvOS/visionOS/macOS direct
+    // list (as `listVersions` does) — else a delisted tvOS/watchOS/visionOS/macOS direct
     // download fails where 「选择版本」 succeeds.
     if (needsVersionExchange(session.app)) {
       // Dynamic import breaks the cycle (`versionPinGuess` imports this module) and

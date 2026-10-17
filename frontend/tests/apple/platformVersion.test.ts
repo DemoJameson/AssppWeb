@@ -688,6 +688,24 @@ describe("lookupLatestExternalVersionId", () => {
     expect(queryOf(0).get("platform")).toBe("atv9");
   });
 
+  it("walks the iOS-family catalogues for watchOS without the catalog API", async () => {
+    appleRequest
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(noAppReply())
+      .mockResolvedValueOnce(noAppReply());
+
+    await expect(
+      lookupLatestExternalVersionId(1492142120, "US", "watchos"),
+    ).rejects.toThrow(
+      "app 1492142120 in storefront US (catalogs: enterprisestore, iphone, ipad)",
+    );
+
+    expect(appleRequest).toHaveBeenCalledTimes(3);
+    expect(queryOf(0).get("platform")).toBe("enterprisestore");
+    expect(queryOf(1).get("platform")).toBe("iphone");
+    expect(queryOf(2).get("platform")).toBe("ipad");
+  });
+
   it("reads a fallback catalogue's version from buy params", async () => {
     appleRequest.mockResolvedValueOnce(noAppReply());
     appleRequest.mockResolvedValueOnce(buyParamsReply("818970197"));

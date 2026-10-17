@@ -25,8 +25,9 @@ export class PackagePlatformError extends Error {
 
 /**
  * Infers the platform a package targets from its `CFBundleSupportedPlatforms`. A universal
- * app lists several; the first non-iPhoneOS entry distinguishes tvOS (`AppleTVOS`) and
- * visionOS (`XROS`); only `iPhoneOS` means an iOS/iPad build. `.pkg` (xar) never reaches this.
+ * app lists several; the first non-iPhoneOS entry distinguishes tvOS (`AppleTVOS`),
+ * watchOS (`WatchOS`) and visionOS (`XROS`); only `iPhoneOS` means an iOS/iPad build.
+ * `.pkg` (xar) never reaches this.
  */
 export function platformFromSupported(
   infoPlist: Record<string, unknown> | null,
@@ -37,6 +38,7 @@ export function platformFromSupported(
 
   if (supported.includes("XROS")) return "visionos";
   if (supported.includes("AppleTVOS")) return "tvos";
+  if (supported.includes("WatchOS")) return "watchos";
   if (supported.includes("iPhoneOS")) return "ios";
   return undefined;
 }

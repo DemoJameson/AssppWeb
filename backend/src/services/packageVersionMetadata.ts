@@ -1,10 +1,12 @@
 // Reads a version's real metadata out of its IPA, mirroring ipatool's `readVersionMetadataFromIPA`
-// (pkg/appstore/appstore_get_version_metadata.go). Apple's download-product exchange carries a
-// `releaseDate` but it dates the *app* (every pinned version shares the day), so the IPA is read:
-// Info.plist `releaseDate`/`ReleaseDate`, else the archive entry's mtime — a per-build value. The
-// package is never fetched whole: only the central directory (from the tail) and the Info.plist entry, bounded.
+// (pkg/appstore/appstore_get_version_metadata.go), and out of the small XAR preflight package older
+// Mac downloads provide. Apple's download-product exchange carries a `releaseDate` but it dates the
+// *app* (every pinned version shares the day), so the package is read instead. The package is never
+// fetched whole: only the central directory / XAR TOC and the selected metadata entry, bounded.
 
-import { inflateRawSync } from "node:zlib";
+import { createHash } from "node:crypto";
+import { gunzipSync, inflateRawSync, inflateSync } from "node:zlib";
+import { DOMParser } from "@xmldom/xmldom";
 import bplistParser from "bplist-parser";
 import plist from "plist";
 import { validateDownloadURL } from "./downloadManager.js";
@@ -24,6 +26,11 @@ const MAX_ENTRY_OUTPUT = 4 * 1024 * 1024;
 const TAIL_WINDOW = 64 * 1024;
 /** One range/HEAD request, bounded so a stalled CDN cannot hang the task. */
 const REQUEST_TIMEOUT_MS = 15_000;
+/** The legacy Mac preflight archive is deliberately small; bound every part. */
+const XAR_HEADER_SIZE = 28;
+const MAX_XAR_TOC_COMPRESSED = 8 * 1024 * 1024;
+const MAX_XAR_TOC_UNCOMPRESSED = 32 * 1024 * 1024;
+const MAX_XAR_ENTRY_OUTPUT = 4 * 1024 * 1024;
 
 const EOCD_SIGNATURE = 0x06054b50;
 const CENTRAL_SIGNATURE = 0x02014b50;
@@ -77,14 +84,16 @@ export async function readVersionMetadataFromRanges(
 }
 
 /**
- * Reads that metadata for a version from its download URL, validated like every other package
- * address before a byte is fetched. This is the client-write path
+ * Reads that metadata for a version from its download or preflight URL, validated like every other
+ * package address before a byte is fetched. This is the client-write path
  * (`POST /version-metadata/:appId/:versionId/package`): the URL comes from the request body, so its
  * hostname is allowlisted to `*.apple.com` first (via `validateDownloadURL`) and redirects are
- * refused — an allowlisted URL could otherwise 3xx to an arbitrary address and be chased.
+ * refused — an allowlisted URL could otherwise 3xx to an arbitrary address and be chased. A XAR
+ * header selects the legacy Mac preflight reader; everything else uses the IPA reader.
  */
 export async function versionMetadataFromDownloadURL(
   downloadURL: string,
+  bundleId?: string,
 ): Promise<PackageVersionMetadata> {
   validateDownloadURL(downloadURL);
 
@@ -101,7 +110,293 @@ export async function versionMetadataFromDownloadURL(
     return Buffer.from(await response.arrayBuffer());
   };
 
+  const header = await read(0, XAR_HEADER_SIZE - 1);
+  if (header.toString("latin1", 0, 4) === "xar!") {
+    return readVersionMetadataFromXarRanges(read, size, bundleId);
+  }
+
   return readVersionMetadataFromRanges(read, size);
+}
+
+/**
+ * Reads a legacy macOS preflight package: a small XAR containing a Distribution
+ * XML whose product version and installer package version describe the selected
+ * build. This is the path Apple uses for older Mac downloads without dpInfo.
+ */
+export async function readVersionMetadataFromXarRanges(
+  read: RangeReader,
+  size: number,
+  bundleId?: string,
+): Promise<PackageVersionMetadata> {
+  if (!Number.isFinite(size) || size < XAR_HEADER_SIZE) {
+    throw new Error("not a XAR archive");
+  }
+
+  const header = await read(0, XAR_HEADER_SIZE - 1);
+  if (header.toString("latin1", 0, 4) !== "xar!") {
+    throw new Error("not a XAR archive");
+  }
+
+  const headerSize = header.readUInt16BE(4);
+  const tocCompressedSize = Number(header.readBigUInt64BE(8));
+  const tocUncompressedSize = Number(header.readBigUInt64BE(16));
+  const checksumAlgorithm = header.readUInt32BE(24);
+  const checksumSize = xarChecksumSize(checksumAlgorithm);
+
+  if (
+    headerSize < XAR_HEADER_SIZE ||
+    headerSize > 4096 ||
+    tocCompressedSize <= 0 ||
+    tocCompressedSize > MAX_XAR_TOC_COMPRESSED ||
+    tocUncompressedSize <= 0 ||
+    tocUncompressedSize > MAX_XAR_TOC_UNCOMPRESSED
+  ) {
+    throw new Error("invalid XAR header");
+  }
+
+  const tocStart = headerSize;
+  const tocEnd = tocStart + tocCompressedSize - 1;
+  if (tocEnd >= size) throw new Error("XAR table of contents exceeds the archive");
+  if (tocEnd + checksumSize >= size) {
+    throw new Error("XAR table of contents checksum exceeds the archive");
+  }
+
+  const compressedToc = await read(tocStart, tocEnd);
+  let toc: Buffer;
+  try {
+    toc = inflateSync(compressedToc);
+  } catch {
+    throw new Error("could not decompress XAR table of contents");
+  }
+  if (toc.length !== tocUncompressedSize) {
+    throw new Error("XAR table of contents has an unexpected size");
+  }
+
+  const tocDocument = parseXml(toc.toString("utf8"), "XAR table of contents");
+  const distributionEntries = Array.from(
+    tocDocument.getElementsByTagName("file"),
+  ).filter((file) => xmlText(file, "name") === "Distribution");
+  if (distributionEntries.length !== 1) {
+    throw new Error("macOS preflight package must contain one Distribution");
+  }
+
+  const entry = distributionEntries[0];
+  const data = entry.getElementsByTagName("data")[0];
+  if (!data) throw new Error("macOS preflight Distribution has no data");
+
+  const compressedSize = xmlNumber(data, "length");
+  const offset = xmlNumber(data, "offset");
+  const uncompressedSize = xmlNumber(data, "size");
+  if (
+    compressedSize <= 0 ||
+    compressedSize > MAX_XAR_ENTRY_OUTPUT ||
+    uncompressedSize <= 0 ||
+    uncompressedSize > MAX_XAR_ENTRY_OUTPUT ||
+    offset < 0
+  ) {
+    throw new Error("invalid macOS preflight Distribution bounds");
+  }
+
+  const dataStart = headerSize + tocCompressedSize + offset;
+  const dataEnd = dataStart + compressedSize - 1;
+  if (dataStart < headerSize || dataEnd >= size) {
+    throw new Error("macOS preflight Distribution exceeds the archive");
+  }
+
+  const encoded = await read(dataStart, dataEnd);
+  const encoding = data
+    .getElementsByTagName("encoding")[0]
+    ?.getAttribute("style")
+    ?.toLowerCase();
+  let distribution: Buffer;
+  try {
+    distribution =
+      encoding === "application/x-gzip" || encoding === "application/gzip"
+        ? gunzipSync(encoded, { maxOutputLength: MAX_XAR_ENTRY_OUTPUT })
+        : encoded;
+  } catch {
+    throw new Error("could not decompress macOS preflight Distribution");
+  }
+
+  if (distribution.length !== uncompressedSize) {
+    throw new Error("macOS preflight Distribution has an unexpected size");
+  }
+
+  verifyXarEntryChecksum(data, distribution);
+  const distributionDocument = parseXml(
+    distribution.toString("utf8"),
+    "macOS preflight Distribution",
+  );
+  return macPreflightVersionMetadata(distributionDocument, bundleId);
+}
+
+function xarChecksumSize(algorithm: number): number {
+  switch (algorithm) {
+    case 0:
+      return 0;
+    case 1:
+      return 20; // SHA-1
+    case 2:
+      return 16; // MD5
+    case 3:
+      return 32; // SHA-256
+    default:
+      throw new Error(`unsupported XAR checksum algorithm ${algorithm}`);
+  }
+}
+
+function verifyXarEntryChecksum(data: Element, contents: Buffer): void {
+  const checksum = data.getElementsByTagName("extracted-checksum")[0];
+  if (!checksum) return;
+
+  const style = checksum.getAttribute("style")?.toLowerCase();
+  const expected = checksum.textContent?.trim().toLowerCase();
+  if (
+    !style ||
+    !expected ||
+    (style !== "sha1" && style !== "md5" && style !== "sha256")
+  ) {
+    return;
+  }
+
+  const actual = createHash(style).update(contents).digest("hex");
+  if (actual !== expected) {
+    throw new Error("macOS preflight Distribution checksum mismatch");
+  }
+}
+
+function macPreflightVersionMetadata(
+  document: Document,
+  bundleId?: string,
+): PackageVersionMetadata {
+  const products = Array.from(document.getElementsByTagName("product"));
+  if (products.length !== 1) {
+    throw new Error(
+      "macOS preflight package does not contain a unique product for the requested bundle",
+    );
+  }
+
+  const product = products[0];
+  const productId = product.getAttribute("id")?.trim() ?? "";
+  const displayVersion = product.getAttribute("version")?.trim() ?? "";
+  if (!productId || !displayVersion) {
+    throw new Error("macOS preflight package does not contain a display version");
+  }
+  if (bundleId && productId !== bundleId) {
+    throw new Error(
+      "macOS preflight package does not contain a unique product for the requested bundle",
+    );
+  }
+
+  const packageRefs = Array.from(document.getElementsByTagName("pkg-ref"));
+  const packageIds = new Set<string>();
+  for (const packageRef of packageRefs) {
+    const packageId = packageRef.getAttribute("id")?.trim() ?? "";
+    if (!packageId) continue;
+
+    const belongsToProduct = Array.from(
+      packageRef.getElementsByTagName("bundle"),
+    ).some((bundle) => bundle.getAttribute("id")?.trim() === productId);
+    if (belongsToProduct) packageIds.add(packageId);
+  }
+
+  let buildTime: string | undefined;
+  for (const packageRef of packageRefs) {
+    const packageId = packageRef.getAttribute("id")?.trim() ?? "";
+    const packageVersion = packageRef.getAttribute("version")?.trim() ?? "";
+    if (!packageIds.has(packageId) || !packageVersion) continue;
+
+    const timestamp = legacyMacPackageBuildTime(displayVersion, packageVersion);
+    if (buildTime && buildTime !== timestamp) {
+      throw new Error(
+        "macOS preflight package contains conflicting build timestamps",
+      );
+    }
+    buildTime = timestamp;
+  }
+
+  if (!buildTime) {
+    throw new Error(
+      "macOS preflight package does not contain a build timestamp for the requested bundle",
+    );
+  }
+
+  return { displayVersion, releaseDate: buildTime };
+}
+
+function legacyMacPackageBuildTime(
+  displayVersion: string,
+  packageVersion: string,
+): string {
+  const parts = packageVersion.split(".");
+  const version = displayVersion.split(".");
+  while (version.length < 3) version.push("0");
+
+  if (
+    parts.length !== 6 ||
+    version.length !== 3 ||
+    parts.slice(0, 3).join(".") !== version.join(".") ||
+    parts[3] !== "0" ||
+    parts[4] !== "1" ||
+    !/^\d{10}$/.test(parts[5]) ||
+    parts.some((part) => !/^\d+$/.test(part))
+  ) {
+    throw new Error(
+      "macOS preflight package does not contain a supported build timestamp",
+    );
+  }
+
+  const seconds = Number(parts[5]);
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) {
+    throw new Error("macOS preflight package contains an invalid build timestamp");
+  }
+
+  return new Date(seconds * 1000).toISOString();
+}
+
+function parseXml(value: string, label: string): Document {
+  const errors: string[] = [];
+  try {
+    const document = new DOMParser({
+      errorHandler: {
+        warning() {},
+        error(message) {
+          errors.push(String(message));
+        },
+        fatalError(message) {
+          errors.push(String(message));
+        },
+      },
+    }).parseFromString(value, "application/xml");
+    if (
+      errors.length > 0 ||
+      !document.documentElement ||
+      document.getElementsByTagName("parsererror").length > 0
+    ) {
+      throw new Error(errors[0] ?? "parser error");
+    }
+    return document;
+  } catch (error) {
+    throw new Error(
+      `failed to parse ${label}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function xmlText(element: Element, tag: string): string | undefined {
+  return element.getElementsByTagName(tag)[0]?.textContent?.trim() || undefined;
+}
+
+function xmlNumber(element: Element, tag: string): number {
+  const value = xmlText(element, tag);
+  if (!value || !/^\d+$/.test(value)) {
+    throw new Error(`XAR ${tag} is not a number`);
+  }
+  const number = Number(value);
+  if (!Number.isSafeInteger(number)) {
+    throw new Error(`XAR ${tag} is too large`);
+  }
+  return number;
 }
 
 type DirectoryEntry = {

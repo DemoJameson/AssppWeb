@@ -383,7 +383,7 @@ describe("apple/versionFinder pin guess", () => {
         .mocked(latestVersionIdForPlatform)
         .mock.calls.map((call) => call[2])
         .sort(),
-    ).toEqual(["tvos", "visionos"]);
+    ).toEqual(["tvos", "visionos", "watchos"]);
   });
 
   it("does not call a failed iOS list 'no version for this platform'", async () => {

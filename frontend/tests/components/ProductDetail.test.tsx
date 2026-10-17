@@ -801,6 +801,7 @@ describe('ProductDetail download action', () => {
       app.id,
       '890964826',
       'https://iosapps.example.com/app.ipa',
+      app.bundleID,
     );
     // The exchange is not asked for a date the package already gave.
     expect(vi.mocked(getVersionMetadata)).not.toHaveBeenCalled();
@@ -2244,6 +2245,7 @@ describe('ProductDetail download action', () => {
         regionAccount,
         expect.objectContaining({ id: 6503940939 }),
         '890964826',
+        { allowMissingDPInfo: true },
       ),
     );
     expect(vi.mocked(getDownloadInfo)).not.toHaveBeenCalledWith(

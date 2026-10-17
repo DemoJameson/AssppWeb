@@ -2,7 +2,13 @@
  * The store platforms Apple distinguishes, mirroring ipatool's `Platform`
  * (pkg/appstore/platform.go). iOS is the default everywhere.
  */
-export type Platform = "ios" | "ipad" | "tvos" | "visionos" | "macos";
+export type Platform =
+  | "ios"
+  | "ipad"
+  | "tvos"
+  | "watchos"
+  | "visionos"
+  | "macos";
 
 export interface Software {
   /**
@@ -83,6 +89,12 @@ export interface DownloadOutput {
    * app+platform's last-known pin, which keeps delisted apps queryable.
    */
   externalVersionId?: string;
+  /**
+   * A small readable package Apple offers for legacy Mac downloads whose
+   * encrypted package cannot be read directly. It carries the selected build's
+   * installer metadata, not the app payload.
+   */
+  preflightPackageURL?: string;
   /**
    * Base64 `dpInfo`, sent only on a macOS download: the packages it serves there are
    * encrypted, and this is the key material the server's decrypter uses.

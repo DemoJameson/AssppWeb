@@ -14,6 +14,7 @@ const PLATFORM_SUFFIX: Record<Platform, string> = {
   ios: "iOS",
   ipad: "iPadOS",
   tvos: "tvOS",
+  watchos: "watchOS",
   visionos: "visionOS",
   macos: "macOS",
 };

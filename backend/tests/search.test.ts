@@ -105,12 +105,17 @@ describe("Search Route", () => {
   it("GET /api/search accepts ipatool's aliases", async () => {
     replyWithJson(iTunesPayload);
 
-    const res = await request(app).get(
+    const tv = await request(app).get(
       "/api/search?term=utility&platform=AppleTV",
     );
+    expect(tv.status).toBe(200);
+    expect(tv.body[0].platform).toBe("tvos");
 
-    expect(res.status).toBe(200);
-    expect(res.body[0].platform).toBe("tvos");
+    const watch = await request(app).get(
+      "/api/search?term=utility&platform=watch",
+    );
+    expect(watch.status).toBe(200);
+    expect(watch.body[0].platform).toBe("watchos");
   });
 
   it("GET /api/search drops unknown platforms instead of forwarding them", async () => {

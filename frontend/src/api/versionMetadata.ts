@@ -71,11 +71,12 @@ export async function fetchPackageVersionMetadata(
   appId: string | number,
   versionId: string,
   downloadURL: string,
+  bundleId?: string,
 ): Promise<VersionMetadata | undefined> {
   try {
     const res = await apiPost<{ entry?: VersionMetadata }>(
       `/api/version-metadata/${encodeURIComponent(String(appId))}/${encodeURIComponent(versionId)}/package`,
-      { downloadURL },
+      { downloadURL, ...(bundleId ? { bundleId } : {}) },
     );
     if (!res?.entry?.displayVersion || !res.entry.releaseDate) return undefined;
     // Whatever the server kept: a `package-read` entry when it took the write, or

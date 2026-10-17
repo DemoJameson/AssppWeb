@@ -1,7 +1,8 @@
 // Apple's platform version lookup, mirroring ipatool's `lookupLatestExternalVersionID` and `lookupLatestMacOSExternalVersionID`.
-// iOS/iPad/tvOS use the MDM catalogue at uclient-api.itunes.apple.com (p=mdm-lockup): iOS/iPad try the enterprise
-// catalogue then the consumer iphone/ipad ones (some storefronts lack an enterprise listing), tvOS stays on atv9.
-// When every iOS/iPad MDM catalogue has no app or offer, the public apps.apple.com catalog API is the final fallback.
+// iOS/iPad/tvOS/watchOS use the MDM catalogue at uclient-api.itunes.apple.com (p=mdm-lockup): iOS/iPad/watchOS
+// try the enterprise catalogue then the consumer iphone/ipad ones (some storefronts lack an enterprise listing);
+// tvOS stays on atv9. When every iOS/iPad MDM catalogue has no app or offer, the public apps.apple.com catalog
+// API is the final fallback.
 // visionOS/macOS instead read the storefront product page (apps.apple.com/{cc}/app/id{id}?platform=vision|mac):
 // MDM carries no visionOS offers, and its legacy macOS lookup can return an iOS offer even with platform=osx.
 
@@ -213,9 +214,9 @@ async function lookupAcrossStorefronts(
 /** Returns the newest external version id for an app, or undefined when Apple
  * answers without one (the caller then retries unpinned). visionOS goes through
  * the storefront product page, not the MDM catalogue; macOS is handled by {@link
- * lookupLatestMacOSVersionId}. iPhone/iPad walk the MDM catalogues from {@link
- * mdmCataloguesFor} in order, then try the public App Store catalog when every
- * MDM catalogue has answered without an app or offer.
+ * lookupLatestMacOSVersionId}. iOS/iPad/watchOS walk the MDM catalogues from
+ * {@link mdmCataloguesFor} in order; iOS/iPad then try the public App Store
+ * catalog when every MDM catalogue has answered without an app or offer.
  */
 export async function lookupLatestExternalVersionId(
   appId: string | number,
@@ -273,7 +274,7 @@ export async function lookupLatestExternalVersionId(
 }
 
 /** The newest version id the platform's *own* source names — MDM catalogue for
- * iOS/iPad/tvOS, storefront product page for macOS/visionOS. What a caller ruling
+ * iOS/iPad/tvOS/watchOS, storefront product page for macOS/visionOS. What a caller ruling
  * an id out should ask: an id its own source names is that platform's build, so a
  * neighbour guess must never offer it. A source with nothing to say throws, which
  * such callers read as "nothing to exclude".

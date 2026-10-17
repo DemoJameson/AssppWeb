@@ -52,6 +52,7 @@ describe("package download name", () => {
       ios: "Example_1.0_iOS.ipa",
       ipad: "Example_1.0_iPadOS.ipa",
       tvos: "Example_1.0_tvOS.ipa",
+      watchos: "Example_1.0_watchOS.ipa",
       visionos: "Example_1.0_visionOS.ipa",
     };
     for (const [platform, expected] of Object.entries(names)) {

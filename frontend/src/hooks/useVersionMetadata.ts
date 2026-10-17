@@ -47,6 +47,7 @@ async function fillAccurate(
       account,
       app,
       versionId,
+      { allowMissingDPInfo: true },
     );
     // Refresh cookies, but never let a failed refresh block the package read.
     try {
@@ -57,10 +58,15 @@ async function fillAccurate(
       // Bookkeeping only.
     }
 
+    const packageURL =
+      !output.dpInfo && output.preflightPackageURL
+        ? output.preflightPackageURL
+        : output.downloadURL;
     const fromPackage = await fetchPackageVersionMetadata(
       app.id,
       versionId,
-      output.downloadURL,
+      packageURL,
+      app.bundleID || undefined,
     );
     if (fromPackage) {
       store().putEntry(versionId, fromPackage);

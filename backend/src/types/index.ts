@@ -2,7 +2,13 @@
  * The store platforms Apple distinguishes, mirroring ipatool's `Platform`
  * (pkg/appstore/platform.go); iOS is the default everywhere.
  */
-export type Platform = "ios" | "ipad" | "tvos" | "visionos" | "macos";
+export type Platform =
+  | "ios"
+  | "ipad"
+  | "tvos"
+  | "watchos"
+  | "visionos"
+  | "macos";
 
 export interface Software {
   /**

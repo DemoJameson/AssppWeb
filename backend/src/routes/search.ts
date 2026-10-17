@@ -21,6 +21,10 @@ const PLATFORM_VALUES: Record<string, Platform> = {
   ipad: "ipad",
   tvos: "tvos",
   appletv: "tvos",
+  watchos: "watchos",
+  watch: "watchos",
+  applewatch: "watchos",
+  "apple-watch": "watchos",
   visionos: "visionos",
   macos: "macos",
 };

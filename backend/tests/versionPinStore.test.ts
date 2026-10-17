@@ -74,11 +74,13 @@ describe("versionPinStore", () => {
     store.resetVersionPinStoreForTest();
     store.initVersionPinStore();
     store.recordVersionPin(6503940939, "macos", "700000001");
+    store.recordVersionPin(6503940939, "watchos", "600000001");
     const pins = store.getVersionPinsForApp(6503940939);
-    // Ordered by platform: macos before tvos.
+    // Ordered by platform: macos before tvos before watchos.
     expect(pins).toEqual([
       { platform: "macos", versionId: "700000001" },
       { platform: "tvos", versionId: "888154700" },
+      { platform: "watchos", versionId: "600000001" },
     ]);
   });
 });

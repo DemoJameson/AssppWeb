@@ -28,7 +28,7 @@ import type { Account, Software } from "../types";
 
 /**
  * The version a download falls back to when its caller named none. tvOS,
- * visionOS and macOS must carry a version id (`needsPlatformPin`) — a delisted
+ * watchOS, visionOS and macOS must carry a version id (`needsPlatformPin`) — a delisted
  * app has neither a catalogue entry nor a recorded pin, so borrow the version
  * list's newest entry (what the list exchange was pinned to): no extra Apple
  * traffic, same footing as picking that version. iOS needs no pin, left alone.

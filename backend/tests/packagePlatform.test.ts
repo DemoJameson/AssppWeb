@@ -111,6 +111,22 @@ describe("validatePackagePlatform", () => {
     );
   });
 
+  it("recognizes a watchOS package declaration", async () => {
+    const filePath = writeIPA({ CFBundleSupportedPlatforms: ["WatchOS"] });
+
+    await expect(validatePackagePlatform(filePath, "watchos")).resolves.toBe(
+      "watchos",
+    );
+  });
+
+  it("rejects a missing declaration for watchOS", async () => {
+    const filePath = writeIPA({});
+
+    await expect(validatePackagePlatform(filePath, "watchos")).rejects.toThrow(
+      /does not declare any known platform support/,
+    );
+  });
+
   it("rejects a missing declaration for non-iOS platforms", async () => {
     const filePath = writeIPA({});
 

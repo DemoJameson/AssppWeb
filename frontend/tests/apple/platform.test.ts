@@ -5,6 +5,7 @@ import {
   PLATFORM_LABELS,
   lookupEntityFor,
   metadataPlatformFor,
+  needsPlatformPin,
   parsePlatform,
   searchEntityFor,
 } from "../../src/apple/platform";
@@ -15,6 +16,7 @@ describe("searchEntityFor", () => {
     expect(searchEntityFor("ipad")).toBe("iPadSoftware");
     // The storefront lists tvOS builds alongside the iOS app.
     expect(searchEntityFor("tvos")).toBe("software,tvSoftware");
+    expect(searchEntityFor("watchos")).toBe("software,watchSoftware");
     expect(searchEntityFor("visionos")).toBe("xrosSoftware");
     expect(searchEntityFor("macos")).toBe("macSoftware");
   });
@@ -25,6 +27,7 @@ describe("lookupEntityFor", () => {
     expect(lookupEntityFor("ios")).toBe("software");
     expect(lookupEntityFor("ipad")).toBe("iPadSoftware");
     expect(lookupEntityFor("tvos")).toBe("tvSoftware");
+    expect(lookupEntityFor("watchos")).toBe("watchSoftware");
     expect(lookupEntityFor("visionos")).toBe("xrosSoftware");
     expect(lookupEntityFor("macos")).toBe("macSoftware");
   });
@@ -41,6 +44,10 @@ describe("metadataPlatformFor", () => {
     expect(metadataPlatformFor("tvos")).toBe("atv9");
   });
 
+  it("asks the enterprise catalogue for watchOS", () => {
+    expect(metadataPlatformFor("watchos")).toBe("enterprisestore");
+  });
+
   it("asks the reality device catalogue for visionOS", () => {
     expect(metadataPlatformFor("visionos")).toBe("realityDevice");
   });
@@ -54,6 +61,17 @@ describe("metadataPlatformFor", () => {
   });
 });
 
+describe("needsPlatformPin", () => {
+  it("pins watchOS and the other non-default device classes", () => {
+    expect(needsPlatformPin("watchos")).toBe(true);
+    expect(needsPlatformPin("tvos")).toBe(true);
+    expect(needsPlatformPin("visionos")).toBe(true);
+    expect(needsPlatformPin("macos")).toBe(true);
+    expect(needsPlatformPin("ios")).toBe(false);
+    expect(needsPlatformPin("ipad")).toBe(false);
+  });
+});
+
 describe("parsePlatform", () => {
   it("accepts ipatool's aliases case-insensitively", () => {
     expect(parsePlatform("iOS")).toBe("ios");
@@ -61,6 +79,9 @@ describe("parsePlatform", () => {
     expect(parsePlatform("iPad")).toBe("ipad");
     expect(parsePlatform("tvOS")).toBe("tvos");
     expect(parsePlatform("AppleTV")).toBe("tvos");
+    expect(parsePlatform("WatchOS")).toBe("watchos");
+    expect(parsePlatform("watch")).toBe("watchos");
+    expect(parsePlatform("apple-watch")).toBe("watchos");
     expect(parsePlatform("VisionOS")).toBe("visionos");
     expect(parsePlatform("macOS")).toBe("macos");
   });

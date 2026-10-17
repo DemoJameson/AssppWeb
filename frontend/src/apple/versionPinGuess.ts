@@ -25,7 +25,7 @@ import i18n from "../i18n";
  * ruled out: every pin platform minus iOS, whose ids the offset list already
  * carries.
  */
-const OTHER_PIN_PLATFORMS: Platform[] = ["tvos", "visionos", "macos"];
+const OTHER_PIN_PLATFORMS: Platform[] = ["tvos", "watchos", "visionos", "macos"];
 
 /** Ceiling on the distance a guessed platform pin may sit from the iOS id. */
 const PIN_GUESS_MAX_OFFSET = 6;
@@ -93,8 +93,8 @@ function neighbourVersionIds(
 }
 
 /** The ids belonging to the app's *other* platforms, from three best-effort sources: the
- * id each other platform's own source names now (tvOS MDM catalogue, macOS/visionOS storefront
- * pages); every id a past download recorded under another platform (builds no catalogue lists
+ * id each other platform's own source names now (tvOS/watchOS MDM catalogues, macOS/visionOS
+ * storefront pages); every id a past download recorded under another platform (builds no catalogue lists
  * any more); and every build the package-app index holds under another platform (its *older*
  * builds — the pin store keeps only the newest id). A silent source just means one less id ruled out.
  */

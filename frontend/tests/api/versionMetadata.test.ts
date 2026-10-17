@@ -135,6 +135,28 @@ describe("fetchPackageVersionMetadata", () => {
     });
   });
 
+  it("sends the bundle id with a package read", async () => {
+    entryReply({
+      versionId: "894041913",
+      displayVersion: "4.2",
+      releaseDate: "2012-07-06T09:54:33.000Z",
+      source: "package-read",
+    });
+
+    await fetchPackageVersionMetadata(
+      6503940939,
+      "894041913",
+      "https://example.apple.com/preflight.pkg",
+      "com.example.mac",
+    );
+
+    const [, init] = vi.mocked(globalThis.fetch).mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toEqual({
+      downloadURL: "https://example.apple.com/preflight.pkg",
+      bundleId: "com.example.mac",
+    });
+  });
+
   it("hands back the pipeline's entry when the write was declined", async () => {
     entryReply(
       {

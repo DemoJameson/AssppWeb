@@ -221,8 +221,8 @@ this project's addition):
 - redownload → updateProduct when the request fails with an **empty HTTP 500**, or
   when redownload answers with the same availability message. Only reached with a
   pinned version id, since updateProduct needs one. ipatool gates this hop on the
-  platform as well (iOS/iPad/tvOS/macOS, tvOS since `acd9e7a`); this project does
-  not, so visionOS is served the same fallback.
+  platform as well (iOS/iPad/tvOS/watchOS/macOS, tvOS since `acd9e7a`); this
+  project does not, so visionOS is served the same fallback.
 - A reply carrying a `failureType` is a real answer and is never retried on
   another host. `5002` is grouped with the password-token failures (`2034`,
   `2042`, `1008`) and reported as a session problem; `9610` means the license is
@@ -275,13 +275,13 @@ build relabelled iOS. Keeping the lookup fatal is deliberate.
 `lookupLatestExternalVersionID` and `lookupLatestMacOSExternalVersionID`. Three
 transports, one per platform family:
 
-- **iOS / iPad / tvOS** — the MDM catalogue at `uclient-api.itunes.apple.com`
-  with `p=mdm-lockup` and a per-platform `platform` parameter. iOS/iPad start
-  at the enterprise catalogue (`enterprisestore`) and fall back to the
-  consumer `iphone`/`ipad` catalogues — some storefronts have no enterprise
-  listing even when a consumer catalogue has the app (ipatool e5211d6). Each
-  lookup keeps the account's country code, and tvOS stays on the single `atv9`
-  catalogue. When every iOS/iPad MDM catalogue answers without an app or offer,
+- **iOS / iPad / tvOS / watchOS** — the MDM catalogue at
+  `uclient-api.itunes.apple.com` with `p=mdm-lockup` and a per-platform
+  `platform` parameter. iOS/iPad/watchOS start at the enterprise catalogue
+  (`enterprisestore`) and fall back to the consumer `iphone`/`ipad` catalogues —
+  some storefronts have no enterprise listing even when a consumer catalogue has
+  the app (ipatool e5211d6). Each lookup keeps the account's country code, and
+  tvOS stays on the single `atv9` catalogue. When every iOS/iPad MDM catalogue answers without an app or offer,
   the public `apps.apple.com/api/apps/v1/catalog/{cc}/apps/{id}` API is the
   final fallback (ipatool e3932ce). It validates the app id, `type: "apps"`,
   device family, bundle id and non-zero external version id. Successful answers
@@ -301,9 +301,9 @@ transports, one per platform family:
   the same way (`"mac"` in `appPlatforms`, `salableAdamId` and `bundleId`
   matching).
 
-`downloadProduct.ts` pins tvOS/visionOS/macOS before the volumeStore request;
-`versionFinder.ts` pins the same three before the version list exchange. iOS/iPad
-pass an empty pin and let the exchange resolve one on fallback.
+`downloadProduct.ts` pins tvOS/watchOS/visionOS/macOS before the volumeStore
+request; `versionFinder.ts` pins the same four before the version list exchange.
+iOS/iPad pass an empty pin and let the exchange resolve one on fallback.
 
 Both storefront transports follow the redirects Apple answers those pages
 with: the slug-less `/app/id{id}` path is 301'd to its canonical URL, and a
@@ -328,6 +328,16 @@ is what refuses a package Apple serves to the wrong platform. When no storefront
 answers, the failure reported is the account's own one — it is the answer about
 the app the caller asked about.
 
+### Legacy macOS Version Metadata
+
+Older Mac downloads may have no `dpInfo` but still advertise
+`preflightPackageURL`, a small readable XAR containing `Distribution` metadata
+for the selected build. `packageVersionMetadata.ts` detects XAR by its header,
+reads only the TOC and Distribution ranges, verifies the extracted checksum, and
+uses the legacy installer version (`major.minor.patch.0.1.<unix-seconds>`) as the
+build date. The requested bundle id is checked against the Distribution product;
+the preflight URL is never treated as the app payload.
+
 ### macOS Packages Arrive Encrypted
 
 An App Store macOS download is not a `.pkg` yet: the bytes Apple serves are a
@@ -337,15 +347,15 @@ is in the download response's sinfs (`dpInfo`) plus the hardware id the download
 was requested with — the same value the request sent as `guid`, as raw bytes.
 
 Both travel from the client, which is the only side that ever talked to Apple:
-`apple/download.ts` keeps `dpInfo` (and refuses a macOS reply without it, or
-with two conflicting values), and `useDownloadAction` adds it to
-`POST /api/downloads` as `dpInfo` plus `hardwareId` — the account's
-`deviceIdentifier`, which is the hex form of those same bytes
-(`utils/account.ts#accountHardwareId`). `createTask` refuses a macOS task
-without them: without that, tens or hundreds of megabytes would be fetched for
-a package nothing could open. Neither is ever persisted or returned to a client
-(`sanitizeTaskForResponse`, and they are cleared together with the other
-per-attempt material on completion).
+`apple/download.ts` keeps `dpInfo` and rejects a macOS download reply without it
+unless the caller is the version-metadata path, which opts into a legacy
+preflight package via `allowMissingDPInfo`; `useDownloadAction` adds `dpInfo`
+plus `hardwareId` — the account's `deviceIdentifier`, which is the hex form of
+those same bytes (`utils/account.ts#accountHardwareId`) — to
+`POST /api/downloads`. `createTask` refuses a macOS task without them: without
+that, tens or hundreds of megabytes would be fetched for a package nothing could
+open. Neither is ever persisted or returned to a client (`sanitizeTaskForResponse`,
+and they are cleared together with the other per-attempt material on completion).
 
 `tools/macdecrypt/` is that decrypter: it loads the SAP assets plus the
 `storeagent` image Apple ships inside the same update package, opens a StoreAgent
@@ -412,7 +422,8 @@ After: `backend/src/services/packagePlatform.ts` mirrors ipatool's
 `CFBundleSupportedPlatforms` is **the authority** over the platform the request
 named: a universal app searched as tvOS may have served its iOS build, and the
 package knows which. `platformFromSupported` reads the platform out of it
-(`XROS` → visionOS, `AppleTVOS` → tvOS, `iPhoneOS` → iOS) and the completion path
+(`XROS` → visionOS, `AppleTVOS` → tvOS, `WatchOS` → watchOS, `iPhoneOS` → iOS)
+and the completion path
 **rewrites the task's platform** to what the package really is
 (`downloadManager`, right after the download) rather than failing — the task
 then reads as the platform it actually holds. Legacy iOS/iPad packages may omit
@@ -762,7 +773,7 @@ The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using No
 
 ### Version Pin Store
 
-`services/versionPinStore.ts` + `routes/versionPins.ts` serve a read-only, instance-wide `(appId, platform) -> externalVersionId` record via `GET /api/version-pins/:appId`. It exists because listing versions for tvOS / visionOS / macOS requires pinning the download-product exchange to a version id that exists for that platform — and the catalogue lookup that normally supplies it has no answer left for **delisted apps**. A past download of the app left the id behind in its finished package, so recording it keeps those apps queryable. Seeded **passively only** (the completion and `repairFinishedPackages` paths of the download pipeline; no client write-back, no server-side Apple queries), the newest (largest) id per app+platform wins, and the store writes to the `version_pins` table of the backend SQLite DB (`backed by db.ts`). The frontend consumes it best-effort in `apple/versionPins.ts` (`recordedVersionIdFor` / `withRecordedFallback`): the live catalogue lookup stays first; the recorded pin is the fallback for both version listing (`apple/versionFinder.ts`, which also accepts a caller-provided pin) and the download flow's pin resolution (`apple/downloadProduct.ts`). The search page passes a hand-entered version id as the exchange pin
+`services/versionPinStore.ts` + `routes/versionPins.ts` serve a read-only, instance-wide `(appId, platform) -> externalVersionId` record via `GET /api/version-pins/:appId`. It exists because listing versions for tvOS / watchOS / visionOS / macOS requires pinning the download-product exchange to a version id that exists for that platform — and the catalogue lookup that normally supplies it has no answer left for **delisted apps**. A past download of the app left the id behind in its finished package, so recording it keeps those apps queryable. Seeded **passively only** (the completion and `repairFinishedPackages` paths of the download pipeline; no client write-back, no server-side Apple queries), the newest (largest) id per app+platform wins, and the store writes to the `version_pins` table of the backend SQLite DB (`backed by db.ts`). The frontend consumes it best-effort in `apple/versionPins.ts` (`recordedVersionIdFor` / `withRecordedFallback`): the live catalogue lookup stays first; the recorded pin is the fallback for both version listing (`apple/versionFinder.ts`, which also accepts a caller-provided pin) and the download flow's pin resolution (`apple/downloadProduct.ts`). The search page passes a hand-entered version id as the exchange pin
 directly.
 
 `services/packageAppStore.ts` is the companion index for delisted apps

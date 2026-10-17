@@ -54,9 +54,9 @@ export async function listVersions(
 ): Promise<VersionListOutput & { updatedCookies: typeof account.cookies }> {
   const session = createDownloadSession(account, app);
 
-  // ipatool's ListVersions pins macOS/tvOS/visionOS before the exchange so the
-  // version list reflects the requested platform, not the default device class
-  // (iOS). iOS/iPad pass an empty pin and let the exchange resolve one on fallback.
+  // ipatool's ListVersions pins macOS/tvOS/watchOS/visionOS before the exchange
+  // so the version list reflects the requested platform, not the default device
+  // class (iOS). iOS/iPad pass an empty pin and let the exchange resolve one on fallback.
   const requestedPin = pinnedVersionId?.trim();
   const pin = requestedPin ? requestedPin : await platformVersionPin(session);
 
@@ -79,8 +79,8 @@ export async function listVersions(
 /**
 
  * Resolves the platform-specific version pin for the version list exchange
- * (ipatool's `ListVersions`): macOS/tvOS/visionOS pin before the exchange so the
- * listed versions belong to the requested platform; iOS/iPad pass an empty pin.
+ * (ipatool's `ListVersions`): macOS/tvOS/watchOS/visionOS pin before the exchange
+ * so the listed versions belong to the requested platform; iOS/iPad pass an empty pin.
  * When the catalogue cannot name a version — the delisted-app case this exists
  * for — the pin recorded from a previous download is used instead.
  */

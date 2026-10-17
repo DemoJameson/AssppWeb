@@ -10,6 +10,7 @@ export const PLATFORMS: Platform[] = [
   "ios",
   "ipad",
   "tvos",
+  "watchos",
   "visionos",
   "macos",
 ];
@@ -20,6 +21,7 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   ios: "iOS",
   ipad: "iPadOS",
   tvos: "tvOS",
+  watchos: "watchOS",
   visionos: "visionOS",
   macos: "macOS",
 };
@@ -34,6 +36,9 @@ export function searchEntityFor(platform: Platform): string {
     case "tvos":
       // The storefront lists tvOS builds alongside the iOS app.
       return "software,tvSoftware";
+    case "watchos":
+      // Watch apps share the software search catalogue with iOS apps.
+      return "software,watchSoftware";
     case "visionos":
       return "xrosSoftware";
     case "macos":
@@ -50,6 +55,8 @@ export function lookupEntityFor(platform: Platform): string {
       return "iPadSoftware";
     case "tvos":
       return "tvSoftware";
+    case "watchos":
+      return "watchSoftware";
     case "visionos":
       return "xrosSoftware";
     case "macos":
@@ -65,6 +72,8 @@ export function metadataPlatformFor(platform?: Platform): string | undefined {
   switch (platform) {
     case "tvos":
       return "atv9";
+    case "watchos":
+      return "enterprisestore";
     case "visionos":
       return "realityDevice";
     case "macos":
@@ -76,8 +85,8 @@ export function metadataPlatformFor(platform?: Platform): string | undefined {
 
 /**
  * The MDM catalogues `lookupLatestExternalVersionId` consults, in order (mirrors
- * ipatool, e5211d6): tvOS stays on its Apple TV catalogue; iPhone/iPad (and the
- * default) try the enterprise catalogue then iphone/ipad. visionOS/macOS have none.
+ * ipatool, e5211d6): tvOS stays on its Apple TV catalogue; iOS/iPad/watchOS (and
+ * the default) try the enterprise catalogue then iphone/ipad. visionOS/macOS have none.
  */
 export function mdmCataloguesFor(platform?: Platform): string[] | undefined {
   if (platform === "visionos" || platform === "macos") {
@@ -97,12 +106,18 @@ export function mdmCataloguesFor(platform?: Platform): string[] | undefined {
 }
 
 /**
- * Whether the exchange must pin a platform-specific version first: tvOS/visionOS
- * share an adam id with iOS (an unpinned request returns the iOS ipa) and macOS
- * needs the Mac page; ios/ipad need none. Kept here so callers avoid the request graph.
+ * Whether the exchange must pin a platform-specific version first: tvOS,
+ * watchOS and visionOS share an adam id with iOS (an unpinned request can return
+ * the iOS ipa), and macOS needs the Mac page; ios/ipad need none. Kept here so
+ * callers avoid the request graph.
  */
 export function needsPlatformPin(platform?: Platform): boolean {
-  return platform === "tvos" || platform === "visionos" || platform === "macos";
+  return (
+    platform === "tvos" ||
+    platform === "watchos" ||
+    platform === "visionos" ||
+    platform === "macos"
+  );
 }
 
 /**
@@ -132,6 +147,11 @@ export function parsePlatform(value: unknown): Platform | undefined {
     case "tvos":
     case "appletv":
       return "tvos";
+    case "watchos":
+    case "watch":
+    case "applewatch":
+    case "apple-watch":
+      return "watchos";
     case "visionos":
       return "visionos";
     case "macos":

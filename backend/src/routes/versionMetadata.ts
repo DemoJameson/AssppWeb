@@ -68,10 +68,11 @@ router.put(
 );
 
 /**
- * Reads one version's metadata out of its own package (`readVersionMetadataFromIPA`):
- * the download-product exchange dates the *app*, so every pinned version shares
- * one day. The URL comes from the client, so the result is saved as a
- * refreshable `package-read` entry that cannot displace the pipeline's `package`.
+ * Reads one version's metadata out of its own package or legacy Mac preflight
+ * archive (`readVersionMetadataFromIPA` / the XAR reader): the download-product
+ * exchange dates the *app*, so every pinned version shares one day. The URL comes
+ * from the client, so the result is saved as a refreshable `package-read` entry
+ * that cannot displace the pipeline's `package`.
  */
 router.post(
   "/version-metadata/:appId/:versionId/package",
@@ -87,14 +88,24 @@ router.post(
       return;
     }
 
-    const body = (req.body ?? {}) as { downloadURL?: unknown };
+    const body = (req.body ?? {}) as {
+      downloadURL?: unknown;
+      bundleId?: unknown;
+    };
     if (typeof body.downloadURL !== "string" || body.downloadURL === "") {
       res.status(400).json({ error: "downloadURL is required" });
       return;
     }
+    if (body.bundleId !== undefined && typeof body.bundleId !== "string") {
+      res.status(400).json({ error: "bundleId must be a string" });
+      return;
+    }
 
     try {
-      const metadata = await versionMetadataFromDownloadURL(body.downloadURL);
+      const metadata = await versionMetadataFromDownloadURL(
+        body.downloadURL,
+        body.bundleId,
+      );
       const result = savePackageReadVersionMetadata(
         appId,
         versionId,

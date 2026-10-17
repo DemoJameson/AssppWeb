@@ -14,6 +14,7 @@ const PLATFORM_SET: ReadonlySet<string> = new Set([
   "ios",
   "ipad",
   "tvos",
+  "watchos",
   "visionos",
   "macos",
 ]);
