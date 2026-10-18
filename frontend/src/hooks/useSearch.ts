@@ -38,6 +38,8 @@ interface SearchState {
 // Guards against out-of-order responses: flipping the platform/region fires
 // searches in quick succession, and only the newest one may land.
 let searchSeq = 0;
+// Six or more digits are treated as App IDs; shorter numbers are keywords.
+const NUMERIC_APP_ID_RE = /^\d{6,}$/;
 
 export const useSearch = create<SearchState>()(
   persist(
@@ -55,9 +57,9 @@ export const useSearch = create<SearchState>()(
         set({ loading: true, error: null, term, country, platform });
         try {
           const trimmed = term.trim();
-          // A store link or a numeric App ID is not a search term: route it
+          // A store link or a full App ID is not a search term: route it
           // through the exact id lookup, which also recalls delisted apps.
-          const storeId = /^\d+$/.test(trimmed)
+          const storeId = NUMERIC_APP_ID_RE.test(trimmed)
             ? trimmed
             : appIdFromStoreUrl(trimmed);
           let next: Software[];

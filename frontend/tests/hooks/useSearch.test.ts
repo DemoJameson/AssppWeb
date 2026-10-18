@@ -71,6 +71,36 @@ describe("useSearch.search", () => {
     expect(useSearch.getState().results).toHaveLength(1);
   });
 
+  it("searches a short numeric term by name instead of treating it as an App ID", async () => {
+    mockedSearchApps.mockResolvedValue([app({ name: "115网盘" })]);
+
+    await useSearch.getState().search("115", "CN", "ios");
+
+    expect(mockedSearchApps).toHaveBeenCalledWith("115", "CN", "ios");
+    expect(mockedLookupAppById).not.toHaveBeenCalled();
+    expect(useSearch.getState().results).toEqual([
+      expect.objectContaining({ name: "115网盘" }),
+    ]);
+  });
+
+  it("searches a five-digit numeric term by name", async () => {
+    mockedSearchApps.mockResolvedValue([app({ name: "12345" })]);
+
+    await useSearch.getState().search("12345", "US", "ios");
+
+    expect(mockedSearchApps).toHaveBeenCalledWith("12345", "US", "ios");
+    expect(mockedLookupAppById).not.toHaveBeenCalled();
+  });
+
+  it("treats a six-digit numeric term as an App ID", async () => {
+    mockedLookupAppById.mockResolvedValue(app({ id: 123456 }));
+
+    await useSearch.getState().search("123456", "US", "ios");
+
+    expect(mockedLookupAppById).toHaveBeenCalledWith("123456", "US", "ios");
+    expect(mockedSearchApps).not.toHaveBeenCalled();
+  });
+
   it("reports a bundle-id miss as an empty result set, not as noise", async () => {
     mockedLookupApp.mockResolvedValue(null);
 
@@ -90,6 +120,17 @@ describe("useSearch.search", () => {
     expect(mockedLookupAppById).toHaveBeenCalledWith("6503940939", "US", "ios");
     expect(mockedSearchApps).not.toHaveBeenCalled();
     expect(useSearch.getState().results).toEqual([app()]);
+  });
+
+  it("routes a short-id store link through the App ID lookup", async () => {
+    mockedLookupAppById.mockResolvedValue(app({ id: 12345 }));
+
+    await useSearch
+      .getState()
+      .search("https://apps.apple.com/cn/app/id12345", "US", "ios");
+
+    expect(mockedLookupAppById).toHaveBeenCalledWith("12345", "US", "ios");
+    expect(mockedSearchApps).not.toHaveBeenCalled();
   });
 
   it("keeps the newest search's results when an older one resolves late", async () => {
