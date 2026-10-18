@@ -2,10 +2,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DownloadList from "../../src/components/Download/DownloadList";
-import type { DownloadTask, Software } from "../../src/types";
+import type { Account, DownloadTask, Software } from "../../src/types";
 
 const mocks = vi.hoisted(() => ({
   tasks: [] as DownloadTask[],
+  accounts: [] as Account[],
+  hashToEmail: {} as Record<string, string>,
   startDownload: vi.fn(),
   listVersionsWithLicense: vi.fn(),
   lookupNewestServableVersion: vi.fn(),
@@ -31,13 +33,13 @@ vi.mock("../../src/hooks/useDownloads", () => ({
     pauseDownload: vi.fn(),
     resumeDownload: vi.fn(),
     deleteDownload: mocks.deleteDownload,
-    hashToEmail: { hash: "user@example.com" },
+    hashToEmail: mocks.hashToEmail,
   }),
 }));
 
 vi.mock("../../src/hooks/useAccounts", () => ({
   useAccounts: () => ({
-    accounts: [{ email: "user@example.com" }],
+    accounts: mocks.accounts,
   }),
 }));
 
@@ -105,16 +107,54 @@ vi.mock("../../src/components/Download/DownloadItem", () => ({
   ),
 }));
 
+const primaryHash = "hash";
+const secondaryHash = "other-hash";
+const idleHash = "idle-hash";
+
+function account(
+  email: string,
+  firstName: string,
+  lastName: string,
+  store: string,
+): Account {
+  return {
+    email,
+    password: "",
+    appleId: email,
+    store,
+    firstName,
+    lastName,
+    passwordToken: "",
+    directoryServicesIdentifier: "",
+    cookies: [],
+    deviceIdentifier: "",
+  };
+}
+
+beforeEach(() => {
+  mocks.accounts = [
+    account("user@example.com", "Demo", "User", "143441"),
+    account("other@example.com", "Other", "Account", "143465"),
+    account("idle@example.com", "Idle", "Account", "143462"),
+  ];
+  mocks.hashToEmail = {
+    [primaryHash]: "user@example.com",
+    [secondaryHash]: "other@example.com",
+    [idleHash]: "idle@example.com",
+  };
+});
+
 function task(
   id: string,
   name: string,
   status: DownloadTask["status"],
+  accountHash = primaryHash,
 ): DownloadTask {
   return {
     id,
     status,
     software: { id: 1, name },
-    accountHash: "hash",
+    accountHash,
     progress: 0,
     speed: "",
     createdAt: "2026-01-01T00:00:00Z",
@@ -131,100 +171,134 @@ function StateProbe() {
   );
 }
 
-function renderList(state?: unknown, withProbe = false) {
-  return render(
+function listTree(state?: unknown, withProbe = false) {
+  return (
     <MemoryRouter
       initialEntries={[{ pathname: "/downloads", state: state ?? null }]}
     >
       {withProbe ? <StateProbe /> : null}
       <DownloadList />
-    </MemoryRouter>,
+    </MemoryRouter>
   );
 }
 
-describe("DownloadList status filter", () => {
+function renderList(state?: unknown, withProbe = false) {
+  return render(listTree(state, withProbe));
+}
+
+describe("DownloadList account filter", () => {
   beforeEach(() => {
     mocks.tasks = [
-      task("1", "Alpha", "completed"),
-      task("2", "Bravo", "downloading"),
-      task("3", "Charlie", "injecting"),
-      task("4", "Delta", "failed"),
+      task("1", "Alpha", "completed", primaryHash),
+      task("2", "Bravo", "downloading", secondaryHash),
+      task("3", "Charlie", "injecting", primaryHash),
+      task("4", "Delta", "failed", secondaryHash),
     ];
   });
 
-  it("offers the buckets with their counts in one control", () => {
+  it("offers every account with its download count in one control", () => {
     renderList();
 
-    fireEvent.click(screen.getByRole("combobox", { name: "downloads.filter" }));
+    fireEvent.click(
+      screen.getByRole("combobox", { name: "downloads.accountFilter" }),
+    );
 
     const labels = screen
       .getAllByRole("option")
       .map((option) => option.textContent ?? "");
 
-    expect(labels).toHaveLength(5);
-    // 全部 counts everything; 进行中 is the queue/transfer/compile bucket, so
-    // the transferring and injecting tasks both land in it.
+    expect(labels).toHaveLength(4);
+    expect(labels[0]).toContain("downloads.allAccounts");
     expect(labels[0]).toContain('"count":4');
     expect(
       labels.some(
         (label) =>
-          label.includes("downloads.filterActive") &&
+          label.includes("user@example.com") &&
           label.includes('"count":2'),
       ),
     ).toBe(true);
     expect(
       labels.some(
         (label) =>
-          label.includes("downloads.status.paused") &&
+          label.includes("other@example.com") &&
+          label.includes('"count":2'),
+      ),
+    ).toBe(true);
+    expect(
+      labels.some(
+        (label) =>
+          label.includes("idle@example.com") &&
           label.includes('"count":0'),
       ),
     ).toBe(true);
-    expect(
-      labels.some(
-        (label) =>
-          label.includes("downloads.status.completed") &&
-          label.includes('"count":1'),
-      ),
-    ).toBe(true);
-    expect(
-      labels.some(
-        (label) =>
-          label.includes("downloads.status.failed") &&
-          label.includes('"count":1'),
-      ),
-    ).toBe(true);
-    // The exact statuses live in the row badge; the menu does not list them.
-    expect(
-      labels.some((label) => label.includes("downloads.status.injecting")),
-    ).toBe(false);
+    expect(labels.some((label) => label.includes("downloads.status."))).toBe(
+      false,
+    );
   });
 
-  it("counts injecting as in progress", () => {
+  it("narrows the list to one account's downloads", () => {
     renderList();
 
-    fireEvent.click(screen.getByRole("combobox", { name: "downloads.filter" }));
     fireEvent.click(
-      screen.getByRole("option", { name: /downloads\.filterActive/ }),
+      screen.getByRole("combobox", { name: "downloads.accountFilter" }),
+    );
+    fireEvent.click(
+      screen.getByRole("option", { name: /other@example\.com/ }),
     );
 
     expect(screen.getByText("Bravo")).toBeTruthy();
-    expect(screen.getByText("Charlie")).toBeTruthy();
+    expect(screen.getByText("Delta")).toBeTruthy();
     expect(screen.queryByText("Alpha")).toBeNull();
+    expect(screen.queryByText("Charlie")).toBeNull();
+  });
+
+  it("returns to all accounts when the selected account disappears", async () => {
+    const view = renderList();
+
+    fireEvent.click(
+      screen.getByRole("combobox", { name: "downloads.accountFilter" }),
+    );
+    fireEvent.click(
+      screen.getByRole("option", { name: /other@example\.com/ }),
+    );
+
+    mocks.accounts = mocks.accounts.filter(
+      (item) => item.email !== "other@example.com",
+    );
+    mocks.hashToEmail = Object.fromEntries(
+      Object.entries(mocks.hashToEmail).filter(
+        ([hash]) => hash !== secondaryHash,
+      ),
+    );
+    mocks.tasks = mocks.tasks.filter(
+      (item) => item.accountHash !== secondaryHash,
+    );
+    view.rerender(listTree());
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "downloads.accountFilter" }),
+      ).toHaveTextContent("downloads.allAccounts"),
+    );
+    expect(screen.getByText("Alpha")).toBeTruthy();
+    expect(screen.getByText("Charlie")).toBeTruthy();
+    expect(screen.queryByText("Bravo")).toBeNull();
     expect(screen.queryByText("Delta")).toBeNull();
   });
 
-  it("narrows the list to a finished status", () => {
+  it("keeps a task filterable when its account is not in the account store", () => {
+    const orphanHash = "orphan-hash";
+    mocks.tasks = [task("orphan", "Orphan", "failed", orphanHash)];
     renderList();
-    expect(screen.getByText("Alpha")).toBeTruthy();
-    expect(screen.getByText("Bravo")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("combobox", { name: "downloads.filter" }));
     fireEvent.click(
-      screen.getByRole("option", { name: /downloads\.status\.completed/ }),
+      screen.getByRole("combobox", { name: "downloads.accountFilter" }),
     );
+    const orphanOption = screen.getByRole("option", { name: /orphan-hash/ });
+    expect(orphanOption.getAttribute("title")).toContain(orphanHash);
+    fireEvent.click(orphanOption);
 
-    expect(screen.getByText("Alpha")).toBeTruthy();
-    expect(screen.queryByText("Bravo")).toBeNull();
+    expect(screen.getByText("Orphan")).toBeTruthy();
   });
 });
 

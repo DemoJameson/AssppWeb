@@ -188,6 +188,7 @@ export default function Select({
           }
         }}
         onKeyDown={handleKeyDown}
+        title={selected?.label ?? placeholder ?? value}
         className={`flex items-center justify-between gap-2 text-left ${className}`}
       >
         <span className="min-w-0 flex-1 truncate">
@@ -242,6 +243,7 @@ export default function Select({
                   role="option"
                   aria-selected={option.value === value}
                   aria-disabled={option.disabled || undefined}
+                  title={option.label}
                   onMouseEnter={() => setActiveIndex(index)}
                   onClick={() => applyOption(option)}
                   className={`flex min-w-0 items-center gap-2 px-3 py-2 transition-colors ${

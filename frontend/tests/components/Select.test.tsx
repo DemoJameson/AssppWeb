@@ -109,6 +109,29 @@ describe("Select keyboard support", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("keeps the full label available when the text is truncated", () => {
+    const { trigger } = renderSelect({
+      options: [
+        { value: "a", label: "A very long account label that will be clipped" },
+      ],
+    });
+
+    expect(trigger).toHaveAttribute(
+      "title",
+      "A very long account label that will be clipped",
+    );
+
+    fireEvent.click(trigger);
+    expect(
+      screen.getByRole("option", {
+        name: "A very long account label that will be clipped",
+      }),
+    ).toHaveAttribute(
+      "title",
+      "A very long account label that will be clipped",
+    );
+  });
+
   it("ignores Enter on a disabled option and keeps the menu open", () => {
     const { onChange, trigger } = renderSelect({
       options: [options[0], { ...options[1], disabled: true }, options[2]],
