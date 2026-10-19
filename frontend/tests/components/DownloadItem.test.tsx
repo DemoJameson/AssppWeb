@@ -388,10 +388,9 @@ describe('DownloadItem information tiles', () => {
       accountEmail: owner.email,
     });
 
-    // Storefront first, then the name and the address: the picker's own label,
-    // not the bare email the record carries.
+    // Storefront first, then the address: the picker's own label.
     expect(tiles(container)['downloads.package.account']).toBe(
-      'countries.CN · Owner Cn (owner-cn@example.test)',
+      'countries.CN · owner-cn@example.test',
     );
   });
 

@@ -24,23 +24,20 @@ const account: Account = {
 };
 
 describe("accountSelectLabel", () => {
-  it("joins the country and the name with a middle dot", () => {
-    expect(accountSelectLabel(account, t)).toBe(
-      "JP · Demo User (demo@example.test)",
-    );
+  it("joins the country and the email with a middle dot", () => {
+    expect(accountSelectLabel(account, t)).toBe("JP · demo@example.test");
   });
 
-  it("leaves out a name the account does not carry", () => {
-    // An account with no name on it is its address alone — no empty pair of
-    // brackets, and no separator introducing nothing.
+  it("leaves out an email the account does not carry", () => {
+    // No empty separator is left behind when the address is unavailable.
     expect(
-      accountSelectLabel({ ...account, firstName: "", lastName: "" }, t),
-    ).toBe("JP · demo@example.test");
+      accountSelectLabel({ ...account, email: "" }, t),
+    ).toBe("JP");
   });
 
   it("still names an account whose storefront is unknown", () => {
     expect(accountSelectLabel({ ...account, store: "" }, t)).toBe(
-      "Demo User (demo@example.test)",
+      "demo@example.test",
     );
   });
 });
@@ -50,7 +47,7 @@ describe("packageAccountLabel", () => {
     // A download is told apart by whose it is, and the row has to say that in
     // the same words the account select offers — one account, one name.
     expect(packageAccountLabel(account, "123456789", t)).toBe(
-      "JP · Demo User (demo@example.test)",
+      "JP · demo@example.test",
     );
   });
 

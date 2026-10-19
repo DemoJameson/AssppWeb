@@ -8,7 +8,7 @@ export interface AccountContext {
 
 /**
  * Display-friendly account context for toasts; the label matches the account
- * dropdown format (region · name (email)).
+ * dropdown format (region · email).
  */
 export function getAccountContext(
   account: Account | undefined,
