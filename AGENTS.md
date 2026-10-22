@@ -68,7 +68,7 @@ Apple requires every request to the auth endpoint to carry `X-Apple-ActionSignat
 │      sign-sap-setup      → setup exchange endpoint (POST plist)   │
 │      sign-sap-setup-cert → certificate endpoint (GET plist)       │
 │      sign-sap-version    → protocol version (200)                 │
-│ 2. GET /api/sap-assets/:name → four Apple binaries (backend-     │
+│ 2. GET /api/sap-assets/:name → five Apple binaries (backend-     │
 │    extracted, digest-pinned, browser-cached in the Cache API)     │
 │ 3. SAP signer worker (Web Worker, off the UI thread):             │
 │      Unicorn 2.1.4 → TCI interpreter backend → wasm              │
@@ -85,9 +85,9 @@ Apple requires every request to the auth endpoint to carry `X-Apple-ActionSignat
 
 - `engine.ts` — Unicorn WASM wrapper; all guest addresses cross the JS boundary as doubles (exact below 2^53; the guest map stays below 2^48)
 - `machImage.ts` — Mach-O 64 parser: fat-binary slicing, LC_SEGMENT_64, symtab lookup, dyld_info rebase/bind/weak/lazy opcodes. **Opcode tables**: rebase uses nibbles 0x00–0x80 (SET_TYPE 0x10, SET_SEGMENT 0x20, …); bind is shifted down one slot (DO_BIND 0x90) because rebase-only ADD_ADDR_IMM_SCALED occupies bind's 0x90 slot elsewhere. Segment offsets move in uint64 BigInt space — bind ADD_ADDR_ULEB deltas are 64-bit encodings of negative steps. Fixups targeting a segment's BSS tail (within vmsize, past fileSize) are skipped: dyld would zero-fill them.
-- `shims.ts` — guest libc/CF/IOKit shims; 64-bit −1 constants are passed as `-1` (wasm's saturating f64→i64 conversion yields 0xFFFF…F, which a JS number cannot represent exactly)
-- `machine.ts` — entry-point invocation, scratch/stack layout, output disposal
-- `signer.ts` / `client.ts` / `worker.ts` — orchestration; emulation runs in a Web Worker, Apple network calls ride the wisp tunnel on the main thread. `client.ts` keeps the signer as a singleton bound to the deviceIdentifier (rebuilding it means copying the 22.5 MB asset bundle into a fresh worker), with a zustand store (`store/sap.ts`), a warmup hook (`hooks/useSapWarmup.ts`, fires once an account exists), and an inline progress indicator (`components/common/SapStatus.tsx`)
+- `shims.ts` — guest libc/CF/IOKit shims. POSIX `int -1` is written as `0xffffffff`; pointer sentinels use a separate non-zero f64-safe handle because guest addresses cross the wasm glue as doubles
+- `machine.ts` — entry-point invocation, scratch/stack layout, output disposal, and StoreAgent kbsync generation
+- `signer.ts` / `client.ts` / `worker.ts` — orchestration; emulation runs in a Web Worker, Apple network calls ride the wisp tunnel on the main thread. `client.ts` keeps the signer as a singleton bound to the deviceIdentifier (rebuilding it means copying the 25.1 MB asset bundle into a fresh worker), with a zustand store (`store/sap.ts`), a warmup hook (`hooks/useSapWarmup.ts`, fires once an account exists), and an inline progress indicator (`components/common/SapStatus.tsx`). `generateDownloadKBSync` opens a separate short-lived worker so StoreAgent starts from clean SAP state; concurrent callers share that run, and only a blob accepted by ent/download is cached for reuse. The signer worker intentionally does not load StoreAgent, and the kbsync worker intentionally does not initialize the signer: the two guest profiles must not share a machine
 - `protocol.ts` — certificate fetch + setup exchange (plist `<data>` round-trip via appleRequest)
 - `assets.ts` — asset download with progress, SHA-256 verification (stripped-file pins), Cache API persistence; accepts both thin and fat Mach-O payloads
 - `vendor/unicorn.mjs|.wasm` — prebuilt engine (regenerate via `frontend/scripts/unicorn-wasm-patch/build.sh`)
@@ -106,7 +106,7 @@ Build: `bash frontend/scripts/unicorn-wasm-patch/build.sh` (requires docker; ems
 
 ### Backend asset pipeline
 
-`backend/src/services/sapAssets.ts` extracts the four binaries once from Apple's public OSXUpd10.9.pkg: xar TOC parse → HTTP range download of the Payload tail (~380 MB) → bzip2 stream (with a synthetic `BZh9` header from a fixed offset) → cpio (odc and newc formats) → pinned SHA-256 verification → **fat-binary stripping to the x86_64 slice** (the emulated guest architecture; CoreFP ships as an i386+x86_64 universal, so this halves it) → cache under `DATA_DIR/sap-assets`. All data is public Apple content (same trust class as the bag proxy). Specs carry two pin sets: the original Apple digest verifies the extraction; the stripped digest (a deterministic function of the original) verifies what is served and what the browser downloads. Distribution sizes: 37.7 MB original → 22.5 MB stripped → ~14 MB on the wire with the route's gzip response. The bz2 stream is truncated mid-file, so the decoder can emit a late crc error after the wanted members are captured — the pipeline swallows it by design (an unhandled rejection would crash Node).
+`backend/src/services/sapAssets.ts` extracts the five binaries once from Apple's public OSXUpd10.9.pkg: xar TOC parse → HTTP range download of the Payload tail (~380 MB) → bzip2 stream (with a synthetic `BZh9` header from a fixed offset) → cpio (odc and newc formats) → pinned SHA-256 verification → **fat-binary stripping to the x86_64 slice** (the emulated guest architecture; CoreFP ships as an i386+x86_64 universal, so this halves it) → cache under `DATA_DIR/sap-assets`. All data is public Apple content (same trust class as the bag proxy). Specs carry two pin sets: the original Apple digest verifies the extraction; the stripped digest (a deterministic function of the original) verifies what is served and what the browser downloads. Distribution sizes: 40.3 MB original → 25.1 MB stripped → ~16 MB on the wire with the route's gzip response. The bz2 stream is truncated mid-file, so the decoder can emit a late crc error after the wanted members are captured — the pipeline swallows it by design (an unhandled rejection would crash Node).
 
 On startup `ensureSapAssets` prefers `DATA_DIR/sap-assets`, then seeds from the image-prebaked directory (`BUNDLED_SAP_ASSETS`, default `/opt/asspp/sap-assets`), and only then falls back to network extraction (the bzip2 decoder is imported lazily because cross-built images may lack a matching napi binary for the runtime arch — see Dockerfile). Routes (`backend/src/routes/sapAssets.ts`): `GET /api/sap-assets/status`, `POST /api/sap-assets/prepare`, `GET /api/sap-assets/:name` (gzip when accepted).
 
@@ -121,7 +121,7 @@ The Dockerfile prebakes the stripped SAP assets at build time (a `sap-assets` st
 - SAP session lifetime = the page session: the signer is a singleton per deviceIdentifier, reused across sign-in attempts (2FA retries included); switching accounts rebuilds it. Initialization ≈ 150–300 ms of emulation plus the setup exchange round-trips
 - Every call *into* the emulation is bounded at two minutes (`SAP_CALL_TIMEOUT_MS` in `client.ts`). Nothing else bounds them — they run before the Apple request they sign for, so the request's own 20 s timeout never sees them — and a Worker that stops answering would otherwise leave the sign-in button spinning with no way out. A timed-out call is **wedged**, not slow: the driver terminates the worker, refuses further calls and drops the cached signer, so a retry rebuilds instead of waiting another two minutes on the same dead emulation
 - A preparation that fails after its worker was created terminates that worker. The worker holds ~160 MB of wasm heap and nothing outside `runPreparation` can reach it, so a transient Apple 502 on the setup exchange (measured) must not leave one running per attempt
-- First login downloads ~14 MB over the wire (22.5 MB stripped assets, gzipped); a background warmup and inline progress line cover it. Release images prebake the assets, so the backend serves them instantly
+- First login downloads ~16 MB over the wire (25.1 MB stripped assets, gzipped); a background warmup and inline progress line cover it. Release images prebake the assets, so the backend serves them instantly
 - The live bag currently returns the legacy `MZFinance` authenticate endpoint (see upstream PR discussion), so `normalizeAuthURL` only ever adds the trailing slash to it; all three advertised endpoints sit in the SAP-signed list — signing applies regardless
 
 ## Reference Implementation
@@ -170,7 +170,7 @@ The Wisp server validates target hosts via `hostname_whitelist` in `backend/src/
 - `buy.itunes.apple.com` — purchase endpoint
 - `init.itunes.apple.com` — bag endpoint
 - `/^p\d+-buy\.itunes\.apple\.com$/` — pod-based hosts
-- `downloaddispatch.itunes.apple.com` — download fallbacks: redownload (`/r/redownload`) and updateProduct (`/up/updateProduct`)
+- `downloaddispatch.itunes.apple.com` — download endpoints: ent/download (`/WebObjects/DownloadDispatch.woa/wa/ent/download`), redownload (`/r/redownload`) and updateProduct (`/up/updateProduct`)
 - `fpinit.itunes.apple.com` — SAP setup exchange endpoint (`sign-sap-setup`)
 - `s.mzstatic.com` — SAP certificate endpoint (`sign-sap-setup-cert`)
 - `uclient-api.itunes.apple.com` — storefront catalogue lookup, used to pin the external version id before the redownload fallback (ipatool does the same)
@@ -203,13 +203,30 @@ Both endpoints answer only with a **trailing slash** on their path — the bare 
 
 `frontend/src/apple/download.ts` mirrors ipatool's `sendDownloadProduct`
 (`pkg/appstore/appstore_download_product.go`). No single endpoint serves every
-account/app pair, so the flow walks three of them and only two reply shapes move
-it on:
+account/app pair, so the flow walks up to four of them:
 
-1. **volumeStore** — `p{ped}-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/volumeStoreDownloadProduct?guid=`.
-   Primary. Names the version `externalVersionId`.
-2. **redownload** — the bag's `redownloadProduct` URL. Names the version `appExtVrsId`.
-3. **updateProduct** — the bag's `updateProduct` URL. Same version key as redownload.
+1. **ent/download** — the bag's `volumeStoreDownloadProduct` URL. Apple now
+   points this key at `downloaddispatch.itunes.apple.com/WebObjects/DownloadDispatch.woa/wa/ent/download`;
+   it needs a StoreAgent-generated `kbsync`, a pinned `externalVersionId`, and
+   is tried first when those are available. The request carries `X-Token`, so it
+   never follows redirects.
+2. **volumeStore** — `p{ped}-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/volumeStoreDownloadProduct?guid=`.
+   Legacy primary. Names the version `externalVersionId`.
+3. **redownload** — the bag's `redownloadProduct` URL. Names the version `appExtVrsId`.
+4. **updateProduct** — the bag's `updateProduct` URL. Same version key as redownload.
+
+An ent/download miss falls through to the legacy chain. Version-pin guessing
+sets `legacyOnly` on its internal probes, so an unpinned guess cannot recursively
+ask for another pin through ent/download. Its reply is accepted only when exactly
+one item names the requested app, pinned version and bundle id and carries a
+non-empty package URL. A cached `kbsync` rejected by HTTP 403/500, a non-plist or
+empty reply, or a mismatched item is invalidated and retried once with a freshly
+generated blob; if that fresh attempt is also rejected, the flow falls back to the
+legacy chain, whose reply (including a structured failure) is the answer. A
+structured `failureType` / `customerMessage` is not a `kbsync` rejection: it
+leaves ent/download immediately for the legacy chain without invalidating the
+cached blob or generating a fresh one. `kbsync` generation failures and invalid
+bag URLs also fall back.
 
 Fallback triggers (the reply shapes are ipatool's; the transport trigger below is
 this project's addition):
@@ -301,9 +318,10 @@ transports, one per platform family:
   the same way (`"mac"` in `appPlatforms`, `salableAdamId` and `bundleId`
   matching).
 
-`downloadProduct.ts` pins tvOS/watchOS/visionOS/macOS before the volumeStore
-request; `versionFinder.ts` pins the same four before the version list exchange.
-iOS/iPad pass an empty pin and let the exchange resolve one on fallback.
+`downloadProduct.ts` pins tvOS/watchOS/visionOS/macOS before the preferred
+download request; `versionFinder.ts` pins the same four before the version list
+exchange. iOS/iPad resolve their pin before ent/download and let the legacy
+exchange resolve one on fallback.
 
 Both storefront transports follow the redirects Apple answers those pages
 with: the slug-less `/app/id{id}` path is 301'd to its canonical URL, and a
@@ -432,11 +450,16 @@ an iOS/iPad task, while an empty, malformed or conflicting declaration still
 fails. macOS packages skip the check (they are not IPAs, and `isMacOSPackage` is
 decided by the task's platform).
 
-The payload both endpoints receive is `creditDisplay`, `guid`, `salableAdamId`
-(integer), `serialNumber: "0"`, plus the endpoint's version key when pinned. The
-original POST is replayed at any redirect location (the volumeStore pod
+The legacy volumeStore/redownload/updateProduct payload is `creditDisplay`,
+`guid`, `salableAdamId` (integer), `serialNumber: "0"`, plus the endpoint's
+version key when pinned. ent/download instead sends a plist with string
+`salableAdamId`, a nine-byte `serialNumber` derived from the device GUID, plus
+`kbsync`, `externalVersionId`, and the GUID. Store's XMLPayload sends those plist
+bytes with the form-urlencoded content type (as ipatool does). The original POST
+is replayed at any redirect location in the legacy chain (the volumeStore pod
 hand-off expects the same body; Go's client would downgrade 302 to a bodyless
-GET).
+GET). ent/download deliberately does not follow redirects because its `X-Token`
+must only reach the exact Apple origin.
 
 ### Version flows share the exchange
 
@@ -919,7 +942,7 @@ There is no E2E suite or lint script in the repo currently. Real-account Docker 
 SAP-specific tests:
 
 - `frontend/tests/sap/machImage.test.ts` (vitest) — synthetic Mach-O builder exercising symbol export, rebase/bind opcodes, addends, and BSS-tail fixup tolerance
-- `frontend/tests/sap/machine-live.mjs` (manual, `npx tsx`) — full chain against the real Apple assets served by the backend: machine open → Initialize (context matches the native ipatool runtime bit-for-bit: `0x400000000200`) → Sign correctly gated by the key exchange (`-42085` without it, identical to native). Requires `SAP_ASSET_DIR` pointing at a flat copy of the four assets, or the nested extraction layout
+- `frontend/tests/sap/machine-live.mjs` (manual, `npx tsx`) — two isolated smoke runs against the real Apple assets: the default run opens the signer profile → Initialize (context matches native ipatool: `0x400000000200`) → Sign gated by the key exchange (`-42085`); `SAP_SMOKE=kbsync` opens a StoreAgent-only profile and generates a 196-byte kbsync blob. Run them as separate processes because the vendored Emscripten module keeps process-global C state. Requires `SAP_ASSET_DIR` pointing at a flat copy of the five assets (including `StoreAgent`), or the nested extraction layout
 
 Test credentials, if ever needed, belong in environment variables (`TEST_EMAIL`, `TEST_PASSWORD`, `TEST_DEVICE_ID`, `TEST_BUNDLE_ID`) and must never be committed.
 

@@ -224,6 +224,8 @@ export const DOWNLOAD_DISPATCH_HOST = "downloaddispatch.itunes.apple.com";
 export const REDOWNLOAD_PRODUCT_PATH = "/r/redownload";
 /** Bag key `updateProduct`, used when redownload itself cannot serve the app. */
 export const UPDATE_PRODUCT_PATH = "/up/updateProduct";
+/** Bag key `volumeStoreDownloadProduct`, Apple's kbsync-backed ent endpoint. */
+export const ENT_DOWNLOAD_PATH = "/WebObjects/DownloadDispatch.woa/wa/ent/download";
 
 export const VOLUME_STORE_VERSION_KEY = "externalVersionId";
 /** redownload and updateProduct both name the version `appExtVrsId`. */

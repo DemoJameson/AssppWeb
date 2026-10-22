@@ -229,6 +229,17 @@ describe("apple/config", () => {
       expect(ep?.path).toBe("/up/updateProduct?guid=aabbccddeeff");
     });
 
+    it("accepts the ent/download path Apple advertises for volumeStoreDownloadProduct", () => {
+      const ep = downloadDispatchEndpoint(
+        "https://downloaddispatch.itunes.apple.com/WebObjects/DownloadDispatch.woa/wa/ent/download",
+        "/WebObjects/DownloadDispatch.woa/wa/ent/download",
+        "aabbccddeeff",
+      );
+      expect(ep?.path).toBe(
+        "/WebObjects/DownloadDispatch.woa/wa/ent/download?guid=aabbccddeeff",
+      );
+    });
+
     it("rejects a host that is not the dispatch host", () => {
       expect(
         downloadDispatchEndpoint(

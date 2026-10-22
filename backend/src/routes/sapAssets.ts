@@ -1,5 +1,5 @@
 // SAP asset routes: status/prepare for the extraction job and downloads of the
-// four cached Apple binaries — public content, digest-pinned, same trust class
+// five cached Apple binaries — public content, digest-pinned, same trust class
 // as the bag proxy.
 
 import { Router, Request, Response } from "express";

@@ -14,6 +14,10 @@ vi.mock("../../src/apple/bag", () => ({
   fetchBag: vi.fn(),
 }));
 
+vi.mock("../../src/apple/sap/client", () => ({
+  generateDownloadKBSync: vi.fn(),
+}));
+
 const LOOKUP_HOST = "uclient-api.itunes.apple.com";
 const DISPATCH_HOST = "downloaddispatch.itunes.apple.com";
 const VERSION_ID = "818970197";

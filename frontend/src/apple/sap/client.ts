@@ -1,5 +1,5 @@
 // Main-thread SAP signer manager. A module-level singleton bound to the
-// hardware id it was built with, since making the worker copies the ~22.5 MB
+// hardware id it was built with, since making the worker copies the ~25.1 MB
 // asset bundle. `prepareSigner` reuses a matching signer or rebuilds for another
 // account, sharing concurrent callers; UI progress lives in store/sap.ts.
 
@@ -121,10 +121,12 @@ class WorkerMachineDriver implements SapMachineDriver {
       commerceCore: Uint8Array;
       coreFP: Uint8Array;
       coreFPICXS: Uint8Array;
+      storeAgent: Uint8Array;
     },
     wasmBinary: ArrayBuffer,
+    storeAgent = false,
   ): Promise<void> {
-    // Transfer the buffers instead of copying ~22.5 MB: the emulation is the
+    // Transfer the buffers instead of copying ~25.1 MB: the emulation is the
     // only consumer and a rebuild re-reads from the Cache API, so nothing here
     // touches them after open(). Only the module-level wasm cache outlives a
     // preparation, so it is copied.
@@ -133,11 +135,12 @@ class WorkerMachineDriver implements SapMachineDriver {
       commerceCore: assets.commerceCore.buffer as ArrayBuffer,
       coreFP: assets.coreFP.buffer as ArrayBuffer,
       coreFPICXS: assets.coreFPICXS.buffer as ArrayBuffer,
+      storeAgent: assets.storeAgent.buffer as ArrayBuffer,
     };
     const wasmCopy = wasmBinary.slice(0);
 
     await this.call(
-      { type: "open", assets: buffers, wasmBinary: wasmCopy },
+      { type: "open", assets: buffers, wasmBinary: wasmCopy, storeAgent },
       [...Object.values(buffers), wasmCopy],
     );
   }
@@ -182,6 +185,16 @@ class WorkerMachineDriver implements SapMachineDriver {
     return new Uint8Array(result.signature as ArrayBuffer);
   }
 
+  async generateKBSync(hardwareID: Uint8Array, dsid: number): Promise<Uint8Array> {
+    const hw = hardwareID.slice();
+    const result = await this.call({
+      type: "kbsync",
+      hardwareID: hw.buffer,
+      dsid,
+    });
+    return new Uint8Array(result.kbsync as ArrayBuffer);
+  }
+
   async teardown(contextValue: number): Promise<void> {
     await this.call({ type: "teardown", contextValue });
   }
@@ -197,6 +210,20 @@ interface PreparedSigner {
 let prepared: PreparedSigner | null = null;
 let preparation: Promise<PreparedSigner> | null = null;
 let wasmBinary: ArrayBuffer | null = null;
+
+export interface DownloadKBSync {
+  blob: string;
+  /** True when this call reused an Apple-accepted blob instead of opening a worker. */
+  reused: boolean;
+}
+
+interface CachedKBSync {
+  key: string;
+  blob: string;
+}
+
+let cachedKBSync: CachedKBSync | null = null;
+let generatingKBSync: { key: string; promise: Promise<string> } | null = null;
 
 async function loadWorkerWasmBinary(): Promise<ArrayBuffer> {
   if (wasmBinary) {
@@ -317,10 +344,114 @@ export async function signWithSap(
   return signer.sign(body);
 }
 
+/**
+ * Returns the account/device-bound kbsync blob used by ent/download. Concurrent
+ * callers share one StoreAgent run; an Apple-accepted blob is cached. It
+ * deliberately does not reuse the signer's worker: kbsync is a separate
+ * StoreAgent runtime and must not inherit state from the SAP login session.
+ */
+export async function generateDownloadKBSync(
+  hardwareID: string,
+  dsid: string,
+): Promise<DownloadKBSync> {
+  const numericDsid = Number(dsid);
+  if (!Number.isSafeInteger(numericDsid) || numericDsid <= 0) {
+    throw new Error("kbsync requires a nonzero numeric account DSID");
+  }
+
+  const hw = hexBytes(hardwareID);
+  if (!hw || hw.length !== 6) {
+    throw new Error("kbsync requires a six-byte device GUID");
+  }
+
+  const key = `${hardwareID.toLowerCase()}:${numericDsid}`;
+  if (cachedKBSync?.key === key) {
+    return { blob: cachedKBSync.blob, reused: true };
+  }
+  if (generatingKBSync?.key === key) {
+    return { blob: await generatingKBSync.promise, reused: true };
+  }
+
+  const promise = generateKBSync(hw, numericDsid);
+  const generation = { key, promise };
+  generatingKBSync = generation;
+  try {
+    const blob = await promise;
+    return { blob, reused: false };
+  } finally {
+    if (generatingKBSync === generation) {
+      generatingKBSync = null;
+    }
+  }
+}
+
+/** Marks the blob Apple just served as reusable, after ent/download accepted it. */
+export function acceptDownloadKBSync(
+  hardwareID: string,
+  dsid: string,
+  blob: string,
+): void {
+  cachedKBSync = { key: kbsyncCacheKey(hardwareID, dsid), blob };
+}
+
+/** Drops a blob Apple rejected, so the next attempt regenerates it. */
+export function invalidateDownloadKBSync(
+  hardwareID: string,
+  dsid: string,
+  blob: string,
+): void {
+  const key = kbsyncCacheKey(hardwareID, dsid);
+  if (cachedKBSync?.key === key && cachedKBSync.blob === blob) {
+    cachedKBSync = null;
+  }
+}
+
+async function generateKBSync(
+  hardwareID: Uint8Array,
+  dsid: number,
+): Promise<string> {
+  const worker = new Worker(new URL("./worker.ts", import.meta.url), {
+    type: "module",
+  });
+  const driver = new WorkerMachineDriver(worker);
+  try {
+    const assets = await loadSapAssets();
+    const wasm = await loadWorkerWasmBinary();
+    await driver.open(assets, wasm, true);
+    return bytesToBase64(await driver.generateKBSync(hardwareID, dsid));
+  } finally {
+    await driver.close().catch(() => driver.terminate());
+  }
+}
+
+function kbsyncCacheKey(hardwareID: string, dsid: string): string {
+  return `${hardwareID.toLowerCase()}:${Number(dsid)}`;
+}
+
 function endpointsEqual(left: SapEndpoints, right: SapEndpoints): boolean {
   return (
     left.certificateURL === right.certificateURL &&
     left.setupURL === right.setupURL &&
     left.version === right.version
   );
+}
+
+function hexBytes(value: string): Uint8Array | null {
+  if (!/^([0-9a-fA-F]{2})+$/.test(value)) {
+    return null;
+  }
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < bytes.length; index++) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
+  }
+  return btoa(binary);
 }

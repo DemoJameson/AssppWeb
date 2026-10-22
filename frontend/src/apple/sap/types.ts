@@ -16,6 +16,7 @@ export interface SapAssetBundle {
   commerceCore: Uint8Array;
   coreFP: Uint8Array;
   coreFPICXS: Uint8Array;
+  storeAgent: Uint8Array;
 }
 
 export interface SapSignerOptions extends SapEndpoints {

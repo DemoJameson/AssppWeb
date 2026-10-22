@@ -94,6 +94,8 @@ describe("apple/bag", () => {
           "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate",
         redownloadProduct: "https://downloaddispatch.itunes.apple.com/r/redownload",
         updateProduct: "https://downloaddispatch.itunes.apple.com/up/updateProduct",
+        volumeStoreDownloadProduct:
+          "https://downloaddispatch.itunes.apple.com/WebObjects/DownloadDispatch.woa/wa/ent/download",
       },
     });
     vi.stubGlobal(
@@ -111,6 +113,9 @@ describe("apple/bag", () => {
     );
     expect(result.updateEndpoint).toBe(
       "https://downloaddispatch.itunes.apple.com/up/updateProduct",
+    );
+    expect(result.entDownloadEndpoint).toBe(
+      "https://downloaddispatch.itunes.apple.com/WebObjects/DownloadDispatch.woa/wa/ent/download",
     );
   });
 

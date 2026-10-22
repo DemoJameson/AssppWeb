@@ -12,6 +12,7 @@ const RETURN_ADDRESS = 0x0000000100000000;
 const CORE_FP_BASE = 0x0000100000000000;
 const COMMERCE_BASE = 0x0000100040000000;
 const KIT_BASE = 0x0000100080000000;
+const STORE_AGENT_BASE = 0x00001000c0000000;
 const SCRATCH_BASE = 0x0000300000000000;
 const SCRATCH_SIZE = 32 << 20;
 const STACK_BASE = 0x0000500000000000;
@@ -35,11 +36,26 @@ const ENTRY_SIGN = "_Fc3vhtJDvr";
 const ENTRY_TEARDOWN = "_IPaI1oem5iL";
 const ENTRY_DISPOSE = "_jEHf8Xzsv8K";
 
+// StoreAgent's two entry points are addressed by their fixed offsets in the
+// pinned x86_64 image, exactly as ipatool drives them.
+const STORE_AGENT_GLOBAL_INIT = STORE_AGENT_BASE + 0x0c5fc0;
+const STORE_AGENT_KBSYNC = STORE_AGENT_BASE + 0x0c93c0;
+const STORE_AGENT_SC_INFO_PATH = "/Users/Shared/SC Info";
+
+const STORE_AGENT_ZERO_RETURN_ALIASES = [
+  "_pthread_rwlock_rdlock",
+  "_pthread_rwlock_rdlock$UNIX2003",
+  "_pthread_mutex_init",
+  "_pthread_mutex_destroy",
+  "_pthread_rwlock_destroy",
+];
+
 export interface SapAssets {
   commerceKit: Uint8Array;
   commerceCore: Uint8Array;
   coreFP: Uint8Array;
   coreFPICXS: Uint8Array;
+  storeAgent: Uint8Array;
 }
 
 interface EntryPoints {
@@ -70,23 +86,29 @@ export class SapMachine {
   private closed = false;
   private readonly entry: EntryPoints;
   private readonly services: Shims;
+  private readonly hasStoreAgent: boolean;
 
   private constructor(
     private readonly engine: UnicornEngine,
     entry: EntryPoints,
     services: Shims,
+    hasStoreAgent: boolean,
   ) {
     this.entry = entry;
     this.services = services;
+    this.hasStoreAgent = hasStoreAgent;
   }
 
   static async open(
     assets: SapAssets,
-    options?: { wasmBinary?: ArrayBuffer },
+    options?: { wasmBinary?: ArrayBuffer; storeAgent?: boolean },
   ): Promise<SapMachine> {
     const coreFP = MachImage.open("CoreFP", assets.coreFP);
     const commerceCore = MachImage.open("CommerceCore", assets.commerceCore);
     const commerceKit = MachImage.open("CommerceKit", assets.commerceKit);
+    const storeAgent = options?.storeAgent
+      ? MachImage.open("StoreAgent", assets.storeAgent)
+      : null;
 
     const exports = new Map<string, number>();
     const coreExports: Record<string, number> = {};
@@ -128,7 +150,12 @@ export class SapMachine {
     }
     engine.memWrite(RETURN_ADDRESS, new Uint8Array([0xf4])); // HLT
 
-    const services = await Shims.open(engine, coreExports, assets.coreFPICXS);
+    const services = await Shims.open(
+      engine,
+      coreExports,
+      assets.coreFPICXS,
+      storeAgent ? STORE_AGENT_ZERO_RETURN_ALIASES : [],
+    );
 
 
     const resolver = (name: string): number => {
@@ -143,6 +170,9 @@ export class SapMachine {
       { name: "corefp", image: coreFP, base: CORE_FP_BASE },
       { name: "commercecore", image: commerceCore, base: COMMERCE_BASE },
       { name: "commercekit", image: commerceKit, base: KIT_BASE },
+      ...(storeAgent
+        ? [{ name: "storeagent", image: storeAgent, base: STORE_AGENT_BASE }]
+        : []),
     ]) {
       item.image.relocate(item.base, resolver);
       item.image.load(engine);
@@ -158,6 +188,7 @@ export class SapMachine {
         dispose: resolved.get(ENTRY_DISPOSE)!,
       },
       services,
+      storeAgent !== null,
     );
   }
 
@@ -236,6 +267,75 @@ export class SapMachine {
         throw new Error(`SAP signing returned ${toInt32(status)}`);
       }
       return this.consumeOutput(outputField, lengthField);
+    } finally {
+      this.clearScratch();
+    }
+  }
+
+  /** Generates the account- and device-bound kbsync blob for ent/download. */
+  generateKBSync(
+    hardwareID: Uint8Array,
+    dsid: number,
+  ): Uint8Array {
+    if (!this.hasStoreAgent) {
+      throw new Error("StoreAgent image is not loaded");
+    }
+    if (!Number.isSafeInteger(dsid) || dsid <= 0) {
+      throw new Error("kbsync requires a nonzero numeric account DSID");
+    }
+
+    const hardware = hardwareBlock(hardwareID);
+    // ipatool's scratch receives the path bytes, then appends the NUL itself:
+    // `append([]byte(storeAgentSCInfoPath), 0)`.
+    const path = new TextEncoder().encode(`${STORE_AGENT_SC_INFO_PATH}\0`);
+
+    this.beginCall();
+    let globalContext = 0;
+    try {
+      const hardwareAddress = this.scratch(hardware);
+      const pathAddress = this.scratch(path);
+      const contextField = this.scratch(4);
+      const status = this.invoke(STORE_AGENT_GLOBAL_INIT, [
+        0,
+        hardwareAddress,
+        pathAddress,
+        contextField,
+      ]);
+      if (toInt32(status) !== 0) {
+        throw new Error(
+          `StoreAgent global initialization returned ${toInt32(status)}`,
+        );
+      }
+      globalContext = this.readUint32(contextField);
+      if (globalContext === 0) {
+        throw new Error("StoreAgent global initialization returned a null context");
+      }
+    } finally {
+      this.clearScratch();
+    }
+
+    this.beginCall();
+    try {
+      const pointerField = this.scratch(8);
+      // StoreAgent writes a uint32 length. Zero the upper half so consumeOutput
+      // applies the same bounds checking and storage disposal as the SAP calls.
+      const lengthField = this.scratch(8);
+      const status = this.invoke(STORE_AGENT_KBSYNC, [
+        globalContext,
+        dsid,
+        0,
+        1,
+        pointerField,
+        lengthField,
+      ]);
+      const output = this.consumeOutput(pointerField, lengthField);
+      if (toInt32(status) !== 0) {
+        throw new Error(`StoreAgent kbsync returned ${toInt32(status)}`);
+      }
+      if (output.length === 0) {
+        throw new Error("StoreAgent kbsync returned an empty buffer");
+      }
+      return output;
     } finally {
       this.clearScratch();
     }

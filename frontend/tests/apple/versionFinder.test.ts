@@ -20,6 +20,10 @@ vi.mock("../../src/api/client", () => ({
   apiGet: vi.fn(),
 }));
 
+vi.mock("../../src/apple/sap/client", () => ({
+  generateDownloadKBSync: vi.fn(),
+}));
+
 const LOOKUP_HOST = "uclient-api.itunes.apple.com";
 const DISPATCH_HOST = "downloaddispatch.itunes.apple.com";
 // The storefront product page: another *lookup* transport (macOS/visionOS pins, and the

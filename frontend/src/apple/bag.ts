@@ -12,6 +12,8 @@ export interface BagOutput {
    */
   redownloadEndpoint?: string;
   updateEndpoint?: string;
+  /** Bag key `volumeStoreDownloadProduct`; Apple now points this at ent/download. */
+  entDownloadEndpoint?: string;
 }
 
 export const defaultAuthURL =
@@ -87,6 +89,7 @@ export async function fetchBag(deviceId: string): Promise<BagOutput> {
     }
 
     const downloadEndpoints = {
+      entDownloadEndpoint: bagValue("volumeStoreDownloadProduct"),
       redownloadEndpoint: bagValue("redownloadProduct"),
       updateEndpoint: bagValue("updateProduct"),
     };

@@ -1,4 +1,4 @@
-// SAP asset extraction: pulls four binaries from a public OS X 10.9 update
+// SAP asset extraction: pulls five binaries from a public OS X 10.9 update
 // package via range requests, bzip2 and cpio, verifying pinned SHA-256 before
 // caching under DATA_DIR/sap-assets. No credentials. Mirrors ipatool's assets.
 
@@ -72,6 +72,17 @@ export const SAP_ASSET_SPECS: SapAssetSpec[] = [
     strippedSize: 5288352,
     strippedSha256:
       "473e78af86979f5bd4f6269561caf770b3d16c098d918846eeac8cdd2fe6566a",
+  },
+  {
+    name: "StoreAgent",
+    archivePath:
+      "./System/Library/PrivateFrameworks/CommerceKit.framework/Versions/A/Resources/storeagent",
+    size: 2580176,
+    sha256: "70ce036f9dbcbc04db9511ebd08de0dd3cbc35ccc9d44b089c90170cb5453c59",
+    // Thin x86_64 executable; no fat wrapper to strip.
+    strippedSize: 2580176,
+    strippedSha256:
+      "70ce036f9dbcbc04db9511ebd08de0dd3cbc35ccc9d44b089c90170cb5453c59",
   },
 ];
 

@@ -16,9 +16,13 @@ const PAGE_SIZE = 0x1000;
 export const HEAP_BASE = 0x0000400000000000;
 export const HEAP_SIZE = 64 << 20;
 
-// Passed through regWrite as -1: wasm's saturating f64->i64 makes it the full
-// 64-bit 0xFFFF...F (Go's math.MaxUint64), not representable exactly as a JS number.
-const FAKE_HANDLE = -1;
+// Pointer sentinels must be non-zero and exactly representable as f64. The
+// wasm glue truncates the double through uint64_t, so keep this below 2^53
+// rather than relying on the `-1` to uint64 wrap-around.
+const FAKE_HANDLE = 0xfffffffffffff000;
+// POSIX functions return a 32-bit `int`; x86 compares their EAX result against
+// -1, so writing the low 32 bits is sufficient and avoids f64/UInt64 rounding.
+const INT_MINUS_ONE = 0xffffffff;
 const CORE_FP_FILE = 3;
 const CORE_FP_PATH = "/System/Library/PrivateFrameworks/CoreFP.framework/CoreFP";
 const ICXS_PATH = "./../CoreFP.icxs";
@@ -74,12 +78,16 @@ export class Shims {
     engine: UnicornEngine,
     coreExports: Record<string, number>,
     icxs: Uint8Array,
+    zeroReturnAliases: string[] = [],
   ): Promise<Shims> {
     engine.memMap(SHIM_BASE, SHIM_SIZE);
-
     const shims = new Shims(engine, coreExports, icxs);
+
     shims.registerMemoryServices();
     shims.registerPlatformServices();
+    for (const name of zeroReturnAliases) {
+      shims.addFunction(name, () => shims.setResult(0));
+    }
 
     engine.attachCodeHook();
     engine.onCodeHook = (address) => shims.dispatch(address);
@@ -329,7 +337,9 @@ export class Shims {
     this.addAliases(["_strcmp"], () => {
       const left = this.readCString(this.argument(0));
       const right = this.readCString(this.argument(1));
-      this.setResult(left < right ? -1 : left > right ? 1 : 0);
+      this.setResult(
+        left < right ? INT_MINUS_ONE : left > right ? 1 : 0,
+      );
     });
     this.addAliases(["_strncmp"], () => {
       this.strncmp();
@@ -596,15 +606,24 @@ export class Shims {
     });
     this.addAliases(["_dlopen"], () => {
       const path = this.readCString(this.argument(0));
-      this.setResult(path === CORE_FP_PATH ? FAKE_HANDLE : 0);
+      this.setResult(path === CORE_FP_PATH ? 1 : 0);
     });
     this.addAliases(["_dlsym"], () => {
       const name = this.readCString(this.argument(1));
       this.setResult(this.coreExports.get(`_${name}`) ?? 0);
     });
     this.addAliases(
-      ["_fcntl", "_fcntl$UNIX2003", "_lstat$INODE64", "_statfs", "_statfs$INODE64"],
-      () => this.setResult(-1), // 64-bit -1 (see FAKE_HANDLE note)
+      [
+        "_fcntl",
+        "_fcntl$UNIX2003",
+        "_fstat",
+        "_fstat$INODE64",
+        "_lstat$INODE64",
+        "_unlink",
+        "_statfs",
+        "_statfs$INODE64",
+      ],
+      () => this.setResult(INT_MINUS_ONE),
     );
     this.addAliases(["_gettimeofday"], () => {
       this.gettimeofday();
@@ -620,7 +639,7 @@ export class Shims {
         this.setResult(CORE_FP_FILE);
         return;
       }
-      this.setResult(-1); // open() returns int -1
+      this.setResult(INT_MINUS_ONE);
     });
     this.addAliases(["_pthread_once"], () => {
       this.pthreadOnce();
@@ -629,7 +648,7 @@ export class Shims {
       this.read();
     });
     this.addAliases(["_sysctl"], () => {
-      this.setResult(-1); // 64-bit -1
+      this.setResult(INT_MINUS_ONE);
     });
     this.addAliases(["_sysctlbyname"], () => {
       const lengthAddress = this.argument(2);
@@ -691,7 +710,7 @@ export class Shims {
     const buffer = this.argument(1);
     const requested = this.argument(2);
     if (descriptor !== CORE_FP_FILE) {
-      this.setResult(-1); // 64-bit -1
+      this.setResult(INT_MINUS_ONE);
       return;
     }
     const size = this.checkedSize(requested);

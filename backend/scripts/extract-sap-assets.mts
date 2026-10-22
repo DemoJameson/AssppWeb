@@ -1,6 +1,6 @@
 // Build-time SAP asset extraction entrypoint (used by the Dockerfile).
 // Downloads the public Apple update package once, verifies the pinned
-// digests, strips fat binaries to their x86_64 slices, and writes the four
+// digests, strips fat binaries to their x86_64 slices, and writes the five
 // files into OUT_DIR so the runtime image can ship them prebaked.
 
 import { mkdir, copyFile } from "node:fs/promises";

@@ -5,6 +5,11 @@ import { appleRequest } from "../../src/apple/request";
 import { fetchBag } from "../../src/apple/bag";
 import { AppleUnreachableError } from "../../src/apple/errors";
 import { apiGet } from "../../src/api/client";
+import {
+  acceptDownloadKBSync,
+  generateDownloadKBSync,
+  invalidateDownloadKBSync,
+} from "../../src/apple/sap/client";
 import i18n from "../../src/i18n";
 import type { Account, Software } from "../../src/types";
 
@@ -20,8 +25,14 @@ vi.mock("../../src/api/client", () => ({
   apiGet: vi.fn(),
 }));
 
+vi.mock("../../src/apple/sap/client", () => ({
+  acceptDownloadKBSync: vi.fn(),
+  generateDownloadKBSync: vi.fn(),
+  invalidateDownloadKBSync: vi.fn(),
+}));
+
 const LOOKUP_HOST = "uclient-api.itunes.apple.com";
-const CATALOG_HOST = "apps.apple.com";
+const STOREFRONT_HOST = "apps.apple.com";
 const DISPATCH_HOST = "downloaddispatch.itunes.apple.com";
 
 const account: Account = {
@@ -129,6 +140,10 @@ const updateDoc = (versionId: string, overrides: Record<string, unknown> = {}) =
     ...overrides,
   });
 
+/** What ent/download answers: the pinned build plus its package URL. */
+const entDownloadDoc = (overrides: Record<string, unknown> = {}) =>
+  updateDoc("891042628", overrides);
+
 const lookupDoc = (externalId: string | number) =>
   JSON.stringify({
     results: { "1492142120": { offers: [{ version: { externalId } }] } },
@@ -140,20 +155,27 @@ type RequestOptions = { host: string; path: string; body?: string };
 
 let downloadReplies: (Reply | Error)[] = [];
 let lookupBody = lookupDoc("891042628");
-let catalogBody: Reply = reply("", 404);
+let storefrontBody: Reply | ((options: RequestOptions) => Reply) = reply("", 404);
 
 const allCalls = () =>
   vi.mocked(appleRequest).mock.calls.map((call) => call[0] as RequestOptions);
 
 const downloadCalls = () =>
   allCalls().filter(
-    (options) => options.host !== LOOKUP_HOST && options.host !== CATALOG_HOST,
+    (options) => options.host !== LOOKUP_HOST && options.host !== STOREFRONT_HOST,
   );
 
 const lookupCalls = () => allCalls().filter((options) => options.host === LOOKUP_HOST);
 
-const withBag = (endpoints: { redownloadEndpoint?: string; updateEndpoint?: string }) =>
+const withBag = (endpoints: {
+  entDownloadEndpoint?: string;
+  redownloadEndpoint?: string;
+  updateEndpoint?: string;
+}) =>
   vi.mocked(fetchBag).mockResolvedValue({ authURL: "https://auth.example", ...endpoints });
+
+const entDownloadEndpoint = () =>
+  `https://${DISPATCH_HOST}/WebObjects/DownloadDispatch.woa/wa/ent/download`;
 
 describe("apple/download", () => {
   beforeEach(() => {
@@ -164,9 +186,13 @@ describe("apple/download", () => {
 
     downloadReplies = [];
     lookupBody = lookupDoc("891042628");
-    catalogBody = reply("", 404);
+    storefrontBody = reply("", 404);
 
     vi.mocked(apiGet).mockResolvedValue({ pins: [] });
+    vi.mocked(generateDownloadKBSync).mockResolvedValue({
+      blob: "a2JzeW5j",
+      reused: false,
+    });
 
     withBag({
       redownloadEndpoint: `https://${DISPATCH_HOST}/r/redownload`,
@@ -177,8 +203,10 @@ describe("apple/download", () => {
       if (options.host === LOOKUP_HOST) {
         return reply(lookupBody);
       }
-      if (options.host === CATALOG_HOST) {
-        return catalogBody;
+      if (options.host === STOREFRONT_HOST) {
+        return typeof storefrontBody === "function"
+          ? storefrontBody(options)
+          : storefrontBody;
       }
       const next = downloadReplies.shift();
       if (!next) {
@@ -205,6 +233,300 @@ describe("apple/download", () => {
     expect(calls[0].path).toContain("/volumeStoreDownloadProduct?guid=aabbccddeeff");
   });
 
+  it("prefers the bag's kbsync-backed ent/download endpoint", async () => {
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+      redownloadEndpoint: `https://${DISPATCH_HOST}/r/redownload`,
+      updateEndpoint: `https://${DISPATCH_HOST}/up/updateProduct`,
+    });
+    downloadReplies = [
+      reply(
+        entDownloadDoc(),
+      ),
+    ];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].host).toBe(DISPATCH_HOST);
+    expect(calls[0].path).toContain("/WebObjects/DownloadDispatch.woa/wa/ent/download");
+    expect(calls[0].body).toContain("<key>kbsync</key><string>a2JzeW5j</string>");
+    expect(calls[0].body).toContain("<key>salableAdamId</key><string>1492142120</string>");
+    expect(calls[0].body).toContain('<plist version="1.0">');
+    expect(generateDownloadKBSync).toHaveBeenCalledWith(
+      "aabbccddeeff",
+      "1234567890",
+    );
+    expect(acceptDownloadKBSync).toHaveBeenCalledWith(
+      "aabbccddeeff",
+      "1234567890",
+      "a2JzeW5j",
+    );
+  });
+
+  it("falls back to volumeStore when kbsync generation fails", async () => {
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+    });
+    vi.mocked(generateDownloadKBSync).mockRejectedValue(new Error("guest failed"));
+    downloadReplies = [reply(downloadDoc())];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path).toContain("/volumeStoreDownloadProduct");
+  });
+
+  it("retries a rejected cached kbsync once with a fresh blob", async () => {
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+    });
+    vi.mocked(generateDownloadKBSync)
+      .mockResolvedValueOnce({ blob: "cached", reused: true })
+      .mockResolvedValueOnce({ blob: "fresh", reused: false });
+    downloadReplies = [reply("", 403), reply(entDownloadDoc())];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls.every((call) => call.path.includes("/ent/download"))).toBe(true);
+    expect(calls[0].body).toContain("<key>kbsync</key><string>cached</string>");
+    expect(calls[1].body).toContain("<key>kbsync</key><string>fresh</string>");
+    expect(generateDownloadKBSync).toHaveBeenCalledTimes(2);
+    expect(invalidateDownloadKBSync).toHaveBeenCalledWith(
+      "aabbccddeeff",
+      "1234567890",
+      "cached",
+    );
+    expect(acceptDownloadKBSync).toHaveBeenCalledWith(
+      "aabbccddeeff",
+      "1234567890",
+      "fresh",
+    );
+  });
+
+  it("falls back when a fresh kbsync retry is also rejected", async () => {
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+    });
+    vi.mocked(generateDownloadKBSync)
+      .mockResolvedValueOnce({ blob: "cached", reused: true })
+      .mockResolvedValueOnce({ blob: "fresh", reused: false });
+    downloadReplies = [
+      reply("", 403),
+      reply("", 500),
+      reply(downloadDoc()),
+    ];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(3);
+    expect(calls[0].body).toContain("<key>kbsync</key><string>cached</string>");
+    expect(calls[1].body).toContain("<key>kbsync</key><string>fresh</string>");
+    expect(calls[2].path).toContain("/volumeStoreDownloadProduct");
+    expect(generateDownloadKBSync).toHaveBeenCalledTimes(2);
+    expect(acceptDownloadKBSync).not.toHaveBeenCalled();
+  });
+
+  it("falls back to volumeStore when ent/download answers an empty 403", async () => {
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+    });
+    vi.mocked(generateDownloadKBSync).mockResolvedValueOnce({
+      blob: "a2JzeW5j",
+      reused: false,
+    });
+    downloadReplies = [reply("", 403), reply(downloadDoc())];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[0].path).toContain("/ent/download");
+    expect(calls[1].path).toContain("/volumeStoreDownloadProduct");
+    expect(invalidateDownloadKBSync).toHaveBeenCalledWith(
+      "aabbccddeeff",
+      "1234567890",
+      "a2JzeW5j",
+    );
+    expect(generateDownloadKBSync).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back from a structured ent/download failure without a kbsync retry", async () => {
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+    });
+    vi.mocked(generateDownloadKBSync).mockResolvedValueOnce({
+      blob: "cached",
+      reused: true,
+    });
+    downloadReplies = [reply(failureDoc("2034")), reply(failureDoc("9610"))];
+
+    await expect(getDownloadInfo(account, app)).rejects.toThrow(/license/i);
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[0].path).toContain("/ent/download");
+    expect(calls[1].path).toContain("/volumeStoreDownloadProduct");
+    expect(generateDownloadKBSync).toHaveBeenCalledTimes(1);
+    expect(invalidateDownloadKBSync).not.toHaveBeenCalled();
+  });
+
+  it("keeps Apple's structured ent failure when the legacy transport is down", async () => {
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+    });
+    vi.mocked(generateDownloadKBSync).mockResolvedValueOnce({
+      blob: "cached",
+      reused: true,
+    });
+    downloadReplies = [
+      reply(failureDoc("2034")),
+      new AppleUnreachableError("timed out"),
+    ];
+
+    await expect(getDownloadInfo(account, app)).rejects.toThrow(/2034/);
+    expect(downloadCalls()).toHaveLength(2);
+    expect(generateDownloadKBSync).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["app", { itemId: 999 }],
+    ["version", { softwareVersionExternalIdentifier: "other" }],
+    ["bundle", { softwareVersionBundleId: "com.other.app" }],
+  ])("falls back when ent/download names the wrong %s", async (_name, override) => {
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+    });
+    downloadReplies = [
+      reply(updateDoc("891042628", override)),
+      reply(downloadDoc()),
+    ];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    expect(downloadCalls()).toHaveLength(2);
+    expect(downloadCalls()[1].path).toContain("/volumeStoreDownloadProduct");
+  });
+
+  it("falls back when ent/download has no package URL", async () => {
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+    });
+    downloadReplies = [
+      reply(
+        buildPlist({
+          songList: [
+            {
+              URL: "",
+              metadata: {
+                itemId: 1492142120,
+                softwareVersionExternalIdentifier: "891042628",
+                softwareVersionBundleId: "com.example.app",
+              },
+            },
+          ],
+        }),
+      ),
+      reply(downloadDoc()),
+    ];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    expect(downloadCalls()).toHaveLength(2);
+    expect(downloadCalls()[1].path).toContain("/volumeStoreDownloadProduct");
+  });
+
+  it("falls back without a fresh retry when ent/download answers non-plist", async () => {
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+    });
+    vi.mocked(generateDownloadKBSync).mockResolvedValueOnce({
+      blob: "cached",
+      reused: true,
+    });
+    vi.mocked(generateDownloadKBSync).mockResolvedValueOnce({
+      blob: "fresh",
+      reused: false,
+    });
+    downloadReplies = [
+      reply("<html>nope</html>", 503),
+      reply(failureDoc("9610")),
+      reply(failureDoc("9610")),
+    ];
+
+    await expect(getDownloadInfo(account, app)).rejects.toThrow(/license/i);
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(3);
+    expect(calls[0].path).toContain("/ent/download");
+    expect(calls[1].path).toContain("/ent/download");
+    expect(calls[2].path).toContain("/volumeStoreDownloadProduct");
+    expect(generateDownloadKBSync).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not send the password token to an unapproved ent host", async () => {
+    withBag({
+      entDownloadEndpoint: "https://downloaddispatch.evil.example/WebObjects/DownloadDispatch.woa/wa/ent/download",
+    });
+    downloadReplies = [reply(downloadDoc())];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    expect(downloadCalls().every((call) => call.host !== "downloaddispatch.evil.example")).toBe(true);
+    expect(generateDownloadKBSync).not.toHaveBeenCalled();
+  });
+
+  it("pins macOS before preferring ent/download when no version is supplied", async () => {
+    const macApp = { ...app, platform: "macos" } as Software;
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+    });
+    storefrontBody = reply(
+      `<script id="serialized-server-data">${JSON.stringify({
+        purchaseConfiguration: {
+          appPlatforms: ["mac"],
+          bundleId: "com.example.app",
+          buyParams: "salableAdamId=1492142120&appExtVrsId=891042628",
+        },
+      })}</script>`,
+    );
+    downloadReplies = [
+      reply(
+        macReply({
+          metadata: {
+            bundleShortVersionString: "1.2.3",
+            bundleVersion: "123",
+            itemId: 1492142120,
+            softwareVersionExternalIdentifier: "891042628",
+            softwareVersionBundleId: "com.example.app",
+          },
+        }),
+      ),
+    ];
+
+    const { output } = await getDownloadInfo(account, macApp);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.pkg");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path).toContain("/ent/download");
+    expect(calls[0].body).toContain(
+      "<key>externalVersionId</key><string>891042628</string>",
+    );
+    expect(allCalls().some((call) => call.host === STOREFRONT_HOST)).toBe(true);
+  });
+
   it("refuses a macOS package for a task that is not a macOS one", async () => {
     // Which build Apple serves is decided by the version pin, and that pin can be guessed
     // (see `versionFinder`) — so a tvOS request really can be handed a Mac package, refused
@@ -219,6 +541,7 @@ describe("apple/download", () => {
 
   it("lets a macOS task keep its own package", async () => {
     const macApp = { ...app, platform: "macos" } as Software;
+    withBag({});
     downloadReplies = [reply(macReply())];
 
     // Pinned explicitly: the macOS catalogue lookup is not what this test is

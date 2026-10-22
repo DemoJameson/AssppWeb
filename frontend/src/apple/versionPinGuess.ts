@@ -144,7 +144,9 @@ async function listIOSVersionIds(
     ...session.app,
     platform: "ios",
   });
-  const reply = await requestDownloadProduct(iosSession, "");
+  const reply = await requestDownloadProduct(iosSession, "", {
+    legacyOnly: true,
+  });
   if (failureTypeOf(reply) !== "" || itemsOf(reply).length === 0) {
     throw new DownloadError(i18n.t("errors.versions.missingIdentifiers"));
   }
@@ -164,7 +166,9 @@ async function servesPlatformVersion(
 ): Promise<boolean> {
   try {
     const probe = { ...session, cookies: [...session.cookies] };
-    const reply = await requestDownloadProduct(probe, candidate);
+    const reply = await requestDownloadProduct(probe, candidate, {
+      legacyOnly: true,
+    });
     if (failureTypeOf(reply) !== "" || itemsOf(reply).length === 0) {
       return false;
     }

@@ -23,6 +23,7 @@ import { needsPlatformPin } from "./platform";
 import { needsVersionExchange } from "../utils/software";
 
 import {
+  ENT_DOWNLOAD_PATH,
   REDOWNLOAD_PRODUCT_PATH,
   UPDATE_PRODUCT_PATH,
   downloadDispatchEndpoint,
@@ -31,6 +32,11 @@ import {
   volumeStoreEndpoint,
   type StoreDownloadEndpoint,
 } from "./config";
+import {
+  acceptDownloadKBSync,
+  generateDownloadKBSync,
+  invalidateDownloadKBSync,
+} from "./sap/client";
 import i18n from "../i18n";
 
 // Error types live in `errors.ts` (importable without the libcurl graph) and are
@@ -44,6 +50,14 @@ export interface DownloadSession {
   account: Account;
   app: Software;
   cookies: Cookie[];
+}
+
+export interface DownloadRequestOptions {
+  /**
+   * Skip the preferred ent/download endpoint. Version-pin guessing probes use
+   * this so an unpinned probe cannot recursively ask for another pin.
+   */
+  legacyOnly?: boolean;
 }
 
 export interface DownloadReply {
@@ -65,26 +79,68 @@ export function createDownloadSession(
 }
 
 /**
- * volumeStore is primary but not the only endpoint: it answers without a download
- * item for unowned apps and can report one unavailable, so the bag chains
- * redownload then updateProduct (serving pinned versions) on an empty/unavailable
- * reply — not on a failureType or message, which is a real answer returned as-is.
+ * Apple now points the bag's volumeStoreDownloadProduct key at ent/download,
+ * which requires a StoreAgent-generated kbsync. Prefer it when a pin is known;
+ * an unpinned iOS request first resolves the current build. Any failure that
+ * says nothing definitive about the app/version falls through to the legacy
+ * volumeStore -> redownload -> updateProduct chain.
  */
 export async function requestDownloadProduct(
   session: DownloadSession,
   pinnedVersionId: string,
+  options: DownloadRequestOptions = {},
 ): Promise<DownloadReply> {
   const { account } = session;
   const guid = account.deviceIdentifier;
 
   let externalVersionId = pinnedVersionId;
+  let entDownloadFailure: DownloadError | null = null;
 
   // volumeStore answers by the account's device class (iOS by default), not the
   // requested platform: an unpinned tvOS/watchOS/visionOS request can return
-  // the iOS ipa, so pin that platform's version first. macOS ships under its own
-  // adam ids (no pin).
+  // the iOS ipa, so pin that platform's version first. macOS pins its Mac offer
+  // from the storefront before the preferred request too.
   if (!externalVersionId && needsPlatformPin(session.app.platform)) {
     externalVersionId = await pinnedLatestVersionId(session);
+  }
+
+  // fetchBag already degrades to the default auth URL on failure; a thrown
+  // error here means its mocked/transport contract changed, so leave the bag
+  // unset and let the legacy chain make its own attempt.
+  let bag: Awaited<ReturnType<typeof fetchBag>> | null = options.legacyOnly
+    ? null
+    : await fetchBag(guid).catch(() => null);
+
+  if (bag?.entDownloadEndpoint) {
+    let preferredVersionId = externalVersionId;
+    if (!preferredVersionId) {
+      try {
+        preferredVersionId = await pinnedLatestVersionId(session);
+      } catch {
+        // Preserve the legacy volumeStore path when the catalogue cannot pin.
+      }
+    }
+
+    if (preferredVersionId) {
+      try {
+        const endpoint = dispatchEndpoint(
+          bag.entDownloadEndpoint,
+          ENT_DOWNLOAD_PATH,
+          guid,
+        );
+        return await sendEntDownload(session, endpoint, preferredVersionId);
+      } catch (error) {
+        if (error instanceof DownloadError) entDownloadFailure = error;
+        // Match ipatool: generation, transport, endpoint validation and reply
+        // shape failures all fall through to the legacy chain. A structured
+        // Apple failure is returned by that chain as the real answer.
+        console.warn(
+          `[download] ent/download unavailable, trying legacy endpoints: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
   }
 
   // A request Apple never answered (the storefront host's address pool is the
@@ -112,12 +168,12 @@ export async function requestDownloadProduct(
     return volumeStoreReply;
   }
 
-  const bag = await fetchBag(guid);
+  bag ??= await fetchBag(guid);
   // Nothing advertised to fall back to: report what volumeStore said — or, when
   // it never got through, the transport failure itself.
   if (!bag.redownloadEndpoint) {
     if (volumeStoreReply) return volumeStoreReply;
-    throw volumeStoreFailure;
+    throw entDownloadFailure ?? volumeStoreFailure;
   }
 
   const redownload = dispatchEndpoint(
@@ -136,7 +192,7 @@ export async function requestDownloadProduct(
       // Reached only while recovering: if volumeStore never answered, the pin
       // lookup fails for the same reason, so report that real failure instead of
       // "no build for this platform" (the empty-reply path keeps the lookup's answer).
-      throw volumeStoreFailure ?? error;
+      throw entDownloadFailure ?? volumeStoreFailure ?? error;
     }
   }
 
@@ -175,6 +231,170 @@ export async function requestDownloadProduct(
   }
 
   return redownloadReply;
+}
+
+/**
+ * The kbsync-backed endpoint. It deliberately does not follow redirects: the
+ * request carries X-Token, which must only reach the exact Apple host the bag
+ * advertised.
+ */
+async function sendEntDownload(
+  session: DownloadSession,
+  endpoint: StoreDownloadEndpoint,
+  externalVersionId: string,
+): Promise<DownloadReply> {
+  const { account, app } = session;
+  const hardwareId = hexBytes(account.deviceIdentifier);
+  if (!hardwareId || hardwareId.length !== 6) {
+    throw new DownloadError("ent/download requires a six-byte device GUID");
+  }
+
+  // Mirrors ipatool's StoreAgent serialNumber derivation.
+  const serial = new Uint8Array(9);
+  serial.set([0x54, 0xc8, 0xb0, 0xa9, 0x88]);
+  serial.set(hardwareId.subarray(2), 5);
+  const serialNumber = bytesToBase64(serial);
+
+  let kbsync = await generateDownloadKBSync(
+    account.deviceIdentifier,
+    account.directoryServicesIdentifier,
+  );
+  let freshBlobRetried = false;
+
+  while (true) {
+    try {
+      const response = await appleRequest({
+        method: "POST",
+        host: endpoint.host,
+        path: endpoint.path,
+        headers: {
+          // ipatool mirrors Store's XMLPayload here: the header is the
+          // framework's form type even though the bytes are a plist.
+          "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+          "User-Agent":
+            "Configurator/2.18 (Macintosh; OS X 15.3.2; 24D81) AppleWebKit/0620.2.4.11.6",
+          "X-Apple-Store-Front": account.store,
+          "X-Token": account.passwordToken,
+          "iCloud-DSID": account.directoryServicesIdentifier,
+          "X-Dsid": account.directoryServicesIdentifier,
+        },
+        body: buildPlist({
+          creditDisplay: "",
+          guid: account.deviceIdentifier,
+          kbsync: kbsync.blob,
+          salableAdamId: String(app.id),
+          serialNumber,
+          externalVersionId,
+        }),
+        cookies: session.cookies,
+      });
+
+      session.cookies = extractAndMergeCookies(response.rawHeaders, session.cookies);
+      const reply = toReply(response, endpoint);
+
+      // A structured failure is Apple's answer about the account or app, not
+      // evidence that the kbsync blob is stale. Leave ent/download and let the
+      // legacy chain surface that answer without speculatively rebuilding the
+      // StoreAgent session.
+      if (failureTypeOf(reply) !== "" || customerMessageOf(reply) !== "") {
+        throw new DownloadError(
+          customerMessageOf(reply) ||
+            i18n.t("errors.download.downloadFailed", {
+              failureType: failureTypeOf(reply),
+            }),
+          failureTypeOf(reply) || undefined,
+        );
+      }
+
+      // Any other reply that is not the requested download is this endpoint
+      // refusing the attempt. ipatool treats it as an ent/download miss and
+      // falls through to the legacy chain. An UnexpectedAppleResponseError lets
+      // the catch below retry a cached blob once; a fresh blob is not retried.
+      if (
+        reply.status !== 200 ||
+        !entDownloadReplyMatches(reply, session.app, externalVersionId)
+      ) {
+        invalidateDownloadKBSync(
+          account.deviceIdentifier,
+          account.directoryServicesIdentifier,
+          kbsync.blob,
+        );
+        throw new UnexpectedAppleResponseError(
+          reply.status,
+          bodySnippet(reply.body),
+        );
+      }
+
+      // Only a blob Apple accepted is reused; a generated but rejected blob must
+      // be regenerated on the next attempt.
+      acceptDownloadKBSync(
+        account.deviceIdentifier,
+        account.directoryServicesIdentifier,
+        kbsync.blob,
+      );
+      return reply;
+    } catch (error) {
+      if (!(error instanceof UnexpectedAppleResponseError)) throw error;
+
+      invalidateDownloadKBSync(
+        account.deviceIdentifier,
+        account.directoryServicesIdentifier,
+        kbsync.blob,
+      );
+
+      // ipatool retries a rejected cached blob once with a fresh one; a rejected
+      // fresh blob is not retried, since another generation cannot be trusted to
+      // differ. Cancellation and other callers' newer cache entries are left alone.
+      if (!kbsync.reused || freshBlobRetried) throw error;
+      freshBlobRetried = true;
+      kbsync = await generateDownloadKBSync(
+        account.deviceIdentifier,
+        account.directoryServicesIdentifier,
+      );
+    }
+  }
+}
+
+/** Whether an ent/download reply names exactly the requested downloadable build. */
+function entDownloadReplyMatches(
+  reply: DownloadReply,
+  app: Software,
+  externalVersionId: string,
+): boolean {
+  const items = itemsOf(reply);
+  const metadata = (items[0]?.metadata ?? {}) as Record<string, any>;
+  const bundleId = metadata.softwareVersionBundleId;
+
+  return (
+    items.length === 1 &&
+    String(metadata.itemId) === String(app.id) &&
+    String(metadata.softwareVersionExternalIdentifier) === externalVersionId &&
+    typeof bundleId === "string" &&
+    bundleId !== "" &&
+    (!app.bundleID || bundleId === app.bundleID) &&
+    typeof items[0].URL === "string" &&
+    items[0].URL !== ""
+  );
+}
+
+function hexBytes(value: string): Uint8Array | null {
+  if (!/^([0-9a-fA-F]{2})+$/.test(value)) {
+    return null;
+  }
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < bytes.length; index++) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
+  }
+  return btoa(binary);
 }
 
 /**

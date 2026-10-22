@@ -27,7 +27,12 @@ vi.mock("../../src/api/client", () => ({
   apiGet: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../../src/apple/sap/client", () => ({
+  generateDownloadKBSync: vi.fn(),
+}));
+
 import { appleRequest } from "../../src/apple/request";
+import { fetchBag } from "../../src/apple/bag";
 
 const account: Account = {
   email: "test@example.com",
@@ -52,6 +57,13 @@ const bareTvosApp = {
   metadataSource: "bare",
 } as Software;
 
+const bareIOSApp = {
+  ...bareTvosApp,
+  id: 6801583759,
+  bundleID: "tv.rexnow.app",
+  platform: "ios",
+} as Software;
+
 // Every reply carries the artifact URL it would serve: a guess candidate is
 // accepted only when that artifact can be the platform's build.
 function plistResponse(
@@ -74,6 +86,9 @@ function plistResponse(
 describe("downloadProduct direct-download pin guess", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(fetchBag).mockResolvedValue({
+      authURL: "https://auth.example",
+    });
     vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
   });
@@ -126,5 +141,48 @@ describe("downloadProduct direct-download pin guess", () => {
     // Only the download itself — no iOS list, no probe.
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({ pinned: true });
+  });
+
+  it("keeps pin-guess probes on the legacy endpoint", async () => {
+    vi.mocked(fetchBag).mockResolvedValue({
+      authURL: "https://auth.example",
+      entDownloadEndpoint:
+        "https://downloaddispatch.itunes.apple.com/WebObjects/DownloadDispatch.woa/wa/ent/download",
+    });
+    const calls: Array<{ pinned: boolean; path: string }> = [];
+    vi.mocked(appleRequest).mockImplementation(async (opts) => {
+      const pinned = opts.body?.includes("externalVersionId") ?? false;
+      calls.push({ pinned, path: opts.path });
+      return pinned
+        ? plistResponse(["21", "22", "23"])
+        : plistResponse(["10", "11", "12"]);
+    });
+
+    const session = createDownloadSession(account, { ...bareTvosApp, platform: "ios" });
+    await requestDownloadProduct(session, "", { legacyOnly: true });
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((call) => !call.path.includes("/ent/download"))).toBe(true);
+  });
+
+  it("does not recursively pre-pin a bare iOS request", async () => {
+    vi.mocked(fetchBag).mockResolvedValue({
+      authURL: "https://auth.example",
+      entDownloadEndpoint:
+        "https://downloaddispatch.itunes.apple.com/WebObjects/DownloadDispatch.woa/wa/ent/download",
+    });
+    const calls: Array<{ path: string }> = [];
+    vi.mocked(appleRequest).mockImplementation(async (opts) => {
+      calls.push({ path: opts.path });
+      return plistResponse(["10", "11", "12"]);
+    });
+
+    const session = createDownloadSession(account, bareIOSApp);
+    await requestDownloadProduct(session, "");
+
+    // No catalogue offer leaves no ent pin. The request goes straight to the
+    // legacy chain instead of recursively asking for another pin.
+    expect(calls.some((call) => call.path.includes("/ent/download"))).toBe(false);
+    expect(calls.some((call) => call.path.includes("/volumeStoreDownloadProduct"))).toBe(true);
   });
 });

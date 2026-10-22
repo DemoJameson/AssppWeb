@@ -10,6 +10,7 @@ interface OpenRequest {
   id: number;
   assets: { [K in keyof SapAssetBundle]: ArrayBuffer };
   wasmBinary: ArrayBuffer;
+  storeAgent: boolean;
 }
 
 interface InitializeRequest {
@@ -34,6 +35,13 @@ interface SignRequest {
   input: ArrayBuffer;
 }
 
+interface KBSyncRequest {
+  type: "kbsync";
+  id: number;
+  hardwareID: ArrayBuffer;
+  dsid: number;
+}
+
 interface TeardownRequest {
   type: "teardown";
   id: number;
@@ -50,6 +58,7 @@ type WorkerRequest =
   | InitializeRequest
   | ExchangeRequest
   | SignRequest
+  | KBSyncRequest
   | TeardownRequest
   | CloseRequest;
 
@@ -78,8 +87,9 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
             commerceCore: new Uint8Array(request.assets.commerceCore),
             coreFP: new Uint8Array(request.assets.coreFP),
             coreFPICXS: new Uint8Array(request.assets.coreFPICXS),
+            storeAgent: new Uint8Array(request.assets.storeAgent),
           },
-          { wasmBinary: request.wasmBinary },
+          { wasmBinary: request.wasmBinary, storeAgent: request.storeAgent },
         );
         hardwareID = new Uint8Array(0);
         reply(request.id, {});
@@ -119,6 +129,17 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           new Uint8Array(request.input),
         );
         reply(request.id, { signature: signature.buffer });
+        break;
+      }
+      case "kbsync": {
+        if (!machine) {
+          throw new Error("SAP machine is not open");
+        }
+        const blob = machine.generateKBSync(
+          new Uint8Array(request.hardwareID),
+          request.dsid,
+        );
+        reply(request.id, { kbsync: blob.buffer });
         break;
       }
       case "teardown": {

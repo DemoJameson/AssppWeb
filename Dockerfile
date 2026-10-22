@@ -25,7 +25,7 @@ RUN npm run build
 
 # Downloads the public Apple update package once (~380 MB over range
 # requests), verifies the pinned digests, strips fat binaries to their x86_64
-# slices, and emits ~22.5 MB of assets. Docker layer caching makes this a
+# slices, and emits ~25.1 MB of assets. Docker layer caching makes this a
 # no-op on rebuilds unless the pinned digests change.
 FROM --platform=$BUILDPLATFORM node:24-alpine AS sap-assets
 WORKDIR /app/backend

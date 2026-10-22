@@ -16,6 +16,7 @@ export interface SapMachineDriver {
     input: Uint8Array,
   ): Promise<{ output: Uint8Array; state: number }>;
   sign(contextValue: number, input: Uint8Array): Promise<Uint8Array>;
+  generateKBSync(hardwareID: Uint8Array, dsid: number): Promise<Uint8Array>;
   teardown(contextValue: number): Promise<void>;
   close(): Promise<void>;
 }

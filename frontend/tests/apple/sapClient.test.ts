@@ -34,6 +34,7 @@ const ASSETS = {
   commerceCore: new Uint8Array([1]),
   coreFP: new Uint8Array([1]),
   coreFPICXS: new Uint8Array([1]),
+  storeAgent: new Uint8Array([1]),
 };
 
 /**
@@ -80,6 +81,7 @@ class StubWorker {
             open: {},
             initialize: { contextValue: 7 },
             sign: { signature: new Uint8Array([9]).buffer },
+            kbsync: { kbsync: new Uint8Array([8, 7]).buffer },
             teardown: {},
             close: {},
           }[type] ?? {};
@@ -141,7 +143,7 @@ describe("sap signer client", () => {
     await client.prepareSigner("aabbccddeeff", ENDPOINTS);
     await client.prepareSigner("aabbccddeeff", ENDPOINTS);
 
-    // Rebuilding means copying the 22.5 MB asset bundle into a fresh worker
+    // Rebuilding means copying the 25.1 MB asset bundle into a fresh worker
     // again; a 2FA retry must not pay that.
     expect(StubWorker.created).toHaveLength(1);
   });
@@ -212,5 +214,66 @@ describe("sap signer client", () => {
 
     expect(StubWorker.created).toHaveLength(2);
     expect(StubWorker.created[1].terminated).toBe(false);
+  });
+
+  it("generates kbsync in a separate worker and encodes it as base64", async () => {
+    const generated = await client.generateDownloadKBSync(
+      "aabbccddeeff",
+      "1234567890",
+    );
+
+    expect(generated).toEqual({ blob: "CAc=", reused: false });
+    expect(StubWorker.created).toHaveLength(1);
+    expect(StubWorker.created[0].terminated).toBe(true);
+
+    client.acceptDownloadKBSync("aabbccddeeff", "1234567890", "CAc=");
+    const reused = await client.generateDownloadKBSync(
+      "aabbccddeeff",
+      "1234567890",
+    );
+    expect(reused).toEqual({ blob: "CAc=", reused: true });
+    expect(StubWorker.created).toHaveLength(1);
+  });
+
+  it("shares one StoreAgent run between concurrent kbsync callers", async () => {
+    const [first, second] = await Promise.all([
+      client.generateDownloadKBSync("aabbccddeeff", "1234567890"),
+      client.generateDownloadKBSync("aabbccddeeff", "1234567890"),
+    ]);
+
+    expect(first).toEqual({ blob: "CAc=", reused: false });
+    expect(second).toEqual({ blob: "CAc=", reused: true });
+    expect(StubWorker.created).toHaveLength(1);
+  });
+
+  it("regenerates after Apple rejects a cached kbsync", async () => {
+    const first = await client.generateDownloadKBSync(
+      "aabbccddeeff",
+      "1234567890",
+    );
+    client.acceptDownloadKBSync("aabbccddeeff", "1234567890", first.blob);
+    client.invalidateDownloadKBSync(
+      "aabbccddeeff",
+      "1234567890",
+      first.blob,
+    );
+
+    const second = await client.generateDownloadKBSync(
+      "aabbccddeeff",
+      "1234567890",
+    );
+    expect(second.reused).toBe(false);
+    expect(StubWorker.created).toHaveLength(2);
+  });
+
+  it("rejects an invalid device GUID or DSID before opening a worker", async () => {
+    await expect(
+      client.generateDownloadKBSync("not-a-guid", "1234567890"),
+    ).rejects.toThrow(/six-byte device GUID/);
+    await expect(
+      client.generateDownloadKBSync("aabbccddeeff", "0"),
+    ).rejects.toThrow(/nonzero numeric account DSID/);
+
+    expect(StubWorker.created).toHaveLength(0);
   });
 });

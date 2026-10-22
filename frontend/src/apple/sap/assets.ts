@@ -1,5 +1,5 @@
-// SAP asset delivery: the four Apple binaries (CoreFP, CoreFP.icxs,
-// CommerceKit, CommerceCore) are extracted once by the backend from a public
+// SAP asset delivery: the five Apple binaries (CoreFP, CoreFP.icxs,
+// CommerceKit, CommerceCore, StoreAgent) are extracted once by the backend from a public
 // Apple software update package and served from /api/sap-assets. The browser
 // caches them in the Cache API keyed by their pinned SHA-256 digests.
 
@@ -39,9 +39,16 @@ export const SAP_ASSET_SPECS: SapAssetSpec[] = [
     size: 5288352,
     sha256: "473e78af86979f5bd4f6269561caf770b3d16c098d918846eeac8cdd2fe6566a",
   },
+  {
+    name: "StoreAgent",
+    size: 2580176,
+    sha256: "70ce036f9dbcbc04db9511ebd08de0dd3cbc35ccc9d44b089c90170cb5453c59",
+  },
 ];
 
-const CACHE_NAME = "asspp-sap-assets-v1";
+// v2 adds StoreAgent. A v1 cache has the old four files; reusing that name would
+// leave every user downloading the fifth asset separately on first kbsync use.
+const CACHE_NAME = "asspp-sap-assets-v2";
 
 async function fetchWithProgress(
   url: string,
@@ -89,8 +96,8 @@ async function digestMatches(
 }
 
 /**
- * Loads all four SAP assets, verifying digests. Bytes come from the backend
- * cache (public Apple data) and are persisted in the Cache API so the ~38 MiB
+ * Loads all five SAP assets, verifying digests. Bytes come from the backend
+ * cache (public Apple data) and are persisted in the Cache API so the ~40 MiB
  * transfer happens once.
  */
 export async function loadSapAssets(
@@ -148,6 +155,7 @@ export async function loadSapAssets(
     commerceCore: bundle["CommerceCore"],
     coreFP: bundle["CoreFP"],
     coreFPICXS: bundle["CoreFP.icxs"],
+    storeAgent: bundle["StoreAgent"],
   };
 }
 
