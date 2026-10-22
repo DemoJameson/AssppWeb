@@ -191,7 +191,7 @@ describe("apple/download", () => {
     vi.mocked(apiGet).mockResolvedValue({ pins: [] });
     vi.mocked(generateDownloadKBSync).mockResolvedValue({
       blob: "a2JzeW5j",
-      reused: false,
+      fromAcceptedCache: false,
     });
 
     withBag({
@@ -286,8 +286,8 @@ describe("apple/download", () => {
       entDownloadEndpoint: entDownloadEndpoint(),
     });
     vi.mocked(generateDownloadKBSync)
-      .mockResolvedValueOnce({ blob: "cached", reused: true })
-      .mockResolvedValueOnce({ blob: "fresh", reused: false });
+      .mockResolvedValueOnce({ blob: "cached", fromAcceptedCache: true })
+      .mockResolvedValueOnce({ blob: "fresh", fromAcceptedCache: false });
     downloadReplies = [reply("", 403), reply(entDownloadDoc())];
 
     const { output } = await getDownloadInfo(account, app);
@@ -316,8 +316,8 @@ describe("apple/download", () => {
       entDownloadEndpoint: entDownloadEndpoint(),
     });
     vi.mocked(generateDownloadKBSync)
-      .mockResolvedValueOnce({ blob: "cached", reused: true })
-      .mockResolvedValueOnce({ blob: "fresh", reused: false });
+      .mockResolvedValueOnce({ blob: "cached", fromAcceptedCache: true })
+      .mockResolvedValueOnce({ blob: "fresh", fromAcceptedCache: false });
     downloadReplies = [
       reply("", 403),
       reply("", 500),
@@ -336,13 +336,36 @@ describe("apple/download", () => {
     expect(acceptDownloadKBSync).not.toHaveBeenCalled();
   });
 
+  it("falls back after a rejected concurrent kbsync without a cache retry", async () => {
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+    });
+    // A concurrent waiter receives a generation that Apple has not accepted yet.
+    // That is not a cache hit, so a 403 is final for this blob: fall back rather
+    // than spending another StoreAgent run on the same uncached generation.
+    vi.mocked(generateDownloadKBSync)
+      .mockReset()
+      .mockResolvedValueOnce({ blob: "shared", fromAcceptedCache: false })
+      .mockResolvedValue({ blob: "unused", fromAcceptedCache: false });
+    downloadReplies = [reply("", 403), reply(downloadDoc())];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[0].body).toContain("<key>kbsync</key><string>shared</string>");
+    expect(calls[1].path).toContain("/volumeStoreDownloadProduct");
+    expect(generateDownloadKBSync).toHaveBeenCalledTimes(1);
+  });
+
   it("falls back to volumeStore when ent/download answers an empty 403", async () => {
     withBag({
       entDownloadEndpoint: entDownloadEndpoint(),
     });
     vi.mocked(generateDownloadKBSync).mockResolvedValueOnce({
       blob: "a2JzeW5j",
-      reused: false,
+      fromAcceptedCache: false,
     });
     downloadReplies = [reply("", 403), reply(downloadDoc())];
 
@@ -367,7 +390,7 @@ describe("apple/download", () => {
     });
     vi.mocked(generateDownloadKBSync).mockResolvedValueOnce({
       blob: "cached",
-      reused: true,
+      fromAcceptedCache: true,
     });
     downloadReplies = [reply(failureDoc("2034")), reply(failureDoc("9610"))];
 
@@ -386,7 +409,7 @@ describe("apple/download", () => {
     });
     vi.mocked(generateDownloadKBSync).mockResolvedValueOnce({
       blob: "cached",
-      reused: true,
+      fromAcceptedCache: true,
     });
     downloadReplies = [
       reply(failureDoc("2034")),
@@ -453,11 +476,11 @@ describe("apple/download", () => {
     });
     vi.mocked(generateDownloadKBSync).mockResolvedValueOnce({
       blob: "cached",
-      reused: true,
+      fromAcceptedCache: true,
     });
     vi.mocked(generateDownloadKBSync).mockResolvedValueOnce({
       blob: "fresh",
-      reused: false,
+      fromAcceptedCache: false,
     });
     downloadReplies = [
       reply("<html>nope</html>", 503),

@@ -161,8 +161,12 @@ describe("downloadProduct direct-download pin guess", () => {
     const session = createDownloadSession(account, { ...bareTvosApp, platform: "ios" });
     await requestDownloadProduct(session, "", { legacyOnly: true });
 
-    expect(calls.length).toBeGreaterThan(0);
-    expect(calls.every((call) => !call.path.includes("/ent/download"))).toBe(true);
+    // legacyOnly is the probe profile: it must not guess again (which would fan
+    // out into more probes) and must stay off ent/download. The bare iOS record
+    // has no catalogue pin, so the request reaches the legacy exchange without one.
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path).toContain("/volumeStoreDownloadProduct");
+    expect(calls[0].pinned).toBe(false);
   });
 
   it("does not recursively pre-pin a bare iOS request", async () => {

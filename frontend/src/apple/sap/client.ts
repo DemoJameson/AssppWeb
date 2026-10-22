@@ -9,6 +9,18 @@ import { loadSapAssets } from "./assets";
 import type { SapEndpoints } from "./types";
 import { useSapStore } from "../../store/sap";
 import i18n from "../../i18n";
+import {
+  acceptDownloadKBSync,
+  cachedDownloadKBSync,
+  forgetDownloadKBSync,
+  invalidateDownloadKBSync,
+} from "./kbsyncCache";
+
+export {
+  acceptDownloadKBSync,
+  forgetDownloadKBSync,
+  invalidateDownloadKBSync,
+} from "./kbsyncCache";
 
 interface WorkerResult {
   type: "result";
@@ -213,16 +225,13 @@ let wasmBinary: ArrayBuffer | null = null;
 
 export interface DownloadKBSync {
   blob: string;
-  /** True when this call reused an Apple-accepted blob instead of opening a worker. */
-  reused: boolean;
+  /**
+   * True only when this call read the cached blob Apple accepted. Waiting for a
+   * concurrent generation is not a cache hit: that blob has not been accepted yet.
+   */
+  fromAcceptedCache: boolean;
 }
 
-interface CachedKBSync {
-  key: string;
-  blob: string;
-}
-
-let cachedKBSync: CachedKBSync | null = null;
 let generatingKBSync: { key: string; promise: Promise<string> } | null = null;
 
 async function loadWorkerWasmBinary(): Promise<ArrayBuffer> {
@@ -365,11 +374,12 @@ export async function generateDownloadKBSync(
   }
 
   const key = `${hardwareID.toLowerCase()}:${numericDsid}`;
-  if (cachedKBSync?.key === key) {
-    return { blob: cachedKBSync.blob, reused: true };
+  const cachedBlob = cachedDownloadKBSync(key);
+  if (cachedBlob !== null) {
+    return { blob: cachedBlob, fromAcceptedCache: true };
   }
   if (generatingKBSync?.key === key) {
-    return { blob: await generatingKBSync.promise, reused: true };
+    return { blob: await generatingKBSync.promise, fromAcceptedCache: false };
   }
 
   const promise = generateKBSync(hw, numericDsid);
@@ -377,32 +387,11 @@ export async function generateDownloadKBSync(
   generatingKBSync = generation;
   try {
     const blob = await promise;
-    return { blob, reused: false };
+    return { blob, fromAcceptedCache: false };
   } finally {
     if (generatingKBSync === generation) {
       generatingKBSync = null;
     }
-  }
-}
-
-/** Marks the blob Apple just served as reusable, after ent/download accepted it. */
-export function acceptDownloadKBSync(
-  hardwareID: string,
-  dsid: string,
-  blob: string,
-): void {
-  cachedKBSync = { key: kbsyncCacheKey(hardwareID, dsid), blob };
-}
-
-/** Drops a blob Apple rejected, so the next attempt regenerates it. */
-export function invalidateDownloadKBSync(
-  hardwareID: string,
-  dsid: string,
-  blob: string,
-): void {
-  const key = kbsyncCacheKey(hardwareID, dsid);
-  if (cachedKBSync?.key === key && cachedKBSync.blob === blob) {
-    cachedKBSync = null;
   }
 }
 
@@ -422,10 +411,6 @@ async function generateKBSync(
   } finally {
     await driver.close().catch(() => driver.terminate());
   }
-}
-
-function kbsyncCacheKey(hardwareID: string, dsid: string): string {
-  return `${hardwareID.toLowerCase()}:${Number(dsid)}`;
 }
 
 function endpointsEqual(left: SapEndpoints, right: SapEndpoints): boolean {

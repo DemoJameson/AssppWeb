@@ -222,7 +222,7 @@ describe("sap signer client", () => {
       "1234567890",
     );
 
-    expect(generated).toEqual({ blob: "CAc=", reused: false });
+    expect(generated).toEqual({ blob: "CAc=", fromAcceptedCache: false });
     expect(StubWorker.created).toHaveLength(1);
     expect(StubWorker.created[0].terminated).toBe(true);
 
@@ -231,7 +231,7 @@ describe("sap signer client", () => {
       "aabbccddeeff",
       "1234567890",
     );
-    expect(reused).toEqual({ blob: "CAc=", reused: true });
+    expect(reused).toEqual({ blob: "CAc=", fromAcceptedCache: true });
     expect(StubWorker.created).toHaveLength(1);
   });
 
@@ -241,9 +241,26 @@ describe("sap signer client", () => {
       client.generateDownloadKBSync("aabbccddeeff", "1234567890"),
     ]);
 
-    expect(first).toEqual({ blob: "CAc=", reused: false });
-    expect(second).toEqual({ blob: "CAc=", reused: true });
+    expect(first).toEqual({ blob: "CAc=", fromAcceptedCache: false });
+    // The waiter shares the generation but has not received an Apple-accepted blob.
+    expect(second).toEqual({ blob: "CAc=", fromAcceptedCache: false });
     expect(StubWorker.created).toHaveLength(1);
+  });
+
+  it("forgets a cached kbsync for one account/device pair", async () => {
+    const first = await client.generateDownloadKBSync(
+      "aabbccddeeff",
+      "1234567890",
+    );
+    client.acceptDownloadKBSync("aabbccddeeff", "1234567890", first.blob);
+    client.forgetDownloadKBSync("aabbccddeeff", "1234567890");
+
+    const next = await client.generateDownloadKBSync(
+      "aabbccddeeff",
+      "1234567890",
+    );
+    expect(next.fromAcceptedCache).toBe(false);
+    expect(StubWorker.created).toHaveLength(2);
   });
 
   it("regenerates after Apple rejects a cached kbsync", async () => {
@@ -262,7 +279,7 @@ describe("sap signer client", () => {
       "aabbccddeeff",
       "1234567890",
     );
-    expect(second.reused).toBe(false);
+    expect(second.fromAcceptedCache).toBe(false);
     expect(StubWorker.created).toHaveLength(2);
   });
 

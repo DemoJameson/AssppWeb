@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { openDB, type IDBPDatabase } from "idb";
 import type { Account } from "../types";
+import { forgetDownloadKBSync } from "../apple/sap/kbsyncCache";
 
 const DB_NAME = "asspp-accounts";
 const STORE_NAME = "accounts";
@@ -52,9 +53,23 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
   },
 
   removeAccount: async (email: string) => {
+    const account = get().accounts.find((candidate) => candidate.email === email);
     const db = await getDB();
     await db.delete(STORE_NAME, email);
     set({ accounts: get().accounts.filter((a) => a.email !== email) });
+
+    // Cache cleanup is best-effort: account deletion has already committed, so
+    // a cache failure must not make the UI report a failed delete.
+    if (account?.deviceIdentifier && account.directoryServicesIdentifier) {
+      try {
+        forgetDownloadKBSync(
+          account.deviceIdentifier,
+          account.directoryServicesIdentifier,
+        );
+      } catch (error) {
+        console.warn("[accounts] failed to clear cached kbsync", error);
+      }
+    }
   },
 
   updateAccount: async (account: Account) => {

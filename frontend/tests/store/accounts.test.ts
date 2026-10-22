@@ -1,6 +1,15 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { useAccountsStore } from "../../src/store/accounts";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { Account } from "../../src/types";
+
+const mocks = vi.hoisted(() => ({
+  forgetDownloadKBSync: vi.fn(),
+}));
+
+vi.mock("../../src/apple/sap/kbsyncCache", () => ({
+  forgetDownloadKBSync: mocks.forgetDownloadKBSync,
+}));
+
+import { useAccountsStore } from "../../src/store/accounts";
 
 const mockAccount: Account = {
   email: "test@example.com",
@@ -12,10 +21,12 @@ const mockAccount: Account = {
   passwordToken: "token123",
   directoryServicesIdentifier: "dsid123",
   cookies: [],
+  deviceIdentifier: "aabbccddeeff",
 };
 
 describe("store/accounts", () => {
   beforeEach(async () => {
+    mocks.forgetDownloadKBSync.mockReset();
     // Clear the store
     const state = useAccountsStore.getState();
     for (const account of state.accounts) {
@@ -50,6 +61,35 @@ describe("store/accounts", () => {
 
     await useAccountsStore.getState().removeAccount("test@example.com");
     expect(useAccountsStore.getState().accounts).toHaveLength(0);
+  });
+
+  it("should forget the account's cached kbsync on removal", async () => {
+    await useAccountsStore.getState().addAccount(mockAccount);
+    await useAccountsStore.getState().removeAccount("test@example.com");
+
+    expect(mocks.forgetDownloadKBSync).toHaveBeenCalledWith(
+      "aabbccddeeff",
+      "dsid123",
+    );
+  });
+
+  it("should still remove an account when kbsync cleanup fails", async () => {
+    await useAccountsStore.getState().addAccount(mockAccount);
+    mocks.forgetDownloadKBSync.mockImplementationOnce(() => {
+      throw new Error("cache unavailable");
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      useAccountsStore.getState().removeAccount("test@example.com"),
+    ).resolves.toBeUndefined();
+
+    expect(useAccountsStore.getState().accounts).toHaveLength(0);
+    expect(warn).toHaveBeenCalledWith(
+      "[accounts] failed to clear cached kbsync",
+      expect.any(Error),
+    );
+    warn.mockRestore();
   });
 
   it("should update an account", async () => {

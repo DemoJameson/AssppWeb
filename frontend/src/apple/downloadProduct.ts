@@ -101,7 +101,9 @@ export async function requestDownloadProduct(
   // the iOS ipa, so pin that platform's version first. macOS pins its Mac offer
   // from the storefront before the preferred request too.
   if (!externalVersionId && needsPlatformPin(session.app.platform)) {
-    externalVersionId = await pinnedLatestVersionId(session);
+    externalVersionId = await pinnedLatestVersionId(session, {
+      allowGuess: !options.legacyOnly,
+    });
   }
 
   // fetchBag already degrades to the default auth URL on failure; a thrown
@@ -115,7 +117,9 @@ export async function requestDownloadProduct(
     let preferredVersionId = externalVersionId;
     if (!preferredVersionId) {
       try {
-        preferredVersionId = await pinnedLatestVersionId(session);
+        preferredVersionId = await pinnedLatestVersionId(session, {
+          allowGuess: !options.legacyOnly,
+        });
       } catch {
         // Preserve the legacy volumeStore path when the catalogue cannot pin.
       }
@@ -187,7 +191,9 @@ export async function requestDownloadProduct(
   // exactly what came back empty (or never arrived).
   if (!externalVersionId) {
     try {
-      externalVersionId = await pinnedLatestVersionId(session);
+      externalVersionId = await pinnedLatestVersionId(session, {
+        allowGuess: !options.legacyOnly,
+      });
     } catch (error) {
       // Reached only while recovering: if volumeStore never answered, the pin
       // lookup fails for the same reason, so report that real failure instead of
@@ -345,7 +351,7 @@ async function sendEntDownload(
       // ipatool retries a rejected cached blob once with a fresh one; a rejected
       // fresh blob is not retried, since another generation cannot be trusted to
       // differ. Cancellation and other callers' newer cache entries are left alone.
-      if (!kbsync.reused || freshBlobRetried) throw error;
+      if (!kbsync.fromAcceptedCache || freshBlobRetried) throw error;
       freshBlobRetried = true;
       kbsync = await generateDownloadKBSync(
         account.deviceIdentifier,
@@ -621,7 +627,10 @@ function isEmptyRedownloadError(error: unknown): boolean {
  * is fatal here (as in ipatool) since an unpinned redownload can return a tvOS
  * build indistinguishable from the request. Delisted apps fall back to a recorded pin.
  */
-async function pinnedLatestVersionId(session: DownloadSession): Promise<string> {
+async function pinnedLatestVersionId(
+  session: DownloadSession,
+  options: { allowGuess?: boolean } = {},
+): Promise<string> {
   const country = storeIdToCountry(session.account.store) ?? "us";
   const platform = session.app.platform;
 
@@ -650,7 +659,7 @@ async function pinnedLatestVersionId(session: DownloadSession): Promise<string> 
     // `local`/`bare` record is a real app, so guess a neighbour id from the iOS
     // list (as `listVersions` does) — else a delisted tvOS/watchOS/visionOS/macOS direct
     // download fails where 「选择版本」 succeeds.
-    if (needsVersionExchange(session.app)) {
+    if (options.allowGuess !== false && needsVersionExchange(session.app)) {
       // Dynamic import breaks the cycle (`versionPinGuess` imports this module) and
       // keeps the test mock that intercepts the guess's probes working.
       const { guessPlatformPinFromIOSList } = await import("./versionPinGuess");
