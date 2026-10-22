@@ -369,6 +369,8 @@ describe("DownloadList retry", () => {
         expect.objectContaining({ email: "user@example.com" }),
         expect.objectContaining({ name: "Alpha" }),
         undefined,
+        undefined,
+        expect.any(Function),
       );
       expect(mocks.deleteDownload).toHaveBeenCalledWith("1");
     });
@@ -482,6 +484,7 @@ describe("DownloadList update check", () => {
       expect.objectContaining({ metadataSource: "local" }),
       // The build on disk: the pin a delisted app is still reachable through.
       "1",
+      expect.any(Function),
     );
     // The exchange carried a list, so the storefront's is not asked for again.
     expect(mocks.listVersionsWithLicense).not.toHaveBeenCalled();
@@ -516,6 +519,8 @@ describe("DownloadList update check", () => {
         expect.objectContaining({ email: "user@example.com" }),
         expect.objectContaining({ metadataSource: "local" }),
         "2",
+        undefined,
+        expect.any(Function),
       );
       expect(mocks.deleteDownload).toHaveBeenCalledWith("1");
     });
@@ -608,6 +613,8 @@ describe("DownloadList update check", () => {
         expect.objectContaining({ email: "user@example.com" }),
         expect.objectContaining({ metadataSource: "local" }),
         "1",
+        undefined,
+        expect.any(Function),
       );
     });
     expect(mocks.deleteDownload).not.toHaveBeenCalled();
@@ -670,6 +677,8 @@ describe("DownloadList update check", () => {
     expect(mocks.listVersionsWithLicense).toHaveBeenCalledWith(
       expect.objectContaining({ email: "user@example.com" }),
       listedApp,
+      undefined,
+      expect.any(Function),
     );
   });
 

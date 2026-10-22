@@ -12,6 +12,8 @@ import { formatDateISO, formatDateTimeISO } from '../../utils/software';
 import { formatBytes } from '../../utils/format';
 import { taskIconUrl } from '../../utils/icon';
 import { PLATFORM_LABELS } from '../../apple/platform';
+import type { DownloadProgressStage } from '../../apple/sap/client';
+import InlineProgressStatus from '../common/InlineProgressStatus';
 import type { DownloadTask } from '../../types';
 
 interface DownloadItemProps {
@@ -32,6 +34,8 @@ interface DownloadItemProps {
   onCheckUpdate?: (id: string) => void;
   /** True while this row's update check is in flight. */
   checkingUpdate?: boolean;
+  /** User-visible exchange stages for this row's retry or update check. */
+  actionStage?: DownloadProgressStage | null;
 }
 
 export default function DownloadItem({
@@ -45,6 +49,7 @@ export default function DownloadItem({
   onRetry,
   onCheckUpdate,
   checkingUpdate = false,
+  actionStage = null,
 }: DownloadItemProps) {
   const { t } = useTranslation();
   const { accounts } = useAccounts();
@@ -289,6 +294,8 @@ export default function DownloadItem({
           <PackageQuickActions task={task} size="compact" />
         </div>
       )}
+
+      <InlineProgressStatus stage={actionStage} />
 
       <div
         className={`mt-3 grid min-w-0 gap-2 text-[15px] ${

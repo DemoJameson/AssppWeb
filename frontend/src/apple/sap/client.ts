@@ -223,6 +223,11 @@ let prepared: PreparedSigner | null = null;
 let preparation: Promise<PreparedSigner> | null = null;
 let wasmBinary: ArrayBuffer | null = null;
 
+export type DownloadProgressStage = "preparing" | "connecting" | "confirming";
+export type DownloadStageObserver = (
+  stage: DownloadProgressStage | null,
+) => void;
+
 export interface DownloadKBSync {
   blob: string;
   /**
@@ -232,7 +237,12 @@ export interface DownloadKBSync {
   fromAcceptedCache: boolean;
 }
 
-let generatingKBSync: { key: string; promise: Promise<string> } | null = null;
+interface GeneratingKBSync {
+  key: string;
+  promise: Promise<string>;
+}
+
+let generatingKBSync: GeneratingKBSync | null = null;
 
 async function loadWorkerWasmBinary(): Promise<ArrayBuffer> {
   if (wasmBinary) {
@@ -362,6 +372,7 @@ export async function signWithSap(
 export async function generateDownloadKBSync(
   hardwareID: string,
   dsid: string,
+  onStage?: DownloadStageObserver,
 ): Promise<DownloadKBSync> {
   const numericDsid = Number(dsid);
   if (!Number.isSafeInteger(numericDsid) || numericDsid <= 0) {
@@ -378,13 +389,25 @@ export async function generateDownloadKBSync(
   if (cachedBlob !== null) {
     return { blob: cachedBlob, fromAcceptedCache: true };
   }
+
+  const notify = (stage: DownloadProgressStage | null) => {
+    if (onStage) onStage(stage);
+  };
+
   if (generatingKBSync?.key === key) {
-    return { blob: await generatingKBSync.promise, fromAcceptedCache: false };
+    notify("preparing");
+    try {
+      const blob = await generatingKBSync.promise;
+      return { blob, fromAcceptedCache: false };
+    } finally {
+      notify(null);
+    }
   }
 
   const promise = generateKBSync(hw, numericDsid);
   const generation = { key, promise };
   generatingKBSync = generation;
+  notify("preparing");
   try {
     const blob = await promise;
     return { blob, fromAcceptedCache: false };
@@ -392,6 +415,7 @@ export async function generateDownloadKBSync(
     if (generatingKBSync === generation) {
       generatingKBSync = null;
     }
+    notify(null);
   }
 }
 

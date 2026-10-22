@@ -154,6 +154,11 @@
     }
   },
   "downloads": {
+    "progress": {
+      "preparing": "正在準備下載元件…",
+      "connecting": "正在連接 App Store…",
+      "confirming": "正在確認下載資訊…"
+    },
     "title": "下載",
     "warning": "安裝包是暫時的，將在伺服器重啟時被清除。請及時下載或安裝。",
     "warningShort": "暫存安裝包，重啟即清除，請及時保存。",

@@ -15,6 +15,8 @@ import {
 import { useAccounts } from "../../hooks/useAccounts";
 import { useAccountHashes } from "../../hooks/useAccountHashes";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
+import type { DownloadProgressStage } from "../../apple/sap/client";
+import InlineProgressStatus from "../common/InlineProgressStatus";
 import { useSelectedAccount } from "../../hooks/useSelectedAccount";
 import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
 import { useToastStore } from '../../store/toast';
@@ -120,6 +122,10 @@ export default function ProductDetail() {
   const [selectedVersion, setSelectedVersion] = useState("");
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [checkingVersions, setCheckingVersions] = useState(false);
+  const [actionStage, setActionStage] = useState<DownloadProgressStage | null>(
+    null,
+  );
+  const [fetchingVersions, setFetchingVersions] = useState(false);
   const autoFetchVersionInfo = useSettingsStore((s) => s.autoFetchVersionInfo);
   const autoAcquireLicense = useSettingsStore((s) => s.autoAcquireLicense);
   const {
@@ -637,12 +643,14 @@ export default function ProductDetail() {
       return;
     }
     if (!account) return;
+    setFetchingVersions(true);
     setLoadingAction("versions");
     try {
       const result = await listVersionsWithLicense(
         account,
         app,
         routeVersionId || undefined,
+        setActionStage,
       );
       rememberVersionList(
         versionListKey(app.id, app.platform, country),
@@ -652,6 +660,8 @@ export default function ProductDetail() {
     } catch (e) {
       addToast(getErrorMessage(e, t("search.versions.loadFailed")), "error");
     } finally {
+      setFetchingVersions(false);
+      setActionStage(null);
       setLoadingAction(null);
     }
   }
@@ -688,10 +698,12 @@ export default function ProductDetail() {
         app,
         currentVersionId || undefined,
         country,
+        setActionStage,
       );
     } catch (e) {
       toastDownloadError(account, app, e);
     } finally {
+      setActionStage(null);
       setLoadingAction(null);
     }
   }
@@ -868,6 +880,7 @@ export default function ProductDetail() {
                 </span>
               </div>
             ) : (
+              <div className="space-y-2">
               <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
               {(app.price === undefined || app.price === 0) &&
                 app.metadataSource !== "local" &&
@@ -954,6 +967,18 @@ export default function ProductDetail() {
                     <span>{t("search.product.checkVersionNumbers")}</span>
                   </button>
                 )}
+              </div>
+              {actionStage ? (
+                <InlineProgressStatus stage={actionStage} />
+              ) : (
+                <div className="min-h-4 text-xs" aria-live="polite">
+                  {isSelectingVersions && fetchingVersions && (
+                    <p role="status" className="text-gray-500 dark:text-gray-400">
+                      {t("search.versions.fetching")}
+                    </p>
+                  )}
+                </div>
+              )}
               </div>
             )}
             {/* Why the download button is out: the account already holds the build it

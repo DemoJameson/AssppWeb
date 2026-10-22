@@ -1,3 +1,4 @@
+import type { DownloadStageObserver } from "./sap/client";
 import type { Account, Software, VersionMetadata } from "../types";
 import {
   FAILURE_LICENSE_NOT_FOUND,
@@ -25,13 +26,14 @@ export async function getVersionMetadata(
   account: Account,
   app: Software,
   versionId: string,
+  onStage?: DownloadStageObserver,
 ): Promise<{
   metadata: VersionMetadata;
   updatedCookies: typeof account.cookies;
 }> {
   const session = createDownloadSession(account, app);
 
-  const reply = await requestDownloadProduct(session, versionId);
+  const reply = await requestDownloadProduct(session, versionId, { onStage });
 
   assertVersionMetadataReply(reply);
 

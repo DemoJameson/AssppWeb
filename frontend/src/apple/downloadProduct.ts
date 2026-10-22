@@ -36,6 +36,7 @@ import {
   acceptDownloadKBSync,
   generateDownloadKBSync,
   invalidateDownloadKBSync,
+  type DownloadStageObserver,
 } from "./sap/client";
 import i18n from "../i18n";
 
@@ -58,6 +59,8 @@ export interface DownloadRequestOptions {
    * this so an unpinned probe cannot recursively ask for another pin.
    */
   legacyOnly?: boolean;
+  /** Optional, user-friendly progress stages for the exchange. */
+  onStage?: DownloadStageObserver;
 }
 
 export interface DownloadReply {
@@ -132,8 +135,14 @@ export async function requestDownloadProduct(
           ENT_DOWNLOAD_PATH,
           guid,
         );
-        return await sendEntDownload(session, endpoint, preferredVersionId);
+        return await sendEntDownload(
+          session,
+          endpoint,
+          preferredVersionId,
+          options.onStage,
+        );
       } catch (error) {
+        options.onStage?.(null);
         if (error instanceof DownloadError) entDownloadFailure = error;
         // Match ipatool: generation, transport, endpoint validation and reply
         // shape failures all fall through to the legacy chain. A structured
@@ -248,6 +257,7 @@ async function sendEntDownload(
   session: DownloadSession,
   endpoint: StoreDownloadEndpoint,
   externalVersionId: string,
+  onStage?: DownloadStageObserver,
 ): Promise<DownloadReply> {
   const { account, app } = session;
   const hardwareId = hexBytes(account.deviceIdentifier);
@@ -264,11 +274,13 @@ async function sendEntDownload(
   let kbsync = await generateDownloadKBSync(
     account.deviceIdentifier,
     account.directoryServicesIdentifier,
+    onStage,
   );
   let freshBlobRetried = false;
 
   while (true) {
     try {
+      onStage?.("connecting");
       const response = await appleRequest({
         method: "POST",
         host: endpoint.host,
@@ -297,6 +309,7 @@ async function sendEntDownload(
 
       session.cookies = extractAndMergeCookies(response.rawHeaders, session.cookies);
       const reply = toReply(response, endpoint);
+      onStage?.("confirming");
 
       // A structured failure is Apple's answer about the account or app, not
       // evidence that the kbsync blob is stale. Leave ent/download and let the
@@ -356,6 +369,7 @@ async function sendEntDownload(
       kbsync = await generateDownloadKBSync(
         account.deviceIdentifier,
         account.directoryServicesIdentifier,
+        onStage,
       );
     }
   }

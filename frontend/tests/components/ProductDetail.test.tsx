@@ -333,6 +333,7 @@ describe('ProductDetail download action', () => {
       app,
       undefined,
       'US',
+      expect.any(Function),
     );
     expect(downloadButton).toBeDisabled();
     expect(downloadButton).toHaveAttribute('aria-busy', 'true');
@@ -664,7 +665,12 @@ describe('ProductDetail download action', () => {
       screen.getByRole('button', { name: 'search.product.selectVersion' }),
     );
     await waitFor(() => expect(mocks.listVersions).toHaveBeenCalledTimes(1));
-    expect(mocks.listVersions).toHaveBeenCalledWith(account, app, undefined);
+    expect(mocks.listVersions).toHaveBeenCalledWith(
+      account,
+      app,
+      undefined,
+      expect.any(Function),
+    );
 
     const combo = await screen.findByRole('combobox', {
       name: 'search.product.version',
@@ -688,6 +694,7 @@ describe('ProductDetail download action', () => {
       app,
       '890657720',
       'US',
+      expect.any(Function),
     );
   });
 
@@ -941,6 +948,7 @@ describe('ProductDetail download action', () => {
       app,
       '818970197',
       'US',
+      expect.any(Function),
     );
   });
 
@@ -960,7 +968,12 @@ describe('ProductDetail download action', () => {
       screen.getByRole('button', { name: 'search.product.selectVersion' }),
     );
     await waitFor(() => expect(mocks.listVersions).toHaveBeenCalledTimes(1));
-    expect(mocks.listVersions).toHaveBeenCalledWith(account, app, '818970197');
+    expect(mocks.listVersions).toHaveBeenCalledWith(
+      account,
+      app,
+      '818970197',
+      expect.any(Function),
+    );
 
     const combo = await screen.findByRole('combobox', {
       name: 'search.product.version',
@@ -977,6 +990,7 @@ describe('ProductDetail download action', () => {
       app,
       '818970197',
       'US',
+      expect.any(Function),
     );
   });
 
@@ -1090,6 +1104,7 @@ describe('ProductDetail download action', () => {
       { ...app, metadataSource: 'local' },
       '890657720',
       'US',
+      expect.any(Function),
     );
   });
 
@@ -1155,6 +1170,7 @@ describe('ProductDetail download action', () => {
       { ...app, metadataSource: 'local' },
       '818970197',
       'US',
+      expect.any(Function),
     );
   });
 

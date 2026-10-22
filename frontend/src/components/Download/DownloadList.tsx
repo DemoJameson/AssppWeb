@@ -28,6 +28,8 @@ import { isNewerVersion } from "../../utils/version";
 import { versionRowLabel } from "../../utils/versionLabels";
 import { needsVersionExchange } from "../../utils/software";
 import { storeIdToCountry } from "../../apple/config";
+import type { DownloadProgressStage } from "../../apple/sap/client";
+import InlineProgressStatus from "../common/InlineProgressStatus";
 import type { Account, DownloadTask, Software } from "../../types";
 
 /** The account filter's sentinel; every other value is an account hash. */
@@ -94,7 +96,9 @@ async function checkForUpdate(
     account: Account,
     app: Software,
     recordedVersionId?: string,
+    onStage?: (stage: DownloadProgressStage | null) => void,
   ) => Promise<ServableVersion | undefined>,
+  onStage?: (stage: DownloadProgressStage | null) => void,
 ): Promise<UpdateCheck> {
   // The platform travels with the lookup: the backend answers a delisted app per
   // platform, else an id search would only see the iOS build (see `lookupEntityFor`).
@@ -110,6 +114,7 @@ async function checkForUpdate(
       account,
       app,
       task.software.externalVersionId,
+      (stage) => onStage?.(stage),
     );
     if (!newest) return { status: "unknown" };
     const newer = isNewerServable(newest, task);
@@ -182,6 +187,16 @@ export default function DownloadList() {
     selected: string;
   } | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [retryStage, setRetryStage] = useState<{
+    id: string;
+    stage: DownloadProgressStage | null;
+  } | null>(null);
+  const [checkUpdateStage, setCheckUpdateStage] = useState<
+    DownloadProgressStage | null
+  >(null);
+  const [updateStage, setUpdateStage] = useState<DownloadProgressStage | null>(
+    null,
+  );
 
   useEffect(() => {
     return () => {
@@ -373,10 +388,14 @@ export default function DownloadList() {
         account,
         task.software,
         task.software.externalVersionId || undefined,
+        undefined,
+        (stage) => setRetryStage({ id, stage }),
       );
     } catch (err) {
       toastDownloadError(account, task.software, err);
       return;
+    } finally {
+      setRetryStage(null);
     }
 
     try {
@@ -410,6 +429,7 @@ export default function DownloadList() {
         task,
         country,
         lookupNewestServableVersion,
+        setCheckUpdateStage,
       );
 
       // A check that could not be made is not an answer — report failure, not "already latest".
@@ -425,7 +445,12 @@ export default function DownloadList() {
       // The storefront path opens on the exchange's list; the exchange path already carries it.
       const versions =
         found.versions ??
-        (await listVersionsWithLicense(account, found.app)).versions;
+        (await listVersionsWithLicense(
+          account,
+          found.app,
+          undefined,
+          setCheckUpdateStage,
+        )).versions;
       setUpdateTarget({
         task,
         app: found.app,
@@ -438,6 +463,7 @@ export default function DownloadList() {
     } catch {
       addToast(t("downloads.package.checkUpdateFailed"), "error");
     } finally {
+      setCheckUpdateStage(null);
       setCheckingUpdateId(null);
     }
   }
@@ -468,12 +494,19 @@ export default function DownloadList() {
       // refused as a duplicate, so the row must stay — nothing replaced that package.
       const picksHeldBuild =
         selected !== "" && selected === (task.software.externalVersionId ?? "");
-      await startDownload(account, app, pin || undefined);
+      await startDownload(
+        account,
+        app,
+        pin || undefined,
+        undefined,
+        setUpdateStage,
+      );
       if (!picksHeldBuild) await deleteDownload(task.id);
       setUpdateTarget(null);
     } catch {
       addToast(t("downloads.package.updateFailed"), "error");
     } finally {
+      setUpdateStage(null);
       setUpdating(false);
     }
   }
@@ -705,6 +738,13 @@ export default function DownloadList() {
                 onRetry={owner ? handleRetry : undefined}
                 onCheckUpdate={owner ? handleCheckUpdate : undefined}
                 checkingUpdate={checkingUpdateId === task.id}
+                actionStage={
+                  task.id === checkingUpdateId
+                    ? checkUpdateStage
+                    : task.id === retryStage?.id
+                      ? retryStage.stage
+                      : null
+                }
                 onDelete={handleDelete}
               />
             );
@@ -790,6 +830,7 @@ export default function DownloadList() {
               />
             </div>
           )}
+          <InlineProgressStatus stage={updateStage} />
           <div className="mt-6 grid min-w-0 grid-cols-2 gap-2">
             <button
               type="button"

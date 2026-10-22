@@ -7,6 +7,7 @@ import {
   FAILURE_PASSWORD_TOKEN_EXPIRED,
   FAILURE_SIGN_IN_REQUIRED,
 } from "./config";
+import type { DownloadStageObserver } from "./sap/client";
 import {
   DownloadError,
   bodySnippet,
@@ -27,11 +28,16 @@ export async function getDownloadInfo(
   account: Account,
   app: Software,
   externalVersionId?: string,
-  options: { allowMissingDPInfo?: boolean } = {},
+  options: {
+    allowMissingDPInfo?: boolean;
+    onStage?: DownloadStageObserver;
+  } = {},
 ): Promise<{ output: DownloadOutput; updatedCookies: typeof account.cookies }> {
   const session = createDownloadSession(account, app);
 
-  const reply = await requestDownloadProduct(session, externalVersionId ?? "");
+  const reply = await requestDownloadProduct(session, externalVersionId ?? "", {
+    onStage: options.onStage,
+  });
 
   return interpretReply(session, reply, options.allowMissingDPInfo === true);
 }

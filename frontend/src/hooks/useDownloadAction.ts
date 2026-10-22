@@ -6,6 +6,10 @@ import { useDownloadsStore } from "../store/downloads";
 import { useSettingsStore } from "../store/settings";
 import { useAccountsStore } from "../store/accounts";
 import { DownloadError, getDownloadInfo } from "../apple/download";
+import type {
+  DownloadProgressStage,
+  DownloadStageObserver,
+} from "../apple/sap/client";
 import { purchaseApp } from "../apple/purchase";
 import { authenticate } from "../apple/authenticate";
 import {
@@ -92,6 +96,8 @@ export interface ServableVersion {
  * use them as effect dependencies, so a new one per render would re-run those
  * effects and, when they read the backend and write a subscribed store, loop.
  */
+export type { DownloadProgressStage, DownloadStageObserver };
+
 export function useDownloadAction() {
   const { updateAccount } = useAccounts();
   const addToast = useToastStore((s) => s.addToast);
@@ -169,6 +175,7 @@ export function useDownloadAction() {
     app: Software,
     versionId?: string,
     country?: string,
+    onStage?: DownloadStageObserver,
   ) => {
     const ctx = getAccountContext(account, t);
     const appName = app.name;
@@ -220,7 +227,7 @@ export function useDownloadAction() {
     let currentAccount = account;
     let download: Awaited<ReturnType<typeof getDownloadInfo>>;
     const requestDownload = (sessionAccount: Account) =>
-      getDownloadInfo(sessionAccount, app, pin);
+      getDownloadInfo(sessionAccount, app, pin, { onStage });
     try {
       const attempt = await retryWithRenewedSession(
         currentAccount,
@@ -359,11 +366,12 @@ export function useDownloadAction() {
       account: Account,
       app: Software,
       pinnedVersionId?: string,
+      onStage?: DownloadStageObserver,
     ): Promise<Awaited<ReturnType<typeof listVersions>>> => {
       let currentAccount = account;
       let result: Awaited<ReturnType<typeof listVersions>>;
       const requestVersions = (sessionAccount: Account) =>
-        listVersions(sessionAccount, app, pinnedVersionId);
+        listVersions(sessionAccount, app, pinnedVersionId, onStage);
       try {
         const attempt = await retryWithRenewedSession(
           currentAccount,
@@ -417,9 +425,15 @@ export function useDownloadAction() {
       account: Account,
       app: Software,
       recordedVersionId?: string,
+      onStage?: DownloadStageObserver,
     ): Promise<ServableVersion | undefined> => {
       const pinned = recordedVersionId?.trim() || undefined;
-      const list = await listVersionsWithLicense(account, app, pinned);
+      const list = await listVersionsWithLicense(
+        account,
+        app,
+        pinned,
+        onStage,
+      );
       const versionId = list.versions[0];
       if (!versionId) return undefined;
 
@@ -440,6 +454,7 @@ export function useDownloadAction() {
           freshest,
           app,
           versionId,
+          onStage,
         );
         try {
           await updateAccount({ ...freshest, cookies: updatedCookies });

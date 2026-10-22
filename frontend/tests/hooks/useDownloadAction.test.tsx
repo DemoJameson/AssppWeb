@@ -626,7 +626,7 @@ describe("useDownloadAction", () => {
       await result.current.startDownload(account, tvosApp);
     });
 
-    expect(getDownloadInfo).toHaveBeenCalledWith(account, tvosApp, "900");
+    expect(getDownloadInfo).toHaveBeenCalledWith(account, tvosApp, "900", expect.anything());
   });
 
   it("borrows the pin from the page's region when one is supplied", async () => {
@@ -640,7 +640,7 @@ describe("useDownloadAction", () => {
       await result.current.startDownload(account, tvosApp, undefined, "JP");
     });
 
-    expect(getDownloadInfo).toHaveBeenCalledWith(account, tvosApp, "900");
+    expect(getDownloadInfo).toHaveBeenCalledWith(account, tvosApp, "900", expect.anything());
   });
 
   it("lets an explicit version win over the cached one", async () => {
@@ -652,7 +652,7 @@ describe("useDownloadAction", () => {
       await result.current.startDownload(account, tvosApp, "800");
     });
 
-    expect(getDownloadInfo).toHaveBeenCalledWith(account, tvosApp, "800");
+    expect(getDownloadInfo).toHaveBeenCalledWith(account, tvosApp, "800", expect.anything());
   });
 
   it("passes no version when the platform needs no pin, cache or not", async () => {
@@ -665,7 +665,7 @@ describe("useDownloadAction", () => {
       await result.current.startDownload(account, app);
     });
 
-    expect(getDownloadInfo).toHaveBeenCalledWith(account, app, undefined);
+    expect(getDownloadInfo).toHaveBeenCalledWith(account, app, undefined, expect.anything());
   });
 
   it("passes no version when a pinned platform has no cached list", async () => {
@@ -676,7 +676,7 @@ describe("useDownloadAction", () => {
       await result.current.startDownload(account, tvosApp);
     });
 
-    expect(getDownloadInfo).toHaveBeenCalledWith(account, tvosApp, undefined);
+    expect(getDownloadInfo).toHaveBeenCalledWith(account, tvosApp, undefined, expect.anything());
   });
 
   it("reuses the borrowed pin for the retry after a purchase", async () => {
@@ -803,7 +803,12 @@ describe("useDownloadAction", () => {
 
       // The list is pinned to the build already held — the only pin a delisted
       // app can still be reached through — and its newest entry is the answer.
-      expect(listVersions).toHaveBeenCalledWith(account, recalled, "222");
+      expect(listVersions).toHaveBeenCalledWith(
+        account,
+        recalled,
+        "222",
+        undefined,
+      );
       expect(found).toEqual({
         versionId: "333",
         displayVersion: "3.4.6",

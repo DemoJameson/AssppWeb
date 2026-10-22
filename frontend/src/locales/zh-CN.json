@@ -154,6 +154,11 @@
     }
   },
   "downloads": {
+    "progress": {
+      "preparing": "正在准备下载组件…",
+      "connecting": "正在连接 App Store…",
+      "confirming": "正在确认下载信息…"
+    },
     "title": "下载",
     "warning": "安装包是临时的，将在服务器重启时被清除。请及时下载或安装。",
     "warningShort": "临时安装包，重启即清除，请及时保存。",

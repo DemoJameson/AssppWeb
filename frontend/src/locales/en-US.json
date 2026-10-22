@@ -154,6 +154,11 @@
     }
   },
   "downloads": {
+    "progress": {
+      "preparing": "Preparing download components…",
+      "connecting": "Connecting to the App Store…",
+      "confirming": "Confirming download information…"
+    },
     "title": "Downloads",
     "warning": "Packages are temporary and will be cleared on server restart. Download or install promptly.",
     "warningShort": "Temporary; cleared on restart—save promptly.",

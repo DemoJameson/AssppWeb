@@ -1,3 +1,4 @@
+import type { DownloadStageObserver } from "./sap/client";
 import type { Account, Software } from "../types";
 import {
   FAILURE_LICENSE_NOT_FOUND,
@@ -51,6 +52,7 @@ export async function listVersions(
   account: Account,
   app: Software,
   pinnedVersionId?: string,
+  onStage?: DownloadStageObserver,
 ): Promise<VersionListOutput & { updatedCookies: typeof account.cookies }> {
   const session = createDownloadSession(account, app);
 
@@ -60,7 +62,7 @@ export async function listVersions(
   const requestedPin = pinnedVersionId?.trim();
   const pin = requestedPin ? requestedPin : await platformVersionPin(session);
 
-  const reply = await requestDownloadProduct(session, pin);
+  const reply = await requestDownloadProduct(session, pin, { onStage });
 
   assertListVersionsReply(reply);
 

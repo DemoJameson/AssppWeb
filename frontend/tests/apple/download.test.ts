@@ -245,7 +245,10 @@ describe("apple/download", () => {
       ),
     ];
 
-    const { output } = await getDownloadInfo(account, app);
+    const stages: Array<string | null> = [];
+    const { output } = await getDownloadInfo(account, app, undefined, {
+      onStage: (stage) => stages.push(stage),
+    });
 
     expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
     const calls = downloadCalls();
@@ -258,12 +261,14 @@ describe("apple/download", () => {
     expect(generateDownloadKBSync).toHaveBeenCalledWith(
       "aabbccddeeff",
       "1234567890",
+      expect.any(Function),
     );
     expect(acceptDownloadKBSync).toHaveBeenCalledWith(
       "aabbccddeeff",
       "1234567890",
       "a2JzeW5j",
     );
+    expect(stages).toEqual(["connecting", "confirming"]);
   });
 
   it("falls back to volumeStore when kbsync generation fails", async () => {
@@ -273,12 +278,16 @@ describe("apple/download", () => {
     vi.mocked(generateDownloadKBSync).mockRejectedValue(new Error("guest failed"));
     downloadReplies = [reply(downloadDoc())];
 
-    const { output } = await getDownloadInfo(account, app);
+    const stages: Array<string | null> = [];
+    const { output } = await getDownloadInfo(account, app, undefined, {
+      onStage: (stage) => stages.push(stage),
+    });
 
     expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
     const calls = downloadCalls();
     expect(calls).toHaveLength(1);
     expect(calls[0].path).toContain("/volumeStoreDownloadProduct");
+    expect(stages).toEqual([null]);
   });
 
   it("retries a rejected cached kbsync once with a fresh blob", async () => {
