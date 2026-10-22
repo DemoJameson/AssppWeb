@@ -128,7 +128,7 @@
       "preparingAssets": "서명 구성 요소 준비 중 {{percent}}%",
       "preparingSigner": "서명자 초기화 중…",
       "signerFailed": "서명 구성 요소 준비 실패: {{error}}",
-      "signerFirstRun": "처음 한 번만 서명 구성 요소를 준비합니다(약 14 MB).",
+      "signerFirstRun": "처음 한 번만 서명 구성 요소를 준비합니다(약 12 MB).",
       "retrySignIn": "로그인 재시도"
     },
     "detail": {

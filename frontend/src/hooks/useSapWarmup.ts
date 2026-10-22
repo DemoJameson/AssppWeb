@@ -4,10 +4,10 @@ import { useSapStore } from "../store/sap";
 import { fetchBag } from "../apple/bag";
 
 // Warms up the SAP signer in the background once an account exists: preparation
-// is dominated by a one-time ~14 MB asset download (Cache API makes later runs
-// instant), so starting on load usually finds it ready. It waits for an account
-// because the signer binds to that hardware id. Fire and forget — the store
-// carries the outcome, and failures surface only when a signature is needed.
+// is dominated by a one-time ~12 MB Brotli asset download (Cache API makes
+// later runs instant), so starting on load usually finds it ready. It waits for
+// an account because the signer binds to that hardware id. Fire and forget — the
+// store carries the outcome, and failures surface only when a signature is needed.
 export function useSapWarmup() {
   const accounts = useAccountsStore((state) => state.accounts);
   const stage = useSapStore((state) => state.stage);

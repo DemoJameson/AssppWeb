@@ -7,6 +7,7 @@ import zlib from "node:zlib";
 import {
   SAP_ASSET_SPECS,
   ensureSapAssets,
+  readBrotliSidecar,
   readCachedAsset,
   sapAssetsState,
 } from "../services/sapAssets.js";
@@ -38,6 +39,22 @@ router.get("/sap-assets/:name", async (req: Request, res: Response) => {
     return;
   }
 
+  const encoding = preferredEncoding(req.headers["accept-encoding"]);
+  const wantsCompression = dataOverCompressionThreshold(spec.strippedSize);
+  const brotli =
+    wantsCompression && encoding === "br"
+      ? await readBrotliSidecar(name)
+      : null;
+  if (brotli) {
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+    res.setHeader("Vary", "Accept-Encoding");
+    res.setHeader("Content-Encoding", "br");
+    res.setHeader("ETag", `"${spec.strippedSha256}-br"`);
+    res.send(brotli);
+    return;
+  }
+
   let data = await readCachedAsset(name);
   if (!data) {
     try {
@@ -57,16 +74,62 @@ router.get("/sap-assets/:name", async (req: Request, res: Response) => {
   }
 
   res.setHeader("Content-Type", "application/octet-stream");
-  res.setHeader("ETag", `"${spec.strippedSha256}"`);
   res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
-  // gzip cuts the ~22.5 MiB bundle to ~14 MiB on the wire.
-  if (req.headers["accept-encoding"]?.includes("gzip") && data.length > 65536) {
+  // The representation (and therefore the ETag) depends on Accept-Encoding.
+  res.setHeader("Vary", "Accept-Encoding");
+
+  // gzip covers both a gzip preference and the fallback when br won the
+  // negotiation but its sidecar was unavailable.
+  if (
+    wantsCompression &&
+    (encoding === "gzip" || acceptsEncoding(req.headers["accept-encoding"], "gzip"))
+  ) {
     res.setHeader("Content-Encoding", "gzip");
-    res.setHeader("Vary", "Accept-Encoding");
+    res.setHeader("ETag", `"${spec.strippedSha256}-gzip"`);
     res.send(zlib.gzipSync(data, { level: 9 }));
     return;
   }
+  res.setHeader("ETag", `"${spec.strippedSha256}"`);
   res.send(data);
 });
+
+function dataOverCompressionThreshold(size: number): boolean {
+  return size > 65536;
+}
+
+function acceptsEncoding(header: string | undefined, name: string): boolean {
+  if (!header) return false;
+  for (const part of header.split(",")) {
+    const [token, ...params] = part.trim().toLowerCase().split(";");
+    if (token !== name) continue;
+    const q = params.find((param) => param.trim().startsWith("q="));
+    const quality = q ? Number(q.trim().slice(2)) : 1;
+    return Number.isFinite(quality) && quality > 0;
+  }
+  return false;
+}
+
+/** Chooses the highest-q supported encoding; ties go to Brotli because it is
+ * smaller. Unknown encodings and q=0 are ignored. */
+function preferredEncoding(header: string | undefined): "br" | "gzip" | null {
+  if (!header) return null;
+  let best: "br" | "gzip" | null = null;
+  let bestQ = 0;
+  for (const part of header.split(",")) {
+    const [token, ...params] = part.trim().toLowerCase().split(";");
+    if (token !== "br" && token !== "gzip") continue;
+    const q = params.find((param) => param.trim().startsWith("q="));
+    const quality = q ? Number(q.trim().slice(2)) : 1;
+    if (!Number.isFinite(quality) || quality <= 0) continue;
+    if (
+      quality > bestQ ||
+      (quality === bestQ && token === "br")
+    ) {
+      best = token;
+      bestQ = quality;
+    }
+  }
+  return best;
+}
 
 export default router;

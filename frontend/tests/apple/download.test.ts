@@ -71,6 +71,15 @@ const reply = (body: string, status = 200, headers: Record<string, string> = {})
   body,
 });
 
+const replyWithCookies = (
+  body: string,
+  cookies: string[],
+  status = 200,
+): Reply => ({
+  ...reply(body, status),
+  rawHeaders: cookies.map((value): [string, string] => ["Set-Cookie", value]),
+});
+
 /** Apple's "empty" reply: a well-formed plist with nothing in it to download. */
 const purchaseDoc = () =>
   buildPlist({
@@ -151,7 +160,12 @@ const lookupDoc = (externalId: string | number) =>
 
 const offersMissingDoc = () => JSON.stringify({ results: { "1492142120": { offers: [] } } });
 
-type RequestOptions = { host: string; path: string; body?: string };
+type RequestOptions = {
+  host: string;
+  path: string;
+  body?: string;
+  cookies?: typeof account.cookies;
+};
 
 let downloadReplies: (Reply | Error)[] = [];
 let lookupBody = lookupDoc("891042628");
@@ -412,7 +426,37 @@ describe("apple/download", () => {
     expect(invalidateDownloadKBSync).not.toHaveBeenCalled();
   });
 
-  it("keeps Apple's structured ent failure when the legacy transport is down", async () => {
+  it("downloads a delisted tvOS app through the legacy chain when ent/download rejects its session", async () => {
+    const tvosApp = {
+      ...app,
+      platform: "tvos",
+      metadataSource: "local",
+    } as Software;
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+    });
+    lookupBody = offersMissingDoc();
+    vi.mocked(apiGet).mockResolvedValue({
+      pins: [{ platform: "tvos", versionId: "889244416" }],
+    });
+    downloadReplies = [
+      replyWithCookies(failureDoc("2034"), ["session=ent-failed"]),
+      reply(downloadDoc()),
+    ];
+
+    const { output } = await getDownloadInfo(account, tvosApp);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[0].path).toContain("/ent/download");
+    expect(calls[0].body).toContain("<key>externalVersionId</key><string>889244416</string>");
+    expect(calls[1].path).toContain("/volumeStoreDownloadProduct");
+    expect(calls[1].body).toContain("<key>externalVersionId</key><string>889244416</string>");
+    expect(calls[1].cookies).toEqual([]);
+  });
+
+  it("reports the legacy transport failure when ent/download also failed", async () => {
     withBag({
       entDownloadEndpoint: entDownloadEndpoint(),
     });
@@ -425,7 +469,9 @@ describe("apple/download", () => {
       new AppleUnreachableError("timed out"),
     ];
 
-    await expect(getDownloadInfo(account, app)).rejects.toThrow(/2034/);
+    // ent/download is only a fast path: its 2034 must not outrank the answer
+    // from the endpoint that used to serve this download (ipatool does the same).
+    await expect(getDownloadInfo(account, app)).rejects.toThrow(/timed out/);
     expect(downloadCalls()).toHaveLength(2);
     expect(generateDownloadKBSync).toHaveBeenCalledTimes(1);
   });

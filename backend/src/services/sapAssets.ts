@@ -99,6 +99,11 @@ export type SapAssetsState =
 
 let state: SapAssetsState = { status: "idle" };
 let extraction: Promise<void> | null = null;
+let preparation: Promise<void> | null = null;
+/** Verified sidecars are immutable for the process lifetime. Keeping them here
+ * avoids re-hashing the full decompressed asset on every HTTP request. */
+const brotliSidecars = new Map<string, Buffer>();
+const brotliSidecarReads = new Map<string, Promise<Buffer | null>>();
 
 export function sapAssetsState(): SapAssetsState {
   return state;
@@ -116,6 +121,23 @@ function assetPath(name: string): string {
   return path.join(cacheDir(), spec.name);
 }
 
+function brotliAssetPath(name: string): string {
+  return `${assetPath(name)}.br`;
+}
+
+/** Build-time and first-extraction Brotli settings. Quality 11 is for offline
+ * work, not request-time compression; the window is the largest one browsers
+ * accept without the non-standard large-window flag. */
+export function compressSapAsset(data: Buffer): Buffer {
+  return zlib.brotliCompressSync(data, {
+    params: {
+      [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+      [zlib.constants.BROTLI_PARAM_SIZE_HINT]: data.length,
+      [zlib.constants.BROTLI_PARAM_LGWIN]: 24,
+    },
+  });
+}
+
 export async function readCachedAsset(name: string): Promise<Buffer | null> {
   const spec = SAP_ASSET_SPECS.find((candidate) => candidate.name === name);
   if (!spec) {
@@ -127,6 +149,130 @@ export async function readCachedAsset(name: string): Promise<Buffer | null> {
   } catch {
     return null;
   }
+}
+
+/** Reads a precompressed representation for the build-time copy step, proving
+ * it still expands to the pinned raw bytes. The request path reads the sidecar
+ * directly: the raw digest was verified first, and the browser verifies the
+ * decompressed bytes against the same pin before using them. */
+export async function readBrotliAsset(name: string): Promise<Buffer | null> {
+  const spec = SAP_ASSET_SPECS.find((candidate) => candidate.name === name);
+  if (!spec) {
+    return null;
+  }
+  try {
+    const compressed = await fs.readFile(brotliAssetPath(name));
+    if (verifyBrotliAsset(spec, compressed)) {
+      return compressed;
+    }
+  } catch {
+    // Fall through to the image-prebaked copy. A data volume seeded before
+    // precompression existed still gets the new representation without a
+    // rebuild or a startup pass.
+  }
+
+  try {
+    const bundled = path.join(bundledSapAssetsDir(), `${name}.br`);
+    const compressed = await fs.readFile(bundled);
+    if (!verifyBrotliAsset(spec, compressed)) {
+      return null;
+    }
+    await fs.mkdir(cacheDir(), { recursive: true });
+    const target = brotliAssetPath(name);
+    await fs.writeFile(`${target}.tmp`, compressed);
+    await fs.rename(`${target}.tmp`, target);
+    brotliSidecars.set(name, compressed);
+    return compressed;
+  } catch {
+    // Last resort for a volume from an image without .br: derive it from the
+    // already-verified raw file. Only the build/extraction path reaches this;
+    // the request route reads the sidecar directly and falls back to gzip.
+    const raw = await readCachedAsset(name);
+    if (!raw) return null;
+    const compressed = compressSapAsset(raw);
+    await fs.mkdir(cacheDir(), { recursive: true });
+    const target = brotliAssetPath(name);
+    await fs.writeFile(`${target}.tmp`, compressed);
+    await fs.rename(`${target}.tmp`, target);
+    brotliSidecars.set(name, compressed);
+    return compressed;
+  }
+}
+
+/** Reads a sidecar for the request path, rejecting a stale representation. The
+ * raw asset has already been verified; the sidecar must expand to that same
+ * pinned payload. A mismatched file is removed so the image copy or gzip can
+ * take over. */
+export function readBrotliSidecar(name: string): Promise<Buffer | null> {
+  const pending = brotliSidecarReads.get(name);
+  if (pending) {
+    return pending;
+  }
+  const read = readBrotliSidecarUncached(name).finally(() => {
+    brotliSidecarReads.delete(name);
+  });
+  brotliSidecarReads.set(name, read);
+  return read;
+}
+
+async function readBrotliSidecarUncached(
+  name: string,
+): Promise<Buffer | null> {
+  const spec = SAP_ASSET_SPECS.find((candidate) => candidate.name === name);
+  if (!spec) {
+    return null;
+  }
+  const cached = brotliSidecars.get(name);
+  if (cached) {
+    return cached;
+  }
+  try {
+    const compressed = await fs.readFile(brotliAssetPath(name));
+    if (verifyBrotliAsset(spec, compressed)) {
+      brotliSidecars.set(name, compressed);
+      return compressed;
+    }
+    // It does not match the current pin. Remove it so the bundled sidecar (or
+    // gzip fallback) can take over instead of failing every retry forever.
+    await fs.unlink(brotliAssetPath(name)).catch(() => undefined);
+  } catch {
+    // The release image ships the sidecar even when the data volume only has
+    // the raw files from an older deployment.
+  }
+
+  try {
+    const compressed = await fs.readFile(
+      path.join(bundledSapAssetsDir(), `${name}.br`),
+    );
+    if (!verifyBrotliAsset(spec, compressed)) {
+      return null;
+    }
+    await fs.mkdir(cacheDir(), { recursive: true });
+    const target = brotliAssetPath(name);
+    await fs.writeFile(`${target}.tmp`, compressed);
+    await fs.rename(`${target}.tmp`, target);
+    brotliSidecars.set(name, compressed);
+    return compressed;
+  } catch {
+    return null;
+  }
+}
+
+function verifyBrotliAsset(spec: SapAssetSpec, compressed: Buffer): boolean {
+  try {
+    return verifyStripped(spec, zlib.brotliDecompressSync(compressed));
+  } catch {
+    return false;
+  }
+}
+
+async function writeBrotliAsset(name: string, data: Buffer): Promise<void> {
+  const compressed = compressSapAsset(data);
+  const target = brotliAssetPath(name);
+  await fs.writeFile(`${target}.tmp`, compressed);
+  await fs.rename(`${target}.tmp`, target);
+  brotliSidecars.set(name, compressed);
+  brotliSidecarReads.delete(name);
 }
 
 function verifyStripped(spec: SapAssetSpec, data: Buffer): boolean {
@@ -178,27 +324,50 @@ export function bundledSapAssetsDir(): string {
 }
 
 /** Ensures assets are extracted and cached; concurrent callers share the job. */
-export async function ensureSapAssets(): Promise<void> {
-  for (const spec of SAP_ASSET_SPECS) {
-    if (!(await readCachedAsset(spec.name))) {
-      if (await seedFromBundled()) {
-        break;
-      }
+export function ensureSapAssets(): Promise<void> {
+  if (preparation) {
+    return preparation;
+  }
+  const job = prepareSapAssets();
+  preparation = job;
+  void job
+    .finally(() => {
+      if (preparation === job) preparation = null;
+    })
+    .catch(() => undefined);
+  return job;
+}
+
+async function prepareSapAssets(): Promise<void> {
+  const allRawPresent = async () => {
+    for (const spec of SAP_ASSET_SPECS) {
+      if (!(await readCachedAsset(spec.name))) return false;
+    }
+    return true;
+  };
+
+  if (!(await allRawPresent())) {
+    // Only seed when every bundled raw file is present and valid. The old
+    // short-circuit accepted one copied file as proof the whole set was ready,
+    // leaving the first request to find a different asset missing.
+    if (!(await seedFromBundled()) || !(await allRawPresent())) {
       await extract();
       return;
     }
   }
   state = { status: "ready" };
+  // Sidecars ship with release images. A data volume from an older image gets
+  // them on the next build/extraction; until then the route falls back to gzip.
 }
 
 async function seedFromBundled(): Promise<boolean> {
   const bundled = bundledSapAssetsDir();
-  let any = false;
   try {
     await fs.access(bundled);
   } catch {
     return false;
   }
+  const bundledData = new Map<string, Buffer>();
   for (const spec of SAP_ASSET_SPECS) {
     if (await readCachedAsset(spec.name)) {
       continue;
@@ -208,16 +377,35 @@ async function seedFromBundled(): Promise<boolean> {
       if (!verifyStripped(spec, data)) {
         continue;
       }
-      await fs.mkdir(cacheDir(), { recursive: true });
-      const target = assetPath(spec.name);
-      await fs.writeFile(`${target}.tmp`, data);
-      await fs.rename(`${target}.tmp`, target);
-      any = true;
+      bundledData.set(spec.name, data);
     } catch {
       // bundled file missing/corrupt; fall through to extraction
     }
   }
-  return any;
+  if (bundledData.size === 0) {
+    return false;
+  }
+  // A partial image would otherwise look "seeded" after one file and send the
+  // next asset request back into extraction. Require every missing raw file.
+  for (const spec of SAP_ASSET_SPECS) {
+    if (!(await readCachedAsset(spec.name)) && !bundledData.has(spec.name)) {
+      return false;
+    }
+  }
+  await fs.mkdir(cacheDir(), { recursive: true });
+  // Remove stale sidecars before exposing the new raw files. A crash after a
+  // rename must not leave a cached representation that fails the raw pin.
+  for (const name of bundledData.keys()) {
+    await fs.unlink(brotliAssetPath(name)).catch(() => undefined);
+    brotliSidecars.delete(name);
+    brotliSidecarReads.delete(name);
+  }
+  for (const [name, data] of bundledData) {
+    const target = assetPath(name);
+    await fs.writeFile(`${target}.tmp`, data);
+    await fs.rename(`${target}.tmp`, target);
+  }
+  return true;
 }
 
 async function extract(): Promise<void> {
@@ -329,6 +517,7 @@ async function runExtraction(): Promise<void> {
       const target = assetPath(spec.name);
       await fs.writeFile(`${target}.tmp`, stripped);
       await fs.rename(`${target}.tmp`, target);
+      await writeBrotliAsset(spec.name, stripped);
     }
 
     state = { status: "ready" };

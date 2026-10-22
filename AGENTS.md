@@ -106,13 +106,13 @@ Build: `bash frontend/scripts/unicorn-wasm-patch/build.sh` (requires docker; ems
 
 ### Backend asset pipeline
 
-`backend/src/services/sapAssets.ts` extracts the five binaries once from Apple's public OSXUpd10.9.pkg: xar TOC parse → HTTP range download of the Payload tail (~380 MB) → bzip2 stream (with a synthetic `BZh9` header from a fixed offset) → cpio (odc and newc formats) → pinned SHA-256 verification → **fat-binary stripping to the x86_64 slice** (the emulated guest architecture; CoreFP ships as an i386+x86_64 universal, so this halves it) → cache under `DATA_DIR/sap-assets`. All data is public Apple content (same trust class as the bag proxy). Specs carry two pin sets: the original Apple digest verifies the extraction; the stripped digest (a deterministic function of the original) verifies what is served and what the browser downloads. Distribution sizes: 40.3 MB original → 25.1 MB stripped → ~16 MB on the wire with the route's gzip response. The bz2 stream is truncated mid-file, so the decoder can emit a late crc error after the wanted members are captured — the pipeline swallows it by design (an unhandled rejection would crash Node).
+`backend/src/services/sapAssets.ts` extracts the five binaries once from Apple's public OSXUpd10.9.pkg: xar TOC parse → HTTP range download of the Payload tail (~380 MB) → bzip2 stream (with a synthetic `BZh9` header from a fixed offset) → cpio (odc and newc formats) → pinned SHA-256 verification → **fat-binary stripping to the x86_64 slice** (the emulated guest architecture; CoreFP ships as an i386+x86_64 universal, so this halves it) → cache under `DATA_DIR/sap-assets`. All data is public Apple content (same trust class as the bag proxy). Specs carry two pin sets: the original Apple digest verifies the extraction; the stripped digest (a deterministic function of the original) verifies what is served and what the browser downloads. Distribution sizes: 40.3 MB original → 25.1 MB stripped → ~12.1 MB on the wire with the route's precompressed Brotli response (gzip remains the fallback). The bz2 stream is truncated mid-file, so the decoder can emit a late crc error after the wanted members are captured — the pipeline swallows it by design (an unhandled rejection would crash Node). The browser loads the five assets in parallel; Cache API entries are raw and independent of the HTTP representation.
 
-On startup `ensureSapAssets` prefers `DATA_DIR/sap-assets`, then seeds from the image-prebaked directory (`BUNDLED_SAP_ASSETS`, default `/opt/asspp/sap-assets`), and only then falls back to network extraction (the bzip2 decoder is imported lazily because cross-built images may lack a matching napi binary for the runtime arch — see Dockerfile). Routes (`backend/src/routes/sapAssets.ts`): `GET /api/sap-assets/status`, `POST /api/sap-assets/prepare`, `GET /api/sap-assets/:name` (gzip when accepted).
+On startup `ensureSapAssets` prefers `DATA_DIR/sap-assets`, then seeds from the image-prebaked directory (`BUNDLED_SAP_ASSETS`, default `/opt/asspp/sap-assets`), and only then falls back to network extraction (the bzip2 decoder is imported lazily because cross-built images may lack a matching napi binary for the runtime arch — see Dockerfile). Routes (`backend/src/routes/sapAssets.ts`): `GET /api/sap-assets/status`, `POST /api/sap-assets/prepare`, `GET /api/sap-assets/:name` (Brotli when accepted, gzip fallback). The extraction also writes a quality-11 Brotli sidecar (`<name>.br`); the route copies a missing sidecar from the image once, then serves it directly. An old image without sidecars falls back to gzip.
 
 ### Container image
 
-The Dockerfile prebakes the stripped SAP assets at build time (a `sap-assets` stage runs `backend/scripts/extract-sap-assets.mts`; Docker layer caching makes it a no-op on rebuilds). Release images ship the assets, so a fresh VPS serves them with zero network use. Build stages run on `$BUILDPLATFORM` (JS artifacts are platform-independent); the runtime image installs production deps per target platform because `yauzl-promise` → `@node-rs/crc32` ships prebuilt napi binaries per arch. Published platforms: `linux/amd64`, `linux/arm64`. **linux/386 is out**: official node images dropped it and `@node-rs/crc32` has no linux-ia32 build.
+The Dockerfile prebakes the stripped SAP assets and their Brotli sidecars at build time (a `sap-assets` stage runs `backend/scripts/extract-sap-assets.mts`; Docker layer caching makes it a no-op on rebuilds). Release images ship both, so a fresh VPS serves Brotli with zero network use. Build stages run on `$BUILDPLATFORM` (JS artifacts are platform-independent); the runtime image installs production deps per target platform because `yauzl-promise` → `@node-rs/crc32` ships prebuilt napi binaries per arch. Published platforms: `linux/amd64`, `linux/arm64`. **linux/386 is out**: official node images dropped it and `@node-rs/crc32` has no linux-ia32 build.
 
 ### SAP invariants
 
@@ -121,7 +121,7 @@ The Dockerfile prebakes the stripped SAP assets at build time (a `sap-assets` st
 - SAP session lifetime = the page session: the signer is a singleton per deviceIdentifier, reused across sign-in attempts (2FA retries included); switching accounts rebuilds it. Initialization ≈ 150–300 ms of emulation plus the setup exchange round-trips
 - Every call *into* the emulation is bounded at two minutes (`SAP_CALL_TIMEOUT_MS` in `client.ts`). Nothing else bounds them — they run before the Apple request they sign for, so the request's own 20 s timeout never sees them — and a Worker that stops answering would otherwise leave the sign-in button spinning with no way out. A timed-out call is **wedged**, not slow: the driver terminates the worker, refuses further calls and drops the cached signer, so a retry rebuilds instead of waiting another two minutes on the same dead emulation
 - A preparation that fails after its worker was created terminates that worker. The worker holds ~160 MB of wasm heap and nothing outside `runPreparation` can reach it, so a transient Apple 502 on the setup exchange (measured) must not leave one running per attempt
-- First login downloads ~16 MB over the wire (25.1 MB stripped assets, gzipped); a background warmup and inline progress line cover it. Release images prebake the assets, so the backend serves them instantly
+- First login downloads ~12 MB over the wire (25.1 MB stripped assets, precompressed with Brotli); the five files load in parallel, and a background warmup and inline progress line cover it. Release images prebake the assets, so the backend serves them instantly
 - The live bag currently returns the legacy `MZFinance` authenticate endpoint (see upstream PR discussion), so `normalizeAuthURL` only ever adds the trailing slash to it; all three advertised endpoints sit in the SAP-signed list — signing applies regardless
 
 ## Reference Implementation
@@ -225,8 +225,10 @@ generated blob; if that fresh attempt is also rejected, the flow falls back to t
 legacy chain, whose reply (including a structured failure) is the answer. A
 structured `failureType` / `customerMessage` is not a `kbsync` rejection: it
 leaves ent/download immediately for the legacy chain without invalidating the
-cached blob or generating a fresh one. `kbsync` generation failures and invalid
-bag URLs also fall back.
+cached blob or generating a fresh one. Every ent/download error — including a
+structured session failure such as `2034` — is only that endpoint's answer, so it
+never outranks the legacy chain or becomes the error when the legacy transport is
+unavailable. `kbsync` generation failures and invalid bag URLs also fall back.
 
 Fallback triggers (the reply shapes are ipatool's; the transport trigger below is
 this project's addition):

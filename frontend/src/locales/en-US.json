@@ -128,7 +128,7 @@
       "preparingAssets": "Preparing signing components {{percent}}%",
       "preparingSigner": "Initializing the request signer…",
       "signerFailed": "Failed to prepare signing components: {{error}}",
-      "signerFirstRun": "First run: preparing the signing component (~14 MB, this once).",
+      "signerFirstRun": "First run: preparing the signing component (~12 MB, this once).",
       "retrySignIn": "Retry Sign In"
     },
     "detail": {

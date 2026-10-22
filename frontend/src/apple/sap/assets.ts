@@ -53,8 +53,9 @@ const CACHE_NAME = "asspp-sap-assets-v2";
 async function fetchWithProgress(
   url: string,
   onProgress?: (loaded: number, total: number) => void,
+  signal?: AbortSignal,
 ): Promise<Uint8Array<ArrayBuffer>> {
-  const response = await fetch(url, { headers: authHeaders() });
+  const response = await fetch(url, { headers: authHeaders(), signal });
   if (!response.ok) {
     throw new Error(`SAP asset download failed: HTTP ${response.status}`);
   }
@@ -95,16 +96,21 @@ async function digestMatches(
   return actual === expected;
 }
 
+function aborted(): DOMException {
+  return new DOMException("SAP asset download cancelled", "AbortError");
+}
+
 /**
- * Loads all five SAP assets, verifying digests. Bytes come from the backend
- * cache (public Apple data) and are persisted in the Cache API so the ~40 MiB
+ * Loads all five SAP assets in parallel, verifying digests. Bytes come from the
+ * backend cache (public Apple data) and are persisted in the Cache API so the
  * transfer happens once.
  */
 export async function loadSapAssets(
   onProgress?: (loadedBytes: number, totalBytes: number) => void,
 ): Promise<SapAssetBundle> {
   const totalBytes = SAP_ASSET_SPECS.reduce((sum, spec) => sum + spec.size, 0);
-  let loadedBytes = 0;
+  const controller = new AbortController();
+  let failed = false;
   let cache: Cache | null = null;
   try {
     cache = await caches.open(CACHE_NAME);
@@ -112,8 +118,21 @@ export async function loadSapAssets(
     // Cache API unavailable (private mode); fall back to direct downloads.
   }
 
-  const bundle: Record<string, Uint8Array> = {};
-  for (const spec of SAP_ASSET_SPECS) {
+  // Network transfer is compressed, so Content-Length is not the raw asset size.
+  // Keep one counter per asset and report the sum of raw progress, clamped to
+  // the pinned total. Each asset starts at its cached size when already present.
+  const progress = new Map<string, number>();
+  const reportProgress = () => {
+    if (failed) return;
+    const loaded = SAP_ASSET_SPECS.reduce(
+      (sum, spec) => sum + Math.min(progress.get(spec.name) ?? 0, spec.size),
+      0,
+    );
+    onProgress?.(loaded, totalBytes);
+  };
+
+  async function loadOne(spec: SapAssetSpec): Promise<Uint8Array<ArrayBuffer>> {
+    if (failed) throw aborted();
     let data: Uint8Array<ArrayBuffer> | null = null;
 
     if (cache) {
@@ -123,17 +142,29 @@ export async function loadSapAssets(
         if (await digestMatches(cachedBytes, spec.sha256)) {
           // Hand out the verified view directly; a copy doubled peak memory for nothing.
           data = cachedBytes;
+          progress.set(spec.name, spec.size);
+          reportProgress();
         }
       }
     }
 
     if (!data) {
-      data = await fetchWithProgress(`/api/sap-assets/${spec.name}`, (loaded) =>
-        onProgress?.(loadedBytes + loaded, totalBytes),
+      if (failed) throw aborted();
+      data = await fetchWithProgress(
+        `/api/sap-assets/${spec.name}`,
+        (loaded) => {
+          // The response body is decoded by the browser; its length is the raw
+          // size. The denominator below is also raw, so progress stays honest
+          // even though Brotli made the bytes on the wire smaller.
+          progress.set(spec.name, Math.min(loaded, spec.size));
+          reportProgress();
+        },
+        controller.signal,
       );
       if (!(await digestMatches(data, spec.sha256))) {
         throw new Error(`SAP asset ${spec.name} failed integrity verification`);
       }
+      if (failed) throw aborted();
       if (cache) {
         const copy = new Uint8Array(data);
         await cache.put(
@@ -143,11 +174,32 @@ export async function loadSapAssets(
           }),
         );
       }
+      progress.set(spec.name, spec.size);
+      reportProgress();
     }
 
-    loadedBytes += spec.size;
-    onProgress?.(loadedBytes, totalBytes);
-    bundle[spec.name] = data;
+    return data;
+  }
+
+  // The five files are independent and the browser can multiplex them over one
+  // HTTP/2 connection. Starting them together hides the per-file round trips a
+  // sequential loop paid; it does not change the total bytes downloaded.
+  const requests = SAP_ASSET_SPECS.map(loadOne);
+  let results: Uint8Array<ArrayBuffer>[];
+  try {
+    results = await Promise.all(requests);
+  } catch (error) {
+    failed = true;
+    controller.abort();
+    // Promise.all rejects on the first failure while the other fetches are
+    // still unwinding. Wait for all five so no late writer reaches the cache
+    // after the caller has moved on.
+    await Promise.allSettled(requests);
+    throw error;
+  }
+  const bundle: Record<string, Uint8Array> = {};
+  for (let index = 0; index < SAP_ASSET_SPECS.length; index++) {
+    bundle[SAP_ASSET_SPECS[index].name] = results[index];
   }
 
   return {

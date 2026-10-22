@@ -1,8 +1,8 @@
 import { create } from "zustand";
 
 // Readiness of the SAP signer, shared so any screen can show progress. Prep is
-// ~14 MB of assets (first run only) plus emulation setup — quick (~1 s total), but
-// the download is worth a progress line while it lasts.
+// ~12 MB of Brotli-compressed assets on the wire (first run only) plus emulation
+// setup. The download is worth a progress line while it lasts.
 
 export type SapStage = "idle" | "assets" | "setup" | "ready" | "error";
 

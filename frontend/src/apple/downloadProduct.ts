@@ -84,9 +84,9 @@ export function createDownloadSession(
 /**
  * Apple now points the bag's volumeStoreDownloadProduct key at ent/download,
  * which requires a StoreAgent-generated kbsync. Prefer it when a pin is known;
- * an unpinned iOS request first resolves the current build. Any failure that
- * says nothing definitive about the app/version falls through to the legacy
- * volumeStore -> redownload -> updateProduct chain.
+ * an unpinned iOS request first resolves the current build. It is only a fast
+ * path: any failure falls through to the legacy volumeStore -> redownload ->
+ * updateProduct chain, whose reply is the answer (as in ipatool).
  */
 export async function requestDownloadProduct(
   session: DownloadSession,
@@ -97,8 +97,6 @@ export async function requestDownloadProduct(
   const guid = account.deviceIdentifier;
 
   let externalVersionId = pinnedVersionId;
-  let entDownloadFailure: DownloadError | null = null;
-
   // volumeStore answers by the account's device class (iOS by default), not the
   // requested platform: an unpinned tvOS/watchOS/visionOS request can return
   // the iOS ipa, so pin that platform's version first. macOS pins its Mac offer
@@ -141,16 +139,14 @@ export async function requestDownloadProduct(
           preferredVersionId,
           options.onStage,
         );
-      } catch (error) {
+      } catch {
         options.onStage?.(null);
-        if (error instanceof DownloadError) entDownloadFailure = error;
         // Match ipatool: generation, transport, endpoint validation and reply
-        // shape failures all fall through to the legacy chain. A structured
-        // Apple failure is returned by that chain as the real answer.
+        // shape failures all fall through to the legacy chain, which answers
+        // for the app. ent/download is an optional fast path, so its error must
+        // not outrank a working legacy download or mask the legacy failure.
         console.warn(
-          `[download] ent/download unavailable, trying legacy endpoints: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+          `[download] ent/download unavailable, trying legacy endpoints for ${session.app.id}`,
         );
       }
     }
@@ -186,7 +182,7 @@ export async function requestDownloadProduct(
   // it never got through, the transport failure itself.
   if (!bag.redownloadEndpoint) {
     if (volumeStoreReply) return volumeStoreReply;
-    throw entDownloadFailure ?? volumeStoreFailure;
+    throw volumeStoreFailure;
   }
 
   const redownload = dispatchEndpoint(
@@ -207,7 +203,7 @@ export async function requestDownloadProduct(
       // Reached only while recovering: if volumeStore never answered, the pin
       // lookup fails for the same reason, so report that real failure instead of
       // "no build for this platform" (the empty-reply path keeps the lookup's answer).
-      throw entDownloadFailure ?? volumeStoreFailure ?? error;
+      throw volumeStoreFailure ?? error;
     }
   }
 
@@ -304,10 +300,9 @@ async function sendEntDownload(
           serialNumber,
           externalVersionId,
         }),
-        cookies: session.cookies,
+        cookies: [...session.cookies],
       });
 
-      session.cookies = extractAndMergeCookies(response.rawHeaders, session.cookies);
       const reply = toReply(response, endpoint);
       onStage?.("confirming");
 
@@ -350,6 +345,12 @@ async function sendEntDownload(
         account.deviceIdentifier,
         account.directoryServicesIdentifier,
         kbsync.blob,
+      );
+      // Only an accepted ent/download reply may rotate the shared session. A
+      // failed fast path must leave the legacy chain the cookies it started with.
+      session.cookies = extractAndMergeCookies(
+        response.rawHeaders,
+        session.cookies,
       );
       return reply;
     } catch (error) {
