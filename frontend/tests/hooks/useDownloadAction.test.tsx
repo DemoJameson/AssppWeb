@@ -215,6 +215,86 @@ describe("useDownloadAction", () => {
     expect(retryAccount.passwordToken).toBe("fresh-token");
   });
 
+  it("renews an expired password token and retries the download once", async () => {
+    vi.mocked(getDownloadInfo)
+      .mockRejectedValueOnce(new DownloadError("expired", "2034"))
+      .mockResolvedValueOnce({ output, updatedCookies: [] });
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, app);
+    });
+
+    expect(authenticate).toHaveBeenCalledWith(
+      account.email,
+      account.password,
+      undefined,
+      account.cookies,
+      account.deviceIdentifier,
+    );
+    expect(getDownloadInfo).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(getDownloadInfo).mock.calls[1][0].passwordToken).toBe(
+      "fresh-token",
+    );
+    expect(mocks.updateAccount).toHaveBeenLastCalledWith(
+      expect.objectContaining({ passwordToken: "fresh-token" }),
+    );
+    expect(apiPost).toHaveBeenCalledWith(
+      "/api/downloads",
+      expect.objectContaining({ accountHash: expect.any(String) }),
+    );
+  });
+
+  it("renews the session once when a version list reports it expired", async () => {
+    vi.mocked(listVersions)
+      .mockRejectedValueOnce(new DownloadError("expired", "2042"))
+      .mockResolvedValueOnce({ versions: ["333"], updatedCookies: [] });
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.listVersionsWithLicense(account, app);
+    });
+
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(listVersions).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(listVersions).mock.calls[1][0].passwordToken).toBe(
+      "fresh-token",
+    );
+    expect(mocks.updateAccount).toHaveBeenLastCalledWith(
+      expect.objectContaining({ passwordToken: "fresh-token" }),
+    );
+  });
+
+  it("does not renew a version list for failureType 1008", async () => {
+    vi.mocked(listVersions).mockRejectedValueOnce(
+      new DownloadError("device verification", "1008"),
+    );
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await expect(
+        result.current.listVersionsWithLicense(account, app),
+      ).rejects.toThrow("device verification");
+    });
+
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(listVersions).toHaveBeenCalledTimes(1);
+  });
+
+  it("still renews a download for failureType 1008", async () => {
+    vi.mocked(getDownloadInfo)
+      .mockRejectedValueOnce(new DownloadError("device verification", "1008"))
+      .mockResolvedValueOnce({ output, updatedCookies: [] });
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, app);
+    });
+
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(getDownloadInfo).toHaveBeenCalledTimes(2);
+  });
+
   it("leaves a recalled record's per-build facts out of the request", async () => {
     // A record recalled from the package index describes the build it came from,
     // while the picker may serve another. The date is re-read from the arriving

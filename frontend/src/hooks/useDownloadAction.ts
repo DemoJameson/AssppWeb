@@ -8,7 +8,12 @@ import { useAccountsStore } from "../store/accounts";
 import { DownloadError, getDownloadInfo } from "../apple/download";
 import { purchaseApp } from "../apple/purchase";
 import { authenticate } from "../apple/authenticate";
-import { FAILURE_LICENSE_NOT_FOUND } from "../apple/config";
+import {
+  FAILURE_DEVICE_VERIFICATION_FAILED,
+  FAILURE_LICENSE_NOT_FOUND,
+  FAILURE_PASSWORD_TOKEN_EXPIRED,
+  FAILURE_SIGN_IN_REQUIRED,
+} from "../apple/config";
 import { needsPlatformPin } from "../apple/platform";
 import { repeatUnreachable } from "../apple/retry";
 import { listVersions } from "../apple/versionFinder";
@@ -25,6 +30,30 @@ import { findDuplicateDownload } from "../utils/downloaded";
 import { needsVersionExchange } from "../utils/software";
 import { getAccountContext } from "../utils/toast";
 import type { Account, Software } from "../types";
+
+/** Download treats device verification as a session failure too. */
+const DOWNLOAD_SESSION_FAILURE_TYPES: ReadonlySet<string> = new Set([
+  FAILURE_PASSWORD_TOKEN_EXPIRED,
+  FAILURE_SIGN_IN_REQUIRED,
+  FAILURE_DEVICE_VERIFICATION_FAILED,
+]);
+
+/** ListVersions intentionally does not classify 1008 as a session failure. */
+const VERSION_SESSION_FAILURE_TYPES: ReadonlySet<string> = new Set([
+  FAILURE_PASSWORD_TOKEN_EXPIRED,
+  FAILURE_SIGN_IN_REQUIRED,
+]);
+
+function isSessionFailure(
+  error: unknown,
+  failureTypes: ReadonlySet<string>,
+): error is DownloadError {
+  return (
+    error instanceof DownloadError &&
+    error.code !== undefined &&
+    failureTypes.has(error.code)
+  );
+}
 
 /**
  * The version a download falls back to when its caller named none. tvOS,
@@ -105,6 +134,36 @@ export function useDownloadAction() {
     [updateAccount],
   );
 
+  /** Renews an imported or stale session, then repeats the exchange once. A
+   * second failure is Apple's answer to the renewed session and must surface.
+   * The renewed account travels back so later cookie writes cannot restore its
+   * old password token.
+   */
+  const retryWithRenewedSession = useCallback(
+    async <T,>(
+      account: Account,
+      request: (account: Account) => Promise<T>,
+      failureTypes: ReadonlySet<string>,
+    ): Promise<{ result: T; account: Account }> => {
+      try {
+        return { result: await request(account), account };
+      } catch (error) {
+        if (!isSessionFailure(error, failureTypes)) throw error;
+
+        const renewed = await authenticate(
+          account.email,
+          account.password,
+          undefined,
+          account.cookies,
+          account.deviceIdentifier,
+        );
+        await updateAccount(renewed);
+        return { result: await request(renewed), account: renewed };
+      }
+    },
+    [updateAccount],
+  );
+
   const startDownload = useCallback(async (
     account: Account,
     app: Software,
@@ -160,8 +219,16 @@ export function useDownloadAction() {
     // No license yet (FAILURE_LICENSE_NOT_FOUND) → acquire one and retry once.
     let currentAccount = account;
     let download: Awaited<ReturnType<typeof getDownloadInfo>>;
+    const requestDownload = (sessionAccount: Account) =>
+      getDownloadInfo(sessionAccount, app, pin);
     try {
-      download = await getDownloadInfo(currentAccount, app, pin);
+      const attempt = await retryWithRenewedSession(
+        currentAccount,
+        requestDownload,
+        DOWNLOAD_SESSION_FAILURE_TYPES,
+      );
+      download = attempt.result;
+      currentAccount = attempt.account;
     } catch (err) {
       if (
         !(err instanceof DownloadError) ||
@@ -178,7 +245,13 @@ export function useDownloadAction() {
         t("toast.title.licenseSuccess"),
       );
 
-      download = await getDownloadInfo(currentAccount, app, pin);
+      const attempt = await retryWithRenewedSession(
+        currentAccount,
+        requestDownload,
+        DOWNLOAD_SESSION_FAILURE_TYPES,
+      );
+      download = attempt.result;
+      currentAccount = attempt.account;
     }
 
     const { output, updatedCookies } = download;
@@ -252,7 +325,14 @@ export function useDownloadAction() {
       "info",
       t("toast.title.downloadStarted"),
     );
-  }, [acquireLicenseFor, addToast, fetchTasks, t, updateAccount]);
+  }, [
+    acquireLicenseFor,
+    addToast,
+    fetchTasks,
+    retryWithRenewedSession,
+    t,
+    updateAccount,
+  ]);
 
   const acquireLicense = useCallback(
     async (account: Account, app: Software) => {
@@ -282,8 +362,16 @@ export function useDownloadAction() {
     ): Promise<Awaited<ReturnType<typeof listVersions>>> => {
       let currentAccount = account;
       let result: Awaited<ReturnType<typeof listVersions>>;
+      const requestVersions = (sessionAccount: Account) =>
+        listVersions(sessionAccount, app, pinnedVersionId);
       try {
-        result = await listVersions(currentAccount, app, pinnedVersionId);
+        const attempt = await retryWithRenewedSession(
+          currentAccount,
+          requestVersions,
+          VERSION_SESSION_FAILURE_TYPES,
+        );
+        result = attempt.result;
+        currentAccount = attempt.account;
       } catch (err) {
         if (
           !(err instanceof DownloadError) ||
@@ -301,13 +389,19 @@ export function useDownloadAction() {
           t("toast.title.licenseSuccess"),
         );
 
-        result = await listVersions(currentAccount, app, pinnedVersionId);
+        const attempt = await retryWithRenewedSession(
+          currentAccount,
+          requestVersions,
+          VERSION_SESSION_FAILURE_TYPES,
+        );
+        result = attempt.result;
+        currentAccount = attempt.account;
       }
 
       await updateAccount({ ...currentAccount, cookies: result.updatedCookies });
       return result;
     },
-    [acquireLicenseFor, addToast, t, updateAccount],
+    [acquireLicenseFor, addToast, retryWithRenewedSession, t, updateAccount],
   );
 
   /**

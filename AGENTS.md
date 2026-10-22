@@ -498,6 +498,16 @@ already fulfilled, and ipatool's CLI ignores its `ErrLicenseAlreadyExists` as a
 terminal success state. `2059` retries once with the Apple Arcade
 `pricingParameters` (`GAME`), matching ipatool.
 
+### Expired sessions are renewed before the exchange is retried
+
+Imported accounts carry the password token and cookies they had at export time,
+so a download or version list can answer `2034`, `2042`, or `1008` before any
+license step runs. `useDownloadAction` renews that session through
+`authenticate(account.email, account.password, …)` and repeats the same request
+once with the new token and cookies. A second session failure is Apple's answer
+to the renewed session and surfaces unchanged; the renewal is not a general
+retry loop.
+
 ### Finding apps (link, bundle id, or App ID)
 
 The search page is the single entry for creating a download: its input takes
