@@ -111,9 +111,11 @@ export function seedVersionMetadata(
   if (existing?.source === "package") {
     // Package entries are immutable in their identity fields, but an old row
     // predates the new fields. Fill only what it lacks; a read is not a rewrite.
+    // NULL means "written before this field existed"; an empty string is a
+    // package that was read and declares no floor, so it needs no second read.
     const minimum = cleanValue(metadata.minimumOsVersion);
     const platforms = cleanPlatforms(metadata.supportedPlatforms);
-    const missingMinimum = !existing.minimum_os && minimum;
+    const missingMinimum = existing.minimum_os === null;
     const missingPlatforms =
       parsePlatforms(existing.supported_platforms).length === 0 ? platforms : [];
     if (!missingMinimum && missingPlatforms.length === 0) return;
@@ -122,7 +124,7 @@ export function seedVersionMetadata(
       Number(versionId),
       existing.display_version,
       existing.release_date,
-      existing.minimum_os ?? minimum ?? null,
+      existing.minimum_os ?? minimum ?? "",
       existing.supported_platforms ?? serializePlatforms(missingPlatforms),
       Date.now(),
     );
@@ -136,12 +138,65 @@ export function seedVersionMetadata(
     Number(versionId),
     displayVersion,
     releaseDate,
-    cleanValue(metadata.minimumOsVersion) ?? null,
+    cleanValue(metadata.minimumOsVersion) ?? "",
     serializePlatforms(metadata.supportedPlatforms),
     Date.now(),
   );
 
   evictOldest();
+}
+
+/**
+ * Backfills `minimumOsVersion` onto `package` rows written before that column
+ * existed, using the package-app index — the same IPA read, stored under a different
+ * key. Only rows still NULL are touched (NULL = never read; "" = read, no floor), and
+ * only when the index's build id *and* display version match, so a stale index entry
+ * cannot relabel a different build.
+ *
+ * This exists because the frontend backfill needs a fresh Apple download exchange,
+ * which a long-gone historical build no longer has; the server already holds the
+ * answer for any package it compiled. Returns how many rows it filled.
+ */
+export function backfillPackageFactsFromIndex(): number {
+  initVersionMetadataCache();
+  const db = getDb();
+
+  const rows = db
+    .prepare(
+      `SELECT v.app_id, v.version_id, b.minimum_os
+         FROM version_metadata v
+         JOIN package_app_builds b
+           ON b.app_id = v.app_id
+          AND b.version_id = CAST(v.version_id AS TEXT)
+          AND b.version = v.display_version
+        WHERE v.source = 'package'
+          AND v.minimum_os IS NULL
+          AND b.minimum_os IS NOT NULL
+          AND b.minimum_os <> ''`,
+    )
+    .all() as Array<{
+    app_id: number;
+    version_id: number;
+    minimum_os: string;
+  }>;
+
+  let filled = 0;
+  const update = db.prepare(
+    `UPDATE version_metadata
+        SET minimum_os = ?
+      WHERE app_id = ? AND version_id = ? AND minimum_os IS NULL`,
+  );
+  const tx = db.transaction(() => {
+    for (const row of rows) {
+      const minimum = cleanValue(row.minimum_os);
+      if (minimum === undefined) continue;
+      if (update.run(minimum, row.app_id, row.version_id).changes > 0) {
+        filled += 1;
+      }
+    }
+  });
+  tx();
+  return filled;
 }
 
 /**
@@ -155,6 +210,28 @@ function mayReplace(existing: string, incoming: VersionMetadataSource): boolean 
     return incoming === "package" || incoming === "package-read";
   }
   return true;
+}
+
+/** The stored row as a response entry — absent fields stay absent. */
+function toSavedEntry(existing: {
+  version_id: number;
+  display_version: string;
+  release_date: string;
+  minimum_os: string | null;
+  supported_platforms: string | null;
+  source: string;
+}): SavedEntry {
+  const platforms = parsePlatforms(existing.supported_platforms);
+  return {
+    versionId: String(existing.version_id),
+    displayVersion: existing.display_version,
+    releaseDate: existing.release_date,
+    ...(existing.minimum_os !== null
+      ? { minimumOsVersion: existing.minimum_os }
+      : {}),
+    ...(platforms.length > 0 ? { supportedPlatforms: platforms } : {}),
+    source: existing.source as VersionMetadataSource,
+  };
 }
 
 interface SavedEntry {
@@ -203,22 +280,55 @@ function saveEntry(
 
   const minimumOs = cleanValue(minimumOsVersion);
   const platforms = cleanPlatforms(supportedPlatforms);
+  // A package read answers the question even when the answer is "none", so it
+  // stores "" (checked, no floor). A client write never reads a package — the
+  // Apple exchange carries no minimum OS at all — so it stores NULL (never
+  // checked), which is what lets the backfill read the build later.
+  const storedMinimum = source === "package-read" ? minimumOs ?? "" : null;
 
-  if (existing && !mayReplace(existing.source, source)) {
+  // A `package` entry is authoritative for its identity fields, but it may
+  // still be missing the package facts — rows written before those columns
+  // existed. Let a package read fill those gaps without demoting the source.
+  if (existing && existing.source === "package" && source === "package-read") {
+    const fillMinimum =
+      existing.minimum_os === null && minimumOs !== undefined ? minimumOs : null;
+    const existingPlatforms = parsePlatforms(existing.supported_platforms);
+    const fillPlatforms =
+      existingPlatforms.length === 0 && platforms.length > 0
+        ? serializePlatforms(platforms)
+        : null;
+    if (fillMinimum === null && fillPlatforms === null) {
+      return { saved: false, entry: toSavedEntry(existing) };
+    }
+    getDb()
+      .prepare(
+        `UPDATE version_metadata
+            SET minimum_os = COALESCE(minimum_os, ?),
+                supported_platforms = COALESCE(supported_platforms, ?)
+          WHERE app_id = ? AND version_id = ?`,
+      )
+      .run(fillMinimum, fillPlatforms, Number(appKey), Number(versionKey));
     return {
-      saved: false,
+      saved: true,
       entry: {
         versionId: String(existing.version_id),
         displayVersion: existing.display_version,
         releaseDate: existing.release_date,
-        ...(existing.minimum_os
-          ? { minimumOsVersion: existing.minimum_os }
-          : {}),
-        ...(parsePlatforms(existing.supported_platforms).length > 0
-          ? { supportedPlatforms: parsePlatforms(existing.supported_platforms) }
-          : {}),
-        source: existing.source as VersionMetadataSource,
+        minimumOsVersion: existing.minimum_os ?? minimumOs ?? "",
+        ...(existingPlatforms.length > 0
+          ? { supportedPlatforms: existingPlatforms }
+          : platforms.length > 0
+            ? { supportedPlatforms: platforms }
+            : {}),
+        source: "package",
       },
+    };
+  }
+
+  if (existing && !mayReplace(existing.source, source)) {
+    return {
+      saved: false,
+      entry: toSavedEntry(existing),
     };
   }
 
@@ -229,7 +339,7 @@ function saveEntry(
     Number(versionKey),
     display,
     release,
-    minimumOs ?? null,
+    storedMinimum,
     serializePlatforms(platforms),
     Date.now(),
   );
@@ -241,7 +351,7 @@ function saveEntry(
       versionId: versionKey,
       displayVersion: display,
       releaseDate: release,
-      ...(minimumOs ? { minimumOsVersion: minimumOs } : {}),
+      ...(storedMinimum !== null ? { minimumOsVersion: storedMinimum } : {}),
       ...(platforms.length > 0 ? { supportedPlatforms: platforms } : {}),
       source,
     },
@@ -323,7 +433,7 @@ export function getVersionMetadataForApp(
     versionId: String(r.version_id),
     displayVersion: r.display_version,
     releaseDate: r.release_date,
-    ...(r.minimum_os ? { minimumOsVersion: r.minimum_os } : {}),
+    ...(r.minimum_os !== null ? { minimumOsVersion: r.minimum_os } : {}),
     ...(parsePlatforms(r.supported_platforms).length > 0
       ? { supportedPlatforms: parsePlatforms(r.supported_platforms) }
       : {}),

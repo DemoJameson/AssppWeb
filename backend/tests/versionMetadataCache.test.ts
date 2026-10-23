@@ -54,12 +54,13 @@ describe("versionMetadataCache", () => {
         versionId: "1001",
         displayVersion: "1.0.0",
         releaseDate: "2026-01-01T00:00:00.000Z",
+        minimumOsVersion: "",
         source: "package",
       },
     ]);
   });
 
-  it("fills the new package fields on an entry seeded before they existed", async () => {
+  it("backfills a package row that predates the minimum-OS field", async () => {
     // Simulate the pre-migration row: the identity fields are already there, but
     // both new columns are NULL. A later compile of the same package may enrich
     // those columns without changing the version or date.
@@ -138,7 +139,8 @@ describe("versionMetadataCache", () => {
         versionId: "5001",
         displayVersion: "5.0.0",
         releaseDate: "2026-02-02T00:00:00.000Z",
-        minimumOsVersion: "16.4",
+        // A client write stores no floor (NULL = never read), so the field is
+        // absent and the backfill will read the build later.
         supportedPlatforms: ["iPhoneOS"],
         source: "client",
       },
@@ -156,9 +158,11 @@ describe("versionMetadataCache", () => {
     ).toBe(true);
     expect(cache.getVersionMetadataForApp(clientApp)[0]).toMatchObject({
       displayVersion: "5.0.1",
-      minimumOsVersion: "17.0",
       supportedPlatforms: ["iPhoneOS", "AppleTVOS"],
     });
+    expect(
+      cache.getVersionMetadataForApp(clientApp)[0],
+    ).not.toHaveProperty("minimumOsVersion");
   });
 
   it("rejects invalid client payloads", () => {
@@ -317,4 +321,205 @@ describe("versionMetadataCache", () => {
       expect(declined.entry?.displayVersion).toBe("8.0.0");
     });
   });
+  describe("package rows missing the new facts", () => {
+    it("lets a package read fill a NULL floor without demoting the source", async () => {
+      const app = 909090930;
+      const { getDb } = await import("../src/services/db.js");
+      const db = getDb();
+      db.prepare(
+        `INSERT INTO version_metadata
+           (app_id, version_id, display_version, release_date, minimum_os, supported_platforms, source, seeded_at)
+         VALUES (?, ?, ?, ?, NULL, NULL, 'package', ?)`,
+      ).run(app, 9601, "8.5.4", "2026-09-11T10:55:44.000Z", Date.now());
+
+      const result = cache.savePackageReadVersionMetadata(
+        app,
+        "9601",
+        "8.5.4",
+        "2026-09-11T10:55:44.000Z",
+        "18.0",
+        ["iPhoneOS"],
+      );
+
+      expect(result.saved).toBe(true);
+      expect(result.entry?.source).toBe("package");
+      expect(result.entry?.minimumOsVersion).toBe("18.0");
+      const [entry] = cache.getVersionMetadataForApp(app);
+      expect(entry.minimumOsVersion).toBe("18.0");
+      expect(entry.supportedPlatforms).toEqual(["iPhoneOS"]);
+      expect(entry.source).toBe("package");
+      // Identity fields are untouched.
+      expect(entry.displayVersion).toBe("8.5.4");
+      expect(entry.releaseDate).toBe("2026-09-11T10:55:44.000Z");
+    });
+
+    it("still refuses to overwrite facts a package already has", async () => {
+      const app = 909090931;
+      const { getDb } = await import("../src/services/db.js");
+      const db = getDb();
+      db.prepare(
+        `INSERT INTO version_metadata
+           (app_id, version_id, display_version, release_date, minimum_os, supported_platforms, source, seeded_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'package', ?)`,
+      ).run(app, 9701, "1.0.0", "2026-01-01T00:00:00.000Z", "16.0", '["iPhoneOS"]', Date.now());
+
+      const result = cache.savePackageReadVersionMetadata(
+        app,
+        "9701",
+        "1.0.0",
+        "2026-01-01T00:00:00.000Z",
+        "18.0",
+        ["AppleTVOS"],
+      );
+
+      expect(result.saved).toBe(false);
+      const [entry] = cache.getVersionMetadataForApp(app);
+      expect(entry.minimumOsVersion).toBe("16.0");
+      expect(entry.supportedPlatforms).toEqual(["iPhoneOS"]);
+      expect(entry.source).toBe("package");
+    });
+
+    it("keeps refusing to replace a package entry with a client write", async () => {
+      const app = 909090932;
+      const { getDb } = await import("../src/services/db.js");
+      const db = getDb();
+      db.prepare(
+        `INSERT INTO version_metadata
+           (app_id, version_id, display_version, release_date, minimum_os, supported_platforms, source, seeded_at)
+         VALUES (?, ?, ?, ?, NULL, NULL, 'package', ?)`,
+      ).run(app, 9801, "2.0.0", "2026-01-01T00:00:00.000Z", Date.now());
+
+      const result = cache.saveClientVersionMetadata(
+        app,
+        "9801",
+        "2.0.0",
+        "2026-01-01T00:00:00.000Z",
+        "18.0",
+      );
+
+      expect(result.saved).toBe(false);
+      expect(result.entry?.source).toBe("package");
+    });
+  });
+
+  describe("backfillPackageFactsFromIndex", () => {
+    it("fills NULL package facts from a matching index build", async () => {
+      const app = 909090920;
+      const { getDb } = await import("../src/services/db.js");
+      const db = getDb();
+
+      // A package row written before the columns existed.
+      db.prepare(
+        `INSERT INTO version_metadata
+           (app_id, version_id, display_version, release_date, minimum_os, supported_platforms, source, seeded_at)
+         VALUES (?, ?, ?, ?, NULL, NULL, 'package', ?)`,
+      ).run(app, 9301, "1.0.0", "2026-01-01T00:00:00.000Z", Date.now());
+      db.prepare(
+        `INSERT INTO package_apps (app_id, bundle_id, updated_at) VALUES (?, ?, ?)`,
+      ).run(app, "com.example.backfill", Date.now());
+      db.prepare(
+        `INSERT INTO package_app_builds
+           (app_id, platform, version_id, version, minimum_os, updated_at)
+         VALUES (?, 'ios', '9301', '1.0.0', '15.0', ?)`,
+      ).run(app, Date.now());
+
+      expect(cache.backfillPackageFactsFromIndex()).toBeGreaterThanOrEqual(1);
+
+      const entry = cache.getVersionMetadataForApp(app)[0];
+      expect(entry.minimumOsVersion).toBe("15.0");
+      // The index carries no platform list in this fixture, so it stays absent.
+      expect(entry.source).toBe("package");
+    });
+
+    it("does not relabel a build whose display version disagrees", async () => {
+      const app = 909090921;
+      const { getDb } = await import("../src/services/db.js");
+      const db = getDb();
+
+      db.prepare(
+        `INSERT INTO version_metadata
+           (app_id, version_id, display_version, release_date, minimum_os, supported_platforms, source, seeded_at)
+         VALUES (?, ?, ?, ?, NULL, NULL, 'package', ?)`,
+      ).run(app, 9401, "1.0.0", "2026-01-01T00:00:00.000Z", Date.now());
+      db.prepare(
+        `INSERT INTO package_apps (app_id, bundle_id, updated_at) VALUES (?, ?, ?)`,
+      ).run(app, "com.example.mismatch", Date.now());
+      // Same version id, different display version: a different build.
+      db.prepare(
+        `INSERT INTO package_app_builds
+           (app_id, platform, version_id, version, minimum_os, updated_at)
+         VALUES (?, 'ios', '9401', '9.9.9', '18.0', ?)`,
+      ).run(app, Date.now());
+
+      cache.backfillPackageFactsFromIndex();
+
+      expect(cache.getVersionMetadataForApp(app)[0]).not.toHaveProperty(
+        "minimumOsVersion",
+      );
+    });
+
+    it("never overwrites a finished read", async () => {
+      const app = 909090922;
+      const { getDb } = await import("../src/services/db.js");
+      const db = getDb();
+
+      // "" = read, declares no floor. The index must not replace that answer.
+      db.prepare(
+        `INSERT INTO version_metadata
+           (app_id, version_id, display_version, release_date, minimum_os, supported_platforms, source, seeded_at)
+         VALUES (?, ?, ?, ?, '', NULL, 'package', ?)`,
+      ).run(app, 9501, "2.0.0", "2026-01-01T00:00:00.000Z", Date.now());
+      db.prepare(
+        `INSERT INTO package_apps (app_id, bundle_id, updated_at) VALUES (?, ?, ?)`,
+      ).run(app, "com.example.finished", Date.now());
+      db.prepare(
+        `INSERT INTO package_app_builds
+           (app_id, platform, version_id, version, minimum_os, updated_at)
+         VALUES (?, 'ios', '9501', '2.0.0', '17.0', ?)`,
+      ).run(app, Date.now());
+
+      cache.backfillPackageFactsFromIndex();
+
+      expect(cache.getVersionMetadataForApp(app)[0].minimumOsVersion).toBe("");
+    });
+  });
+
+  it("distinguishes a never-read row from a read that declared no floor", async () => {
+    const app = 909090911;
+    const { getDb } = await import("../src/services/db.js");
+    const db = getDb();
+
+    // A package the pipeline compiled: its read is complete, so it stores ""
+    // when the Info.plist declares no MinimumOSVersion.
+    cache.seedVersionMetadata(app, pkg({ externalVersionId: "9101" }));
+    expect(
+      db.prepare("SELECT minimum_os FROM version_metadata WHERE app_id = ? AND version_id = 9101").get(app),
+    ).toEqual({ minimum_os: "" });
+
+    // A client write has not read a package at all: NULL means "never checked".
+    cache.saveClientVersionMetadata(app, "9102", "1.0.0", "2026-01-01T00:00:00.000Z");
+    expect(
+      db.prepare("SELECT minimum_os FROM version_metadata WHERE app_id = ? AND version_id = 9102").get(app),
+    ).toEqual({ minimum_os: null });
+
+    // The API keeps that distinction so the frontend can tell "no floor" from
+    // "predates the field".
+    const entries = cache.getVersionMetadataForApp(app);
+    expect(entries.find((entry) => entry.versionId === "9101")?.minimumOsVersion).toBe("");
+    expect(entries.find((entry) => entry.versionId === "9102")).not.toHaveProperty("minimumOsVersion");
+  });
+
+  it("does not re-read a package that was already checked and declares no floor", async () => {
+    const app = 909090912;
+    cache.seedVersionMetadata(app, pkg({ externalVersionId: "9201" }));
+    expect(cache.getVersionMetadataForApp(app)[0].minimumOsVersion).toBe("");
+
+    // A finished read is not a miss: a later seed must not rewrite the answer.
+    cache.seedVersionMetadata(
+      app,
+      pkg({ externalVersionId: "9201", minimumOsVersion: "18.0" }),
+    );
+    expect(cache.getVersionMetadataForApp(app)[0].minimumOsVersion).toBe("");
+  });
+
 });

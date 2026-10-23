@@ -151,13 +151,20 @@ describe("useVersionMetadataMap", () => {
     });
     useVersionMetadataStore.setState({
       entries: {
-        // Package-sourced: the row already carries the build's own date.
-        known: { displayVersion: "0.1.0", releaseDate: "x", source: "package" },
+        // Package-sourced: the row already carries the build's own date and
+        // was already checked for a floor ("" = the package declares none).
+        known: {
+          displayVersion: "0.1.0",
+          releaseDate: "x",
+          minimumOsVersion: "",
+          source: "package",
+        },
         // And the same, from a package read at a client's URL — what a fill
         // leaves behind. It carries a build's date, so it is just as done.
         filled: {
           displayVersion: "0.2.0",
           releaseDate: "y",
+          minimumOsVersion: "16.0",
           source: "package-read",
         },
       },
@@ -652,12 +659,76 @@ describe("useVersionMetadataMap", () => {
     expect(getDownloadInfo).toHaveBeenCalledTimes(2);
   });
 
+  it("backfills the minimum OS of a row cached before the field existed", async () => {
+    // What the pre-upgrade cache left behind: a package-vouched date, but no
+    // minimumOsVersion key at all — the old shape.
+    useVersionMetadataStore.setState({
+      entries: {
+        "893000072": {
+          displayVersion: "8.5.7",
+          releaseDate: "2026-10-12T12:13:38.000Z",
+          source: "package-read",
+        },
+      },
+    });
+    vi.mocked(getDownloadInfo).mockResolvedValue({
+      output: {
+        downloadURL: "https://iosapps.example.com/app.ipa",
+        sinfs: [],
+        bundleShortVersionString: "8.5.7",
+        bundleVersion: "857",
+        bundleID: "com.firecore.infuse",
+      },
+      updatedCookies: [],
+    });
+    vi.mocked(fetchPackageVersionMetadata).mockResolvedValue({
+      displayVersion: "8.5.7",
+      releaseDate: "2026-10-12T12:13:38.000Z",
+      minimumOsVersion: "15.0",
+      supportedPlatforms: ["iPhoneOS"],
+      source: "package-read",
+    });
+
+    const { result } = renderHook(() => useVersionMetadataMap());
+    await act(async () => {
+      await result.current.prefetchMissing(account, app, ["893000072"]);
+    });
+
+    expect(getDownloadInfo).toHaveBeenCalledTimes(1);
+    expect(result.current.versionMeta["893000072"]?.minimumOsVersion).toBe(
+      "15.0",
+    );
+  });
+
+  it("does not re-read a row already checked with no declared floor", async () => {
+    // "" is a finished answer: the package was read and names no floor.
+    useVersionMetadataStore.setState({
+      entries: {
+        "893000073": {
+          displayVersion: "8.5.8",
+          releaseDate: "2026-10-15T04:29:24.000Z",
+          minimumOsVersion: "",
+          source: "package-read",
+        },
+      },
+    });
+
+    const { result } = renderHook(() => useVersionMetadataMap());
+    await act(async () => {
+      await result.current.prefetchMissing(account, app, ["893000073"]);
+    });
+
+    expect(getDownloadInfo).not.toHaveBeenCalled();
+    expect(getVersionMetadata).not.toHaveBeenCalled();
+  });
+
   it("does not retry a version whose date came from its package", async () => {
     useVersionMetadataStore.setState({
       entries: {
         "700": {
           displayVersion: "1.0.0",
           releaseDate: "2026-01-01T00:00:00Z",
+          minimumOsVersion: "16.0",
           source: "package",
         },
       },

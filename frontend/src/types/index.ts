@@ -112,7 +112,11 @@ export interface VersionMetadata {
    * version.
    */
   releaseDate: string;
-  /** The build's own deployment floor, read from its package. */
+  /**
+   * The build's own deployment floor, read from its package. Absent means the
+   * entry predates this field (a backfill is due); `""` means the package was
+   * read and declares no floor.
+   */
   minimumOsVersion?: string;
   /** `CFBundleSupportedPlatforms`; the legacy Mac preflight names macOS itself. */
   supportedPlatforms?: string[];

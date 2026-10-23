@@ -643,11 +643,15 @@ describe('ProductDetail download action', () => {
       '890964826': {
         displayVersion: '8.2.1',
         releaseDate: '2026-05-01T00:00:00Z',
+        // Already checked: "" means the package declares no floor, so the
+        // backfill does not ask Apple again for either row.
+        minimumOsVersion: '',
         source: 'package',
       },
       '890657720': {
         displayVersion: '8.2.0',
         releaseDate: '2026-04-01T00:00:00Z',
+        minimumOsVersion: '16.0',
         source: 'package',
       },
     });

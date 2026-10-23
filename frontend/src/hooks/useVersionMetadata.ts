@@ -21,13 +21,21 @@ const PREFETCH_FAST_CONCURRENCY = 5;
 const PREFETCH_SLOW_CONCURRENCY = 1;
 
 /**
- * Whether a version still needs looking up: no entry, or one with no
+ * Whether a version still needs looking up: no entry, one with no
  * package-vouched date (the exchange's own date is app-level and would be wrong
- * on every row). A `package-read` entry — what a fill leaves behind — reads as
- * done, else the silent pass would re-ask Apple for already-dated versions.
+ * on every row), or one written before `minimumOsVersion` existed.
+ *
+ * The third case is the backfill: rows cached by older builds carry a package
+ * date but no minimum-OS field, so nothing else would ever read it. An entry
+ * whose `minimumOsVersion` is `""` was read and declares no floor — that is a
+ * finished answer, not a miss — so only `undefined` triggers another read. A
+ * `package-read` entry with both reads as done, else the silent pass would
+ * re-ask Apple for already-dated versions on every visit.
  */
 function needsFill(entry: VersionMetadata | undefined): boolean {
-  return !entry || !(dateComesFromPackage(entry.source) && entry.releaseDate);
+  if (!entry) return true;
+  if (!(dateComesFromPackage(entry.source) && entry.releaseDate)) return true;
+  return entry.minimumOsVersion === undefined;
 }
 
 /**

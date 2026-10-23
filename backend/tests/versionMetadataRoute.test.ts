@@ -71,6 +71,9 @@ describe("Version Metadata Route", () => {
           versionId: "888154622",
           displayVersion: "1.3.18",
           releaseDate: "2026-07-11T15:06:44.000Z",
+          // Seeded without a floor: "" records that the package was read and
+          // declares none, which is different from an old row's NULL.
+          minimumOsVersion: "",
           supportedPlatforms: ["iPhoneOS", "AppleTVOS"],
           source: "package",
         },
@@ -89,13 +92,16 @@ describe("Version Metadata Route", () => {
         supportedPlatforms: ["iPhoneOS"],
       });
     expect(res.status).toBe(200);
+    // A client write has not read a package, so the floor it claims is not
+    // stored as a package fact: the entry carries the platforms (used for
+    // display only) but no minimumOsVersion — that stays "never checked",
+    // which is what lets the backfill read it later.
     expect(res.body).toEqual({
       saved: true,
       entry: {
         versionId: "900000001",
         displayVersion: "2.0.0",
         releaseDate: "2026-08-01T00:00:00.000Z",
-        minimumOsVersion: "17.1",
         supportedPlatforms: ["iPhoneOS"],
         source: "client",
       },
@@ -326,6 +332,7 @@ describe("Version Metadata Route", () => {
     });
 
     it("cannot displace what the download pipeline compiled", async () => {
+      // Seeded without the new package facts: the compiled row predates them.
       cache.seedVersionMetadata(APP, {
         version: "1.3.18",
         releaseDate: "2026-07-11T15:06:44.000Z",
@@ -334,10 +341,18 @@ describe("Version Metadata Route", () => {
 
       const res = await readPackage(COMPILED_VERSION);
 
+      // The read may fill the missing facts, but it never replaces what the
+      // pipeline attested: version, date and source stay the compiled ones.
       expect(res.status).toBe(200);
-      expect(res.body.saved).toBe(false);
       expect(res.body.entry.source).toBe("package");
       expect(res.body.entry.displayVersion).toBe("1.3.18");
+      expect(res.body.entry.releaseDate).toBe("2026-07-11T15:06:44.000Z");
+
+      // A read with different values must not overwrite them either.
+      archive = zipWithVersion("0.0.1", SERVED_AT);
+      const again = await readPackage(COMPILED_VERSION);
+      expect(again.body.entry.displayVersion).toBe("1.3.18");
+      expect(again.body.entry.releaseDate).toBe("2026-07-11T15:06:44.000Z");
     });
   });
 });

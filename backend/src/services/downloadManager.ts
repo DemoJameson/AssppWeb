@@ -19,6 +19,7 @@ import {
 } from "./packagePlatform.js";
 import { decryptMacOSPackage } from "./macDecrypt.js";
 import {
+  backfillPackageFactsFromIndex,
   initVersionMetadataCache,
   seedVersionMetadata,
 } from "./versionMetadataCache.js";
@@ -559,6 +560,25 @@ function initOnStartup() {
 
   // Clean up orphaned IPA files (files without a task)
   cleanOrphanedPackages();
+
+  // Fill the package facts of metadata rows written before those columns
+  // existed. This is a DB-only join against the package-app index (no Apple
+  // traffic, no file reads), and it covers historical builds whose files and
+  // download exchanges are long gone — the frontend backfill cannot reach those.
+  try {
+    const filled = backfillPackageFactsFromIndex();
+    if (filled > 0) {
+      console.log(
+        `[downloadManager] Backfilled package facts on ${filled} version metadata row(s)`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      `[downloadManager] Version metadata backfill failed: ${
+        err instanceof Error ? err.message : err
+      }`,
+    );
+  }
 
   // Deliberately not awaited: file work over packages of hundreds of MB must
   // not hold up the server.

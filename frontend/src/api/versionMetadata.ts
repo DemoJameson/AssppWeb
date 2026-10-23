@@ -31,7 +31,7 @@ export async function fetchVersionMetadata(
         map[entry.versionId] = {
           displayVersion: entry.displayVersion,
           releaseDate: entry.releaseDate,
-          ...(entry.minimumOsVersion
+          ...(entry.minimumOsVersion !== undefined
             ? { minimumOsVersion: entry.minimumOsVersion }
             : {}),
           ...(Array.isArray(entry.supportedPlatforms) &&
@@ -125,7 +125,7 @@ export async function fetchPackageVersionMetadata(
     return {
       displayVersion: res.entry.displayVersion,
       releaseDate: res.entry.releaseDate,
-      ...(res.entry.minimumOsVersion
+      ...(res.entry.minimumOsVersion !== undefined
         ? { minimumOsVersion: res.entry.minimumOsVersion }
         : {}),
       ...(Array.isArray(res.entry.supportedPlatforms) &&
