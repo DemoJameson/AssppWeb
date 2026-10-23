@@ -89,6 +89,7 @@ router.post("/downloads", async (req: Request, res: Response) => {
     iTunesMetadata,
     dpInfo,
     hardwareId,
+    md5,
   } = req.body;
 
   if (!software || !accountHash || !downloadURL || !sinfs) {
@@ -120,6 +121,13 @@ router.post("/downloads", async (req: Request, res: Response) => {
   if (iTunesMetadata !== undefined && typeof iTunesMetadata !== "string") {
     res.status(400).json({
       error: "Invalid iTunesMetadata: expected a base64 string",
+    });
+    return;
+  }
+
+  if (md5 !== undefined && (typeof md5 !== "string" || !/^[0-9a-fA-F]{32}$/.test(md5))) {
+    res.status(400).json({
+      error: "Invalid md5: expected a 32-character hex digest",
     });
     return;
   }
@@ -189,6 +197,7 @@ router.post("/downloads", async (req: Request, res: Response) => {
       // A macOS package has to be decrypted once it lands; the two pieces that
       // takes travel with the request (see `MacOSDecryption`).
       { dpInfo, hardwareId },
+      typeof md5 === "string" ? md5.toLowerCase() : undefined,
     );
     res.status(201).json(sanitizeTaskForResponse(task));
   } catch (err) {

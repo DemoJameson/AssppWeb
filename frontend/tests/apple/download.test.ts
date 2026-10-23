@@ -99,6 +99,28 @@ const failureDoc = (failureType: string, customerMessage?: string) =>
 /** Apple's availability message, which is not a failureType. */
 const unavailableDoc = () => buildPlist({ pings: [], customerMessage: "No Longer Available" });
 
+/** Apple's 200-level no-licence refusal, optionally nested in a dialog. */
+const redownloadUnavailableDoc = (dialog = false) => {
+  const fields = {
+    message: "Redownload Unavailable with This Apple Account",
+    explanation:
+      "This redownload is not available for this Apple Account either because it was bought by a different user or the item was refunded or cancelled.",
+  };
+  return buildPlist(dialog ? { dialog: fields } : fields);
+};
+
+/** A download item whose metadata is valid but whose key material is absent. */
+const noMaterialDoc = () =>
+  buildPlist({
+    songList: [
+      {
+        URL: "https://iosapps.example.com/app.ipa",
+        sinfs: [],
+        metadata: { bundleShortVersionString: "1.2.3", bundleVersion: "123" },
+      },
+    ],
+  });
+
 /** redownload coming up empty-handed with an HTTP 500. */
 const emptyServerError = () =>
   reply("", 500, { "content-type": "text/xml" });
@@ -110,6 +132,7 @@ const downloadDoc = (metadata: Record<string, unknown> = {}) =>
       {
         URL: "https://iosapps.example.com/app.ipa",
         sinfs: [{ id: 0, sinf: "AAAA" }],
+        md5: "0123456789abcdef0123456789abcdef",
         metadata: { bundleShortVersionString: "1.2.3", bundleVersion: "123", ...metadata },
       },
     ],
@@ -286,6 +309,40 @@ describe("apple/download", () => {
       { stage: "connecting", percent: null },
       { stage: "confirming", percent: null },
     ]);
+  });
+
+  it("falls back from ent/download when its item has no download material", async () => {
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+    });
+    downloadReplies = [
+      reply(
+        buildPlist({
+          songList: [
+            {
+              URL: "https://iosapps.example.com/app.ipa",
+              sinfs: [],
+              metadata: {
+                bundleShortVersionString: "1.2.3",
+                bundleVersion: "123",
+                itemId: 1492142120,
+                softwareVersionExternalIdentifier: "891042628",
+                softwareVersionBundleId: "com.example.app",
+              },
+            },
+          ],
+        }),
+      ),
+      reply(downloadDoc()),
+    ];
+
+    const { output } = await getDownloadInfo(account, app, "891042628");
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[0].path).toContain("/ent/download");
+    expect(calls[1].path).toContain("/volumeStoreDownloadProduct");
   });
 
   it("falls back to volumeStore when kbsync generation fails", async () => {
@@ -664,6 +721,7 @@ describe("apple/download", () => {
   it("refuses a macOS reply that carries no dpInfo", async () => {
     // Without it the delivered package could never be opened, and no later step
     // could do anything but fail — so it is refused before a task exists.
+    withBag({});
     const macApp = { ...app, platform: "macos" } as Software;
     downloadReplies = [reply(macPackageDoc())];
 
@@ -826,6 +884,209 @@ describe("apple/download", () => {
       "Apple did not answer",
     );
     expect(downloadCalls()).toHaveLength(1);
+  });
+
+  it("continues to updateProduct when volumeStore returns an item without download material", async () => {
+    downloadReplies = [
+      reply(noMaterialDoc()),
+      reply(purchaseDoc()),
+      reply(updateDoc("891042628")),
+    ];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(3);
+    expect(calls[1].path).toContain("/r/redownload");
+    expect(calls[2].path).toContain("/up/updateProduct");
+  });
+
+  it("continues to updateProduct when redownload returns an item without download material", async () => {
+    downloadReplies = [
+      reply(purchaseDoc()),
+      reply(noMaterialDoc()),
+      reply(updateDoc("891042628")),
+    ];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    expect(downloadCalls()[2].path).toContain("/up/updateProduct");
+  });
+
+  it("continues to updateProduct when volumeStore returns a macOS item without dpInfo", async () => {
+    const macApp = { ...app, platform: "macos" } as Software;
+    downloadReplies = [
+      reply(macPackageDoc()),
+      reply(purchaseDoc()),
+      reply(
+        macPackageDoc({
+          sinfs: [{ id: 0, dpInfo: new Uint8Array([0x41, 0x42, 0x43, 0x44]) }],
+          metadata: {
+            bundleShortVersionString: "1.2.3",
+            bundleVersion: "123",
+            itemId: 1492142120,
+            softwareVersionExternalIdentifier: "891042628",
+            softwareVersionBundleId: "com.example.app",
+          },
+        }),
+      ),
+    ];
+
+    const { output } = await getDownloadInfo(account, macApp, "891042628");
+
+    expect(output.dpInfo).toBe("QUJDRA==");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(3);
+    expect(calls[1].path).toContain("/r/redownload");
+    expect(calls[2].path).toContain("/up/updateProduct");
+  });
+
+  it("reports updateMismatch when updateProduct has no download material", async () => {
+    downloadReplies = [
+      reply(purchaseDoc()),
+      reply(noMaterialDoc()),
+      reply(noMaterialDoc()),
+    ];
+
+    await expect(getDownloadInfo(account, app)).rejects.toThrow(
+      i18n.t("errors.download.updateMismatch"),
+    );
+    expect(downloadCalls()).toHaveLength(3);
+  });
+
+  it("does not let a volumeStore no-licence message override redownload's answer", async () => {
+    downloadReplies = [
+      reply(redownloadUnavailableDoc()),
+      reply(failureDoc("2034")),
+    ];
+
+    await expect(getDownloadInfo(account, app)).rejects.toMatchObject({
+      code: "2034",
+    });
+    expect(downloadCalls()).toHaveLength(2);
+  });
+
+  it.each([
+    ["top-level", redownloadUnavailableDoc(false)],
+    ["dialog", redownloadUnavailableDoc(true)],
+  ])("maps the %s redownload refusal to a missing licence", async (_kind, doc) => {
+    downloadReplies = [reply(purchaseDoc()), reply(doc), reply(purchaseDoc())];
+
+    await expect(getDownloadInfo(account, app)).rejects.toMatchObject({
+      code: "9610",
+    });
+    expect(downloadCalls()).toHaveLength(3);
+  });
+
+  it("tries updateProduct before reporting the redownload no-licence refusal", async () => {
+    downloadReplies = [
+      reply(purchaseDoc()),
+      reply(redownloadUnavailableDoc()),
+      reply(updateDoc("891042628")),
+    ];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    expect(downloadCalls()[2].path).toContain("/up/updateProduct");
+  });
+
+  it("normalizes Apple's unicode spaces in the redownload refusal", async () => {
+    downloadReplies = [
+      reply(purchaseDoc()),
+      reply(
+        buildPlist({
+          message: "Redownload Unavailable with This Apple\u00a0Account",
+          explanation:
+            "This redownload is not available for this Apple\u202fAccount either because it was bought by a different user or the item was refunded or cancelled.",
+        }),
+      ),
+    ];
+
+    await expect(getDownloadInfo(account, app)).rejects.toThrow(
+      i18n.t("errors.download.licenseRequired"),
+    );
+  });
+
+  it("does not mistake a near-match redownload refusal for a missing licence", async () => {
+    withBag({
+      redownloadEndpoint: `https://${DISPATCH_HOST}/r/redownload`,
+    });
+    downloadReplies = [
+      reply(purchaseDoc()),
+      reply(
+        buildPlist({
+          message: "Redownload Unavailable with This Apple Account",
+          explanation: "A different refusal",
+          customerMessage: "A different refusal",
+        }),
+      ),
+    ];
+
+    await expect(getDownloadInfo(account, app)).rejects.toThrow("A different refusal");
+  });
+
+  it("keeps the Apple md5 on the download output", async () => {
+    downloadReplies = [reply(downloadDoc())];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.md5).toBe("0123456789abcdef0123456789abcdef");
+  });
+
+  it("keeps the md5 a plist <data> digest carries", async () => {
+    // The same reply field reaches this side either as a hex string or as the
+    // raw 16 bytes (the plist parser returns `<data>` as bytes). Reading only
+    // the string form would leave such a download unverified rather than fail.
+    downloadReplies = [
+      reply(
+        buildPlist({
+          pings: [],
+          songList: [
+            {
+              URL: "https://iosapps.example.com/app.ipa",
+              sinfs: [{ id: 0, sinf: "AAAA" }],
+              md5: new Uint8Array([
+                0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23,
+                0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+              ]),
+              metadata: { bundleShortVersionString: "1.2.3", bundleVersion: "123" },
+            },
+          ],
+        }),
+      ),
+    ];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.md5).toBe("0123456789abcdef0123456789abcdef");
+  });
+
+  it("drops an md5 field that names no digest", async () => {
+    // A bytes field of the wrong length is not a digest: enforcing it would
+    // fail a healthy download, and trusting it would report the wrong expected
+    // value, so the check is left off instead.
+    downloadReplies = [
+      reply(
+        buildPlist({
+          pings: [],
+          songList: [
+            {
+              URL: "https://iosapps.example.com/app.ipa",
+              sinfs: [{ id: 0, sinf: "AAAA" }],
+              md5: new Uint8Array([1, 2, 3]),
+              metadata: { bundleShortVersionString: "1.2.3", bundleVersion: "123" },
+            },
+          ],
+        }),
+      ),
+    ];
+
+    const { output } = await getDownloadInfo(account, app);
+
+    expect(output.md5).toBeUndefined();
   });
 
   it("falls back to updateProduct when redownload answers an empty HTTP 500", async () => {

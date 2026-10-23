@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, afterAll, beforeEach, vi } from "vitest";
+import { createHash } from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -163,7 +164,7 @@ const created: string[] = [];
  * Creates the task a test works on and remembers its id: the decrypter
  * stand-in looks the task up while it runs, to see what the row would show.
  */
-function startTask(): string {
+function startTask(md5?: string): string {
   const task = manager.createTask(
     software(),
     ACCOUNT_HASH,
@@ -171,6 +172,7 @@ function startTask(): string {
     [],
     undefined,
     DECRYPTION,
+    md5,
   );
   created.push(task.id);
   taskId = task.id;
@@ -219,6 +221,122 @@ describe("download lifecycle", () => {
     expect(
       fs.readFileSync(settled!.filePath!, { encoding: "latin1" }).slice(0, 4),
     ).toBe("xar!");
+  });
+
+  it("verifies Apple's md5 before decrypting the package", async () => {
+    const payload = ciphertextPayload();
+    serve(payload);
+    const md5 = createHash("md5").update(payload).digest("hex");
+    decrypt.mockImplementation(async ({ filePath }: { filePath: string }) => {
+      expect(fs.readFileSync(filePath).equals(payload)).toBe(true);
+      fs.writeFileSync(filePath, xarPayload());
+    });
+
+    const id = startTask(md5);
+    const settled = await settle(id);
+
+    expect(settled?.status).toBe("completed");
+    expect(decrypt).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-downloads once when the raw package md5 does not match", async () => {
+    const payload = ciphertextPayload();
+    const bad = Buffer.from(payload);
+    bad[bad.length - 1] ^= 0xff;
+    let retries = 0;
+    vi.stubGlobal(
+      "fetch",
+      async (_input: unknown, init?: RequestInit & { headers?: Record<string, string> }) => {
+        const range = init?.headers?.Range;
+        if (init?.method === "HEAD" || !range) {
+          return new Response(null, {
+            status: 200,
+            headers: {
+              "accept-ranges": "bytes",
+              "content-length": String(payload.length),
+            },
+          });
+        }
+        const [start, end] = range.replace("bytes=", "").split("-").map(Number);
+        // A retry begins at byte 0. Until then every range comes from the same
+        // corrupt body; afterwards every range comes from the good one.
+        if (start === 0) retries++;
+        const source = retries >= 2 ? payload : bad;
+        const slice = source.subarray(start, end + 1);
+        return new Response(slice, {
+          status: 206,
+          headers: { "content-length": String(slice.length) },
+        });
+      },
+    );
+    const md5 = createHash("md5").update(payload).digest("hex");
+    decrypt.mockImplementation(async ({ filePath }: { filePath: string }) => {
+      fs.writeFileSync(filePath, xarPayload());
+    });
+
+    const id = startTask(md5);
+    const settled = await settle(id);
+
+    expect(settled?.status).toBe("completed");
+    expect(retries).toBe(2);
+    expect(decrypt).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails and removes the package when md5 still mismatches after one retry", async () => {
+    const payload = ciphertextPayload();
+    const wrong = "0".repeat(32);
+    serve(payload);
+
+    const id = startTask(wrong);
+    const settled = await settle(id);
+
+    expect(settled?.status).toBe("failed");
+    expect(settled?.error).toMatch(/md5 mismatch after retry/);
+    expect(fs.existsSync(settled!.filePath!)).toBe(false);
+    expect(decrypt).not.toHaveBeenCalled();
+  });
+
+  it("leaves a pause that lands in the md5 hash read to the row it paused", async () => {
+    // The hash is an await point inside the mismatch path, so a pause can
+    // unregister this attempt while it runs. The retry must then unwind as a
+    // stale attempt: downloading a second transfer over a row another attempt
+    // owns was the bug, and a swallowed TypeError left it unexplained.
+    const payload = ciphertextPayload();
+    serve(payload);
+    decrypt.mockImplementation(async ({ filePath }: { filePath: string }) => {
+      fs.writeFileSync(filePath, xarPayload());
+    });
+
+    const id = startTask("0".repeat(32));
+
+    let landed = false;
+    const realReadStream = fs.createReadStream.bind(fs);
+    const readSpy = vi
+      .spyOn(fs, "createReadStream")
+      .mockImplementation(((target: unknown, ...rest: unknown[]) => {
+        // The destination itself is the hash's read; the `.part` siblings are
+        // the merge's, and a pause belongs inside the former.
+        if (!landed && String(target).endsWith(".pkg")) {
+          landed = true;
+          manager.pauseTask(id);
+        }
+        return (realReadStream as (...args: unknown[]) => unknown)(target, ...rest);
+      }) as never);
+
+    await waitUntil(() => landed, "the pause to land in the hash read");
+    readSpy.mockRestore();
+
+    // Room for the mismatch path to unwind before judging the status.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    const paused = manager.getTask(id);
+    expect(paused?.status).toBe("paused");
+    expect(paused?.error).toBeUndefined();
+    expect(decrypt).not.toHaveBeenCalled();
+    // Only the first attempt's two chunk requests: no retry transfer started.
+    // (A resume re-reads the same body and mismatches the same wrong digest;
+    // that retry is the sibling test's subject, not this one's.)
+    expect(chunkRequests).toBe(2);
   });
 
   it("decrypts what Apple served and keeps the package that comes out", async () => {

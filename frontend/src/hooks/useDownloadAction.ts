@@ -333,6 +333,7 @@ export function useDownloadAction() {
       downloadURL: output.downloadURL,
       sinfs: output.sinfs,
       iTunesMetadata: output.iTunesMetadata,
+      md5: output.md5,
       ...decryption,
     });
 

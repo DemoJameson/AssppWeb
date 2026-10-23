@@ -71,6 +71,8 @@ export interface DownloadTask {
    * StoreAgent derives the key from the pair, so the wrong id leaves ciphertext.
    */
   hardwareId?: string;
+  /** Apple's MD5 of the raw package, verified before any injection or decrypt. */
+  md5?: string;
   status:
     | "pending"
     | "downloading"

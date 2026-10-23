@@ -118,6 +118,7 @@ MIT License. See [LICENSE](LICENSE) for details.
 For projects that was stolen and used heavily:
 
 - [ipatool](https://github.com/majd/ipatool)
+- [Sorvigolova/ipatool](https://github.com/Sorvigolova/ipatool)
 - [Asspp](https://github.com/Lakr233/Asspp)
 
 For friends who helped with testing and feedback:

@@ -235,13 +235,20 @@ this project's addition):
 
 - volumeStore → redownload when the reply is **empty** (HTTP 200, no
   `failureType`, no `customerMessage`, no `songList` — the purchase receipt Apple
-  returns for an app the account does not own yet) or **unavailable** (HTTP 200,
-  no `failureType`, no items, `customerMessage` ending in "No Longer Available").
-- redownload → updateProduct when the request fails with an **empty HTTP 500**, or
-  when redownload answers with the same availability message. Only reached with a
-  pinned version id, since updateProduct needs one. ipatool gates this hop on the
-  platform as well (iOS/iPad/tvOS/watchOS/macOS, tvOS since `acd9e7a`); this
-  project does not, so visionOS is served the same fallback.
+  returns for an app the account does not own yet), **unavailable** (HTTP 200,
+  no `failureType`, no items, `customerMessage` ending in "No Longer Available"),
+  or — on a download — has an item with no usable `sinf`/`dpInfo` material.
+- redownload → updateProduct when the request fails with an **empty HTTP 500**,
+  when redownload answers with the same availability message, or when a download
+  reply has no usable `sinf`/`dpInfo`. Only reached with a pinned version id,
+  since updateProduct needs one. ipatool gates this hop on the platform as well
+  (iOS/iPad/tvOS/watchOS/macOS, tvOS since `acd9e7a`); this project does not, so
+  visionOS is served the same fallback.
+- Redownload's exact 200-level no-licence pair (`Redownload Unavailable with This
+  Apple Account` plus its full explanation, at the top level or under `dialog`)
+  is remembered as a licence refusal while updateProduct is tried. If
+  updateProduct cannot serve it, the reply becomes `FAILURE_LICENSE_NOT_FOUND`, so
+  automatic licence acquisition can run. Near matches do not trigger a purchase.
 - A reply carrying a `failureType` is a real answer and is never retried on
   another host. `5002` is grouped with the password-token failures (`2034`,
   `2042`, `1008`) and reported as a session problem; `9610` means the license is
@@ -257,7 +264,9 @@ this project's addition):
 The same exchange backs every download-flow request — `getDownloadInfo`,
 `listVersions` (the version picker) and `getVersionMetadata` all call
 `requestDownloadProduct` — so this one fallback covers downloads, version
-listing and version metadata alike.
+listing and version metadata alike. Only the download path sets
+`requireDownloadMaterial`: version listing and metadata need the item metadata,
+not decryption material.
 
 The licence grant (`purchaseApp`) is the flow's one request with nowhere else to
 go, so it is repeated once through `repeatUnreachable` (`apple/retry.ts`) instead:
@@ -556,6 +565,18 @@ build than the storefront's current version, and a record recalled from the
 package index is another build's download by nature — and in both the compiled
 package supplies the truth instead (the date read from the archive, the size
 measured after injection).
+
+Apple's `md5` from the download item travels with the task and is checked against
+the raw bytes after transfer but before macOS decryption or IPA injection. A
+mismatch deletes the file and `.part` chunks and retries the full download once;
+a second mismatch fails the task and removes the bad file. The field reaches the
+client either as a 32-character hex string or as the `<data>` bytes of the digest
+itself, and both forms are normalised to hex — accepting only the string would
+skip the check silently on the other. The retry runs on the attempt's own
+controller and verifies it still owns the registration before starting: the hash
+is an await point, so a pause landing inside it unwinds as a stale attempt
+instead of downloading a second transfer over a row another attempt owns. This
+is a transfer integrity check, not an authenticity proof.
 
 Until step 3 lands, the on-disk layout uses the app id as the directory segment
 (`appPathSegment`), which is also ipatool's rule of omitting the fields it does

@@ -1,5 +1,7 @@
+import { createHash } from "crypto";
 import fs from "fs";
 import path from "path";
+import { pipeline } from "stream/promises";
 import { v4 as uuidv4 } from "uuid";
 import { config, DOWNLOAD_TIMEOUT_MS } from "../config.js";
 import {
@@ -848,6 +850,7 @@ export function createTask(
   sinfs: Sinf[],
   iTunesMetadata?: string,
   decryption?: MacOSDecryption,
+  md5?: string,
 ): DownloadTask {
   validateDownloadURL(downloadURL);
   // …and that what Apple offered is a package this task's platform can use.
@@ -862,6 +865,10 @@ export function createTask(
   appPathSegment(software);
   safePathSegment(software.version, "version");
 
+  if (md5 !== undefined && !/^[0-9a-fA-F]{32}$/.test(md5)) {
+    throw new Error("Invalid md5");
+  }
+
   if (software.platform === "macos") {
     assertMacOSDecryption(decryption);
   }
@@ -875,6 +882,7 @@ export function createTask(
     iTunesMetadata,
     dpInfo: decryption?.dpInfo,
     hardwareId: decryption?.hardwareId,
+    md5: md5?.toLowerCase(),
     status: "pending",
     progress: 0,
     speed: "0 B/s",
@@ -884,6 +892,76 @@ export function createTask(
   tasks.set(task.id, task);
   startDownloadSafely(task);
   return task;
+}
+
+async function fileMd5(filePath: string): Promise<string> {
+  const hash = createHash("md5");
+  await pipeline(fs.createReadStream(filePath), hash);
+  return hash.digest("hex");
+}
+
+/**
+ * Apple's md5 describes the package exactly as served, so this must run before
+ * injection rewrites the archive or StoreAgent decrypts a macOS package.
+ */
+async function assertDownloadedMd5(
+  task: DownloadTask,
+  filePath: string,
+  controller: AbortController,
+  resetTimeout: () => void,
+): Promise<void> {
+  if (!task.md5) return;
+
+  const actual = await fileMd5(filePath);
+  if (actual === task.md5) return;
+
+  console.warn(
+    `[download] md5 mismatch for ${task.id}: expected ${task.md5}, got ${actual}; retrying once`,
+  );
+  // The mismatched bytes are worthless to whoever owns the task now: nothing
+  // can resume a package whose md5 is wrong, and the .part siblings are the
+  // same corrupt body chunk-for-chunk.
+  fs.rmSync(filePath, { force: true });
+  removePartFiles(filePath);
+
+  // The hash read is an await point, so a pause or delete can have unregistered
+  // this attempt while it ran. Retrying would then download a second transfer
+  // over the row that belongs to someone else — and `abortControllers.get(...)!`
+  // on the way there was a TypeError the stale-attempt guard swallowed, leaving
+  // the task parked with no reason. Unwind as a stale attempt instead.
+  if (abortControllers.get(task.id) !== controller) {
+    const aborted = new Error("Aborted");
+    aborted.name = "AbortError";
+    throw aborted;
+  }
+
+  const retry = new ChunkedDownloader(task.downloadURL, filePath, {
+    onProgress: (info) => {
+      task.speed = info.speed;
+      if (info.total > 0) {
+        task.progress = Math.round((info.downloaded / info.total) * 100);
+      }
+      notifyProgress(task);
+    },
+  });
+  chunkDownloaders.set(task.id, retry);
+  try {
+    resetTimeout();
+    await retry.download(controller.signal);
+  } finally {
+    if (chunkDownloaders.get(task.id) === retry) {
+      chunkDownloaders.delete(task.id);
+    }
+  }
+
+  const rechecked = await fileMd5(filePath);
+  if (rechecked !== task.md5) {
+    fs.rmSync(filePath, { force: true });
+    removePartFiles(filePath);
+    throw new Error(
+      `download md5 mismatch after retry (expected ${task.md5}, got ${rechecked})`,
+    );
+  }
 }
 
 async function startDownload(task: DownloadTask) {
@@ -903,8 +981,10 @@ async function startDownload(task: DownloadTask) {
   // failures look stale (task stuck `downloading` at 100%, reason discarded).
   abortControllers.set(task.id, controller);
 
-  // Set a global timeout for the entire download
-  const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+  // Set a global timeout for the entire download. The md5 retry is one fresh
+  // transfer, so it gets the same wall-clock bound as the first attempt; a stale
+  // timer would abort a legitimate second download while it is still moving.
+  let timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
 
   try {
     task.status = "downloading";
@@ -959,8 +1039,13 @@ async function startDownload(task: DownloadTask) {
     chunkDownloaders.set(task.id, downloader);
 
     await downloader.download(controller.signal);
-
-    // Registration stays for the steps below, so their failures reach the task.
+    await assertDownloadedMd5(task, filePath, controller, () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+    });
+    // The md5 retry, when used, re-armed the transfer timer. Stop it before
+    // decrypting: decryption has its own progress and must not be aborted by the
+    // download attempt's original wall-clock deadline.
     clearTimeout(timeout);
 
     // Validates the package's declared platform before injecting — mirrors

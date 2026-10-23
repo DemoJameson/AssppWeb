@@ -100,6 +100,8 @@ export interface DownloadOutput {
    * encrypted, and this is the key material the server's decrypter uses.
    */
   dpInfo?: string;
+  /** Apple's MD5 of the raw package it served, before injection or decryption. */
+  md5?: string;
   iTunesMetadata?: string;
 }
 

@@ -482,6 +482,28 @@ describe("useDownloadAction", () => {
     expect(apiPost).not.toHaveBeenCalled();
   });
 
+  it("hands the server Apple's raw-package md5", async () => {
+    vi.mocked(getDownloadInfo).mockResolvedValue({
+      output: {
+        ...output,
+        md5: "0123456789abcdef0123456789abcdef",
+      },
+      updatedCookies: [],
+    });
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, app);
+    });
+
+    expect(apiPost).toHaveBeenCalledWith(
+      "/api/downloads",
+      expect.objectContaining({
+        md5: "0123456789abcdef0123456789abcdef",
+      }),
+    );
+  });
+
   it("downloads directly when a license already exists", async () => {
     const { result } = renderHook(() => useDownloadAction());
     await act(async () => {

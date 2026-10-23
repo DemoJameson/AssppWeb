@@ -214,6 +214,27 @@ describe("Downloads Route", () => {
     }
   });
 
+  it("POST /api/downloads should refuse a malformed md5", async () => {
+    const base = {
+      software: {
+        id: 1492142120,
+        bundleID: "com.example.utility",
+        name: "Example",
+        version: "1.0",
+      },
+      accountHash: "abcdef1234567890",
+      downloadURL: "https://example.apple.com/app.ipa",
+      sinfs: [],
+    };
+
+    const res = await request(app)
+      .post("/api/downloads")
+      .send({ ...base, md5: "not-a-digest" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("md5");
+  });
+
   it("POST /api/downloads should refuse a mistyped software field or metadata", async () => {
     const base = {
       software: {

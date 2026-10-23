@@ -37,6 +37,7 @@ export async function getDownloadInfo(
 
   const reply = await requestDownloadProduct(session, externalVersionId ?? "", {
     onStage: options.onStage,
+    requireDownloadMaterial: options.allowMissingDPInfo !== true,
   });
 
   return interpretReply(session, reply, options.allowMissingDPInfo === true);
@@ -172,6 +173,7 @@ async function interpretReply(
   // backend records it so later version queries can fall back to it.
   const externalVersionId = metadata.softwareVersionExternalIdentifier;
   const preflightPackageURL = item.preflightPackageURL;
+  const md5 = md5FromField(item.md5);
 
   return {
     output: {
@@ -189,6 +191,7 @@ async function interpretReply(
           ? preflightPackageURL
           : undefined,
       dpInfo,
+      md5,
       iTunesMetadata,
     },
     updatedCookies: session.cookies,
@@ -223,6 +226,30 @@ function unexpectedReply(reply: DownloadReply): string {
 function base64FromString(value: string): string {
   const bytes = new TextEncoder().encode(value);
   return base64FromBytes(bytes);
+}
+
+/**
+ * Apple's raw-package digest, in the hex form the backend verifies against.
+ * A reply names it either as a 32-character string or as the `<data>` bytes of
+ * the digest itself (the plist parser returns those as `Uint8Array`) — treating
+ * only the string form would drop the check silently on the other, and the
+ * download would then run unverified rather than fail.
+ */
+function md5FromField(value: unknown): string | undefined {
+  const bytes =
+    value instanceof Uint8Array
+      ? value
+      : value instanceof ArrayBuffer
+        ? new Uint8Array(value)
+        : null;
+  if (bytes) {
+    return bytes.length === 16
+      ? Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
+      : undefined;
+  }
+  return typeof value === "string" && /^[0-9a-fA-F]{32}$/.test(value)
+    ? value.toLowerCase()
+    : undefined;
 }
 
 /**

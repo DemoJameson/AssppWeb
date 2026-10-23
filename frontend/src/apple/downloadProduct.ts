@@ -24,6 +24,7 @@ import { needsVersionExchange } from "../utils/software";
 
 import {
   ENT_DOWNLOAD_PATH,
+  FAILURE_LICENSE_NOT_FOUND,
   REDOWNLOAD_PRODUCT_PATH,
   UPDATE_PRODUCT_PATH,
   downloadDispatchEndpoint,
@@ -61,6 +62,13 @@ export interface DownloadRequestOptions {
   legacyOnly?: boolean;
   /** Optional, user-friendly progress stages for the exchange. */
   onStage?: DownloadStageObserver;
+  /**
+   * Download replies must carry the material needed to install the package:
+   * a non-empty `sinf` on iOS-family builds, or `dpInfo` on macOS. Version
+   * listing and metadata lookups only need the item metadata, so they leave
+   * this off.
+   */
+  requireDownloadMaterial?: boolean;
 }
 
 export interface DownloadReply {
@@ -113,6 +121,7 @@ export async function requestDownloadProduct(
   let bag: Awaited<ReturnType<typeof fetchBag>> | null = options.legacyOnly
     ? null
     : await fetchBag(guid).catch(() => null);
+  let volumeStoreReply: DownloadReply | null = null;
 
   if (bag?.entDownloadEndpoint) {
     let preferredVersionId = externalVersionId;
@@ -133,12 +142,19 @@ export async function requestDownloadProduct(
           ENT_DOWNLOAD_PATH,
           guid,
         );
-        return await sendEntDownload(
+        const reply = await sendEntDownload(
           session,
           endpoint,
           preferredVersionId,
           options.onStage,
         );
+        if (
+          options.requireDownloadMaterial &&
+          !hasDownloadMaterial(reply, session.app.platform)
+        ) {
+          throw new UnexpectedAppleResponseError(reply.status, bodySnippet(reply.body));
+        }
+        return reply;
       } catch {
         options.onStage?.(null);
         // Match ipatool: generation, transport, endpoint validation and reply
@@ -156,7 +172,6 @@ export async function requestDownloadProduct(
   // one that goes silent; see AGENTS.md) says nothing about this endpoint, and the
   // fallbacks live on another host, so the next one is a real alternative; anything
   // Apple *answered* stays with the shape checks below.
-  let volumeStoreReply: DownloadReply | null = null;
   let volumeStoreFailure: unknown;
   try {
     volumeStoreReply = await sendDownloadRequest(
@@ -169,12 +184,28 @@ export async function requestDownloadProduct(
     volumeStoreFailure = error;
   }
 
-  if (
-    volumeStoreReply &&
-    !isEmptyDownloadResponse(volumeStoreReply) &&
-    !isUnavailableDownloadResponse(volumeStoreReply)
-  ) {
-    return volumeStoreReply;
+  if (volumeStoreReply) {
+    const failureType = failureTypeOf(volumeStoreReply);
+    const message = customerMessageOf(volumeStoreReply);
+
+    // A reply with a structured failure is Apple's answer, not evidence that this
+    // host cannot serve the app. Only the empty/unavailable shapes are endpoint
+    // misses; letting a 2034 or 9610 fall through would hide the session or
+    // licence signal behind an unrelated fallback error. "No Longer Available"
+    // is the one message-only shape that is an endpoint miss.
+    if (
+      failureType !== "" ||
+      (message !== "" && !isUnavailableDownloadResponse(volumeStoreReply))
+    ) {
+      return volumeStoreReply;
+    }
+
+    const usable =
+      !isEmptyDownloadResponse(volumeStoreReply) &&
+      !isUnavailableDownloadResponse(volumeStoreReply) &&
+      (!options.requireDownloadMaterial ||
+        hasDownloadMaterial(volumeStoreReply, session.app.platform));
+    if (usable) return volumeStoreReply;
   }
 
   bag ??= await fetchBag(guid);
@@ -224,21 +255,49 @@ export async function requestDownloadProduct(
         session,
         dispatchEndpoint(bag.updateEndpoint, UPDATE_PRODUCT_PATH, guid),
         externalVersionId,
+        options.requireDownloadMaterial === true,
       );
     }
     throw error;
   }
 
+  const redownloadUnavailable = isRedownloadUnavailableReply(redownloadReply);
+  const redownloadNoLicenceFailure = () =>
+    new DownloadError(
+      i18n.t("errors.download.licenseRequired"),
+      FAILURE_LICENSE_NOT_FOUND,
+    );
+  const redownloadMissingMaterial =
+    options.requireDownloadMaterial &&
+    redownloadReply.status === 200 &&
+    failureTypeOf(redownloadReply) === "" &&
+    !hasDownloadMaterial(redownloadReply, session.app.platform);
+
   if (
     bag.updateEndpoint &&
     externalVersionId &&
-    isUnavailableDownloadResponse(redownloadReply)
+    (isUnavailableDownloadResponse(redownloadReply) ||
+      redownloadUnavailable ||
+      redownloadMissingMaterial)
   ) {
-    return sendUpdateProduct(
-      session,
-      dispatchEndpoint(bag.updateEndpoint, UPDATE_PRODUCT_PATH, guid),
-      externalVersionId,
-    );
+    try {
+      return await sendUpdateProduct(
+        session,
+        dispatchEndpoint(bag.updateEndpoint, UPDATE_PRODUCT_PATH, guid),
+        externalVersionId,
+        options.requireDownloadMaterial === true,
+      );
+    } catch (error) {
+      if (redownloadUnavailable) {
+        if (isMissingLicenceError(error)) throw error;
+        throw redownloadNoLicenceFailure();
+      }
+      throw error;
+    }
+  }
+
+  if (redownloadUnavailable) {
+    throw redownloadNoLicenceFailure();
   }
 
   return redownloadReply;
@@ -426,6 +485,7 @@ async function sendUpdateProduct(
   session: DownloadSession,
   endpoint: StoreDownloadEndpoint,
   externalVersionId: string,
+  requireDownloadMaterial = false,
 ): Promise<DownloadReply> {
   const reply = await sendDownloadRequest(session, endpoint, externalVersionId);
 
@@ -453,7 +513,11 @@ async function sendUpdateProduct(
     bundleId !== "" &&
     (!session.app.bundleID || bundleId === session.app.bundleID);
 
-  if (!matchesRequestedApp) {
+  if (
+    !matchesRequestedApp ||
+    (requireDownloadMaterial &&
+      !hasDownloadMaterial(reply, session.app.platform))
+  ) {
     throw new DownloadError(i18n.t("errors.download.updateMismatch"));
   }
 
@@ -586,6 +650,28 @@ export function itemsOf(reply: DownloadReply): Record<string, any>[] {
   return Array.isArray(items) ? (items as Record<string, any>[]) : [];
 }
 
+/** Whether an item carries the material the download pipeline needs. */
+export function hasDownloadMaterial(
+  reply: DownloadReply,
+  platform: Software["platform"],
+): boolean {
+  const sinfs = itemsOf(reply)[0]?.sinfs;
+  if (!Array.isArray(sinfs)) return false;
+
+  for (const entry of sinfs) {
+    if (!entry || typeof entry !== "object") continue;
+    const field = platform === "macos" ? entry.dpInfo : entry.sinf;
+    if (field instanceof Uint8Array) {
+      if (field.byteLength > 0) return true;
+    } else if (field instanceof ArrayBuffer) {
+      if (field.byteLength > 0) return true;
+    } else if (typeof field === "string" && field !== "") {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Apple's version identifiers from a reply, newest first (Apple returns oldest
  * first); the reversal happens here so the version pickers can render in order.
@@ -634,6 +720,46 @@ function isEmptyRedownloadError(error: unknown): boolean {
     error instanceof UnexpectedAppleResponseError &&
     error.status === 500 &&
     error.snippet === ""
+  );
+}
+
+const REDOWNLOAD_UNAVAILABLE_MESSAGE =
+  "Redownload Unavailable with This Apple Account";
+const REDOWNLOAD_UNAVAILABLE_EXPLANATION =
+  "This redownload is not available for this Apple Account either because it was bought by a different user or the item was refunded or cancelled.";
+
+/** Apple's spaces in these messages include U+00A0 and U+2000–U+200A. */
+function normalizeAppleMessage(value: unknown): string {
+  return String(value ?? "")
+    .replace(/[\u00a0\u2000-\u200a\u202f\s]+/gu, " ")
+    .trim();
+}
+
+function redownloadUnavailableFields(data: Record<string, any> | null | undefined): boolean {
+  if (!data) return false;
+  return (
+    normalizeAppleMessage(data.message) === REDOWNLOAD_UNAVAILABLE_MESSAGE &&
+    normalizeAppleMessage(data.explanation) === REDOWNLOAD_UNAVAILABLE_EXPLANATION
+  );
+}
+
+/**
+ * Apple's 200-level refusal when the account has no licence for the item. The
+ * exact pair is matched: a looser "Apple Account" search could turn unrelated
+ * refusals into a purchase prompt.
+ */
+export function isRedownloadUnavailableReply(reply: DownloadReply): boolean {
+  if (reply.status === 500 || failureTypeOf(reply) !== "") return false;
+  return (
+    redownloadUnavailableFields(reply.data) ||
+    redownloadUnavailableFields(reply.data?.dialog)
+  );
+}
+
+function isMissingLicenceError(error: unknown): boolean {
+  return (
+    error instanceof DownloadError &&
+    error.code === FAILURE_LICENSE_NOT_FOUND
   );
 }
 
