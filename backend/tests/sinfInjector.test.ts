@@ -255,6 +255,10 @@ describe("sinfInjector", () => {
       artistName: undefined,
       primaryGenreName: undefined,
       releaseDate: expect.any(String),
+      artworkURL: undefined,
+      externalVersionId: undefined,
+      platform: undefined,
+      supportedPlatforms: [],
     });
   });
 

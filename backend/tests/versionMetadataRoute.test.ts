@@ -38,6 +38,7 @@ describe("Version Metadata Route", () => {
       version: "1.3.18",
       releaseDate: "2026-07-11T15:06:44.000Z",
       externalVersionId: "888154622",
+      supportedPlatforms: ["iPhoneOS", "AppleTVOS"],
     } satisfies PackageMetadata);
   });
 
@@ -70,6 +71,7 @@ describe("Version Metadata Route", () => {
           versionId: "888154622",
           displayVersion: "1.3.18",
           releaseDate: "2026-07-11T15:06:44.000Z",
+          supportedPlatforms: ["iPhoneOS", "AppleTVOS"],
           source: "package",
         },
       ],
@@ -83,6 +85,8 @@ describe("Version Metadata Route", () => {
       .send({
         displayVersion: "2.0.0",
         releaseDate: "2026-08-01T00:00:00.000Z",
+        minimumOsVersion: "17.1",
+        supportedPlatforms: ["iPhoneOS"],
       });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
@@ -91,6 +95,8 @@ describe("Version Metadata Route", () => {
         versionId: "900000001",
         displayVersion: "2.0.0",
         releaseDate: "2026-08-01T00:00:00.000Z",
+        minimumOsVersion: "17.1",
+        supportedPlatforms: ["iPhoneOS"],
         source: "client",
       },
     });
@@ -99,6 +105,22 @@ describe("Version Metadata Route", () => {
       "/api/version-metadata/6503940939",
     );
     expect(list.body.entries).toHaveLength(2);
+  });
+
+  it("lists the package-declared platforms only for attested packages", async () => {
+    const res = await request(createApp()).get(
+      "/api/version-metadata/6503940939/platforms",
+    );
+    expect(res.status).toBe(200);
+    // 888154622 is this instance's compiled package; 900000001 was saved by a
+    // client. Only the attested package may clear another platform's recorded
+    // build in the pin guess, so the client entry stays out of this response.
+    expect(res.body).toEqual({
+      platforms: {
+        "888154622": ["iPhoneOS", "AppleTVOS"],
+      },
+    });
+    expect(res.body.platforms).not.toHaveProperty("900000001");
   });
 
   it("declines to displace a package entry, returning it instead", async () => {
@@ -177,7 +199,9 @@ describe("Version Metadata Route", () => {
       const data = Buffer.from(
         `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>` +
           `<key>CFBundleShortVersionString</key><string>${version}</string>` +
-          `</dict></plist>`,
+          `<key>MinimumOSVersion</key><string>16.4</string>` +
+          `<key>CFBundleSupportedPlatforms</key><array>` +
+          `<string>iPhoneOS</string></array></dict></plist>`,
         "utf8",
       );
       const dosTime =
@@ -270,6 +294,8 @@ describe("Version Metadata Route", () => {
       expect(res.body.entry.source).toBe("package-read");
       expect(res.body.entry.displayVersion).toBe("3.0.0");
       expect(res.body.entry.releaseDate).toBe("2026-07-11T15:06:44.000Z");
+      expect(res.body.entry.minimumOsVersion).toBe("16.4");
+      expect(res.body.entry.supportedPlatforms).toEqual(["iPhoneOS"]);
 
       const list = await request(createApp()).get(
         `/api/version-metadata/${APP}`,
@@ -279,6 +305,14 @@ describe("Version Metadata Route", () => {
           entry.versionId === LOOKED_UP_VERSION,
       );
       expect(stored.source).toBe("package-read");
+      expect(stored.minimumOsVersion).toBe("16.4");
+      expect(stored.supportedPlatforms).toEqual(["iPhoneOS"]);
+      // The declaration is a package-read the server cannot attest: it may
+      // display, but it must not clear another platform's build in the guess.
+      const plats = await request(createApp()).get(
+        `/api/version-metadata/${APP}/platforms`,
+      );
+      expect(plats.body.platforms).not.toHaveProperty(LOOKED_UP_VERSION);
     });
 
     it("lets a later read refresh an entry it wrote", async () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   fetchPackageVersionMetadata,
+  fetchVersionPlatforms,
   fetchVersionMetadata,
   saveVersionMetadata,
 } from "../../src/api/versionMetadata";
@@ -20,6 +21,8 @@ describe("fetchVersionMetadata", () => {
               versionId: "894041913",
               displayVersion: "8.2.1",
               releaseDate: "2025-06-12T00:00:00.000Z",
+              minimumOsVersion: "16.4",
+              supportedPlatforms: ["iPhoneOS"],
             },
           ],
         }),
@@ -30,6 +33,8 @@ describe("fetchVersionMetadata", () => {
       "894041913": {
         displayVersion: "8.2.1",
         releaseDate: "2025-06-12T00:00:00.000Z",
+        minimumOsVersion: "16.4",
+        supportedPlatforms: ["iPhoneOS"],
       },
     });
     expect(fetch).toHaveBeenCalledWith("/api/version-metadata/6503940939", {
@@ -53,6 +58,35 @@ describe("fetchVersionMetadata", () => {
     } as Response);
 
     expect(await fetchVersionMetadata(1)).toEqual({});
+  });
+});
+
+describe("fetchVersionPlatforms", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns only numeric ids with a non-empty declaration", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          platforms: {
+            "888154622": ["iPhoneOS", "AppleTVOS"],
+            bad: ["iPhoneOS"],
+            "2": [],
+          },
+        }),
+    } as Response);
+
+    expect(await fetchVersionPlatforms(6503940939)).toEqual({
+      "888154622": ["iPhoneOS", "AppleTVOS"],
+    });
+  });
+
+  it("degrades to an empty map when the read fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("offline"));
+    expect(await fetchVersionPlatforms(1)).toEqual({});
   });
 });
 
@@ -125,12 +159,16 @@ describe("fetchPackageVersionMetadata", () => {
       versionId: "894041913",
       displayVersion: "8.2.1",
       releaseDate: "2025-06-12T00:00:00.000Z",
+      minimumOsVersion: "16.4",
+      supportedPlatforms: ["iPhoneOS"],
       source: "package-read",
     });
 
     await expect(read()).resolves.toEqual({
       displayVersion: "8.2.1",
       releaseDate: "2025-06-12T00:00:00.000Z",
+      minimumOsVersion: "16.4",
+      supportedPlatforms: ["iPhoneOS"],
       source: "package-read",
     });
   });

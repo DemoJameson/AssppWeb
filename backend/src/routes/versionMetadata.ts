@@ -8,6 +8,38 @@ import { versionMetadataFromDownloadURL } from "../services/packageVersionMetada
 
 const router = Router();
 
+/**
+ * Every attested package's declared platform list, keyed by external version id —
+ * only entries this instance compiled (`source === package`), never a client- or
+ * URL-supplied one. The pin guess reads this before treating an id as another
+ * platform's build: a universal package that also declares the target is not
+ * foreign evidence, and only a package the server compiled may clear one.
+ */
+router.get(
+  "/version-metadata/:appId/platforms",
+  (req: Request, res: Response) => {
+    const raw = req.params.appId;
+    const appId = Array.isArray(raw) ? raw[0] : raw;
+    if (!/^\d+$/.test(appId)) {
+      res.status(400).json({ error: "Invalid app id" });
+      return;
+    }
+
+    const platforms: Record<string, string[]> = {};
+    for (const entry of getVersionMetadataForApp(appId)) {
+      // The declaration clears another platform's recorded build, so only a
+      // package this instance compiled may speak for the platform. The cache
+      // cannot attest a `package-read` (client-supplied URL) or `client` entry,
+      // and neither should let an id pass the guess's foreign check.
+      if (entry.source !== "package") continue;
+      if (entry.supportedPlatforms && entry.supportedPlatforms.length > 0) {
+        platforms[entry.versionId] = entry.supportedPlatforms;
+      }
+    }
+    res.json({ platforms });
+  },
+);
+
 // The shared version metadata cache. Reads are storefront-public (display
 // version + release date), so no accountHash is required — `accessAuth` still
 // gates it. Package-sourced entries stay authoritative (see services/versionMetadataCache.ts).
@@ -41,6 +73,8 @@ router.put(
     const body = (req.body ?? {}) as {
       displayVersion?: unknown;
       releaseDate?: unknown;
+      minimumOsVersion?: unknown;
+      supportedPlatforms?: unknown;
     };
     if (
       typeof body.displayVersion !== "string" ||
@@ -57,6 +91,8 @@ router.put(
       versionId,
       body.displayVersion,
       body.releaseDate,
+      body.minimumOsVersion,
+      body.supportedPlatforms,
     );
     if (!result.saved && !result.entry) {
       res.status(400).json({ error: "Invalid version metadata" });
@@ -111,6 +147,8 @@ router.post(
         versionId,
         metadata.displayVersion,
         metadata.releaseDate,
+        metadata.minimumOsVersion,
+        metadata.supportedPlatforms,
       );
       if (!result.saved && !result.entry) {
         res.status(502).json({

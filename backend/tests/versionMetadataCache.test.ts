@@ -59,6 +59,37 @@ describe("versionMetadataCache", () => {
     ]);
   });
 
+  it("fills the new package fields on an entry seeded before they existed", async () => {
+    // Simulate the pre-migration row: the identity fields are already there, but
+    // both new columns are NULL. A later compile of the same package may enrich
+    // those columns without changing the version or date.
+    const oldApp = 6503940938;
+    cache.seedVersionMetadata(oldApp, pkg({ externalVersionId: "9001" }));
+    const { getDb } = await import("../src/services/db.js");
+    getDb()
+      .prepare(
+        "UPDATE version_metadata SET minimum_os = NULL, supported_platforms = NULL WHERE app_id = ? AND version_id = ?",
+      )
+      .run(oldApp, 9001);
+
+    cache.seedVersionMetadata(
+      oldApp,
+      pkg({
+        externalVersionId: "9001",
+        minimumOsVersion: "18.0",
+        supportedPlatforms: ["iPhoneOS", "AppleTVOS"],
+      }),
+    );
+
+    expect(cache.getVersionMetadataForApp(oldApp)[0]).toMatchObject({
+      displayVersion: "1.0.0",
+      releaseDate: "2026-01-01T00:00:00.000Z",
+      minimumOsVersion: "18.0",
+      supportedPlatforms: ["iPhoneOS", "AppleTVOS"],
+      source: "package",
+    });
+  });
+
   it("is write-once per (app, version): re-seeding never changes the entry", () => {
     cache.seedVersionMetadata(6503940939, pkg({ version: "9.9.9" }));
     const [entry] = cache.getVersionMetadataForApp(6503940939);
@@ -98,6 +129,8 @@ describe("versionMetadataCache", () => {
         "5001",
         "5.0.0",
         "2026-02-02T00:00:00.000Z",
+        "16.4",
+        ["iPhoneOS"],
       ).saved,
     ).toBe(true);
     expect(cache.getVersionMetadataForApp(clientApp)).toEqual([
@@ -105,6 +138,8 @@ describe("versionMetadataCache", () => {
         versionId: "5001",
         displayVersion: "5.0.0",
         releaseDate: "2026-02-02T00:00:00.000Z",
+        minimumOsVersion: "16.4",
+        supportedPlatforms: ["iPhoneOS"],
         source: "client",
       },
     ]);
@@ -115,11 +150,15 @@ describe("versionMetadataCache", () => {
         "5001",
         "5.0.1",
         "2026-02-03T00:00:00.000Z",
+        "17.0",
+        ["iPhoneOS", "AppleTVOS"],
       ).saved,
     ).toBe(true);
-    expect(cache.getVersionMetadataForApp(clientApp)[0].displayVersion).toBe(
-      "5.0.1",
-    );
+    expect(cache.getVersionMetadataForApp(clientApp)[0]).toMatchObject({
+      displayVersion: "5.0.1",
+      minimumOsVersion: "17.0",
+      supportedPlatforms: ["iPhoneOS", "AppleTVOS"],
+    });
   });
 
   it("rejects invalid client payloads", () => {
@@ -195,6 +234,8 @@ describe("versionMetadataCache", () => {
           "7001",
           "7.0.0",
           "2026-05-05T00:00:00.000Z",
+          "16.4",
+          ["iPhoneOS"],
         ).saved,
       ).toBe(true);
       expect(cache.getVersionMetadataForApp(readApp)).toEqual([
@@ -202,6 +243,8 @@ describe("versionMetadataCache", () => {
           versionId: "7001",
           displayVersion: "7.0.0",
           releaseDate: "2026-05-05T00:00:00.000Z",
+          minimumOsVersion: "16.4",
+          supportedPlatforms: ["iPhoneOS"],
           source: "package-read",
         },
       ]);
@@ -212,11 +255,15 @@ describe("versionMetadataCache", () => {
           "7001",
           "7.0.1",
           "2026-05-06T00:00:00.000Z",
+          "17.0",
+          ["iPhoneOS", "AppleTVOS"],
         ).saved,
       ).toBe(true);
-      expect(cache.getVersionMetadataForApp(readApp)[0].displayVersion).toBe(
-        "7.0.1",
-      );
+      expect(cache.getVersionMetadataForApp(readApp)[0]).toMatchObject({
+        displayVersion: "7.0.1",
+        minimumOsVersion: "17.0",
+        supportedPlatforms: ["iPhoneOS", "AppleTVOS"],
+      });
     });
 
     it("outranks a client entry, and is not displaced by one", () => {

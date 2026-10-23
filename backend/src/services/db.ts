@@ -33,12 +33,14 @@ CREATE INDEX IF NOT EXISTS idx_tasks_account ON tasks(account_hash);
 CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at);
 
 CREATE TABLE IF NOT EXISTS version_metadata (
-  app_id          INTEGER NOT NULL,
-  version_id      INTEGER NOT NULL,
-  display_version TEXT NOT NULL,
-  release_date    TEXT NOT NULL,
-  source          TEXT NOT NULL,
-  seeded_at       INTEGER NOT NULL,
+  app_id              INTEGER NOT NULL,
+  version_id          INTEGER NOT NULL,
+  display_version     TEXT NOT NULL,
+  release_date        TEXT NOT NULL,
+  minimum_os          TEXT,
+  supported_platforms TEXT,
+  source              TEXT NOT NULL,
+  seeded_at           INTEGER NOT NULL,
   PRIMARY KEY (app_id, version_id)
 );
 CREATE INDEX IF NOT EXISTS idx_vm_seeded ON version_metadata(seeded_at);
@@ -80,7 +82,7 @@ CREATE TABLE IF NOT EXISTS package_app_builds (
  * The schema version this build expects. Bump whenever ADDED_COLUMNS grows: a
  * database below it is upgraded in place on open.
  */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /** Records the version; a fresh database and an upgraded one both land here. */
 const SCHEMA_VERSION_SQL = `
@@ -102,6 +104,10 @@ const ADDED_COLUMNS: ReadonlyArray<{
   { table: "package_app_builds", column: "version_id", type: "TEXT" },
   { table: "package_app_builds", column: "file_size", type: "TEXT" },
   { table: "package_app_builds", column: "release_date", type: "TEXT" },
+  // Per version: the build's own deployment floor and declared platform list.
+  // Existing rows keep NULL until a package is read again.
+  { table: "version_metadata", column: "minimum_os", type: "TEXT" },
+  { table: "version_metadata", column: "supported_platforms", type: "TEXT" },
 ];
 
 /** Opens (or returns the already-open) database handle. */
@@ -318,7 +324,7 @@ function migrateVersionMetadataJson(db: Database.Database, file: string): void {
 
   const entries = (data as { entries: Record<string, unknown> }).entries;
   const insert = db.prepare(
-    "INSERT OR REPLACE INTO version_metadata (app_id, version_id, display_version, release_date, source, seeded_at) VALUES (?, ?, ?, ?, ?, ?)",
+    "INSERT OR REPLACE INTO version_metadata (app_id, version_id, display_version, release_date, minimum_os, supported_platforms, source, seeded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   );
   try {
     const tx = db.transaction(() => {
@@ -334,12 +340,18 @@ function migrateVersionMetadataJson(db: Database.Database, file: string): void {
           const record = raw as {
             displayVersion?: unknown;
             releaseDate?: unknown;
+            minimumOsVersion?: unknown;
+            supportedPlatforms?: unknown;
             source?: unknown;
             seededAt?: unknown;
           };
           const displayVersion = stringField(record.displayVersion);
           const releaseDate = stringField(record.releaseDate);
           if (!displayVersion || !releaseDate) continue;
+          const minimumOsVersion = stringField(record.minimumOsVersion);
+          const supportedPlatforms = Array.isArray(record.supportedPlatforms)
+            ? record.supportedPlatforms.filter((value): value is string => typeof value === "string" && value.trim() !== "")
+            : [];
           // Files written before sources existed came from packages only.
           const source = record.source === "client" ? "client" : "package";
           const seededAt =
@@ -351,6 +363,8 @@ function migrateVersionMetadataJson(db: Database.Database, file: string): void {
             Number(versionId),
             displayVersion,
             releaseDate,
+            minimumOsVersion ?? null,
+            supportedPlatforms.length > 0 ? JSON.stringify(supportedPlatforms) : null,
             source,
             seededAt,
           );

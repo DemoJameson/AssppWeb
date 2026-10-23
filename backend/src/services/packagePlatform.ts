@@ -29,6 +29,16 @@ export class PackagePlatformError extends Error {
  * watchOS (`WatchOS`) and visionOS (`XROS`); only `iPhoneOS` means an iOS/iPad build.
  * `.pkg` (xar) never reaches this.
  */
+export function supportedPlatformsFromPlist(
+  infoPlist: Record<string, unknown> | null,
+): string[] {
+  const supported = infoPlist?.CFBundleSupportedPlatforms;
+  if (!Array.isArray(supported)) return [];
+  return supported
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter((value) => value !== "");
+}
+
 export function platformFromSupported(
   infoPlist: Record<string, unknown> | null,
 ): Platform | undefined {

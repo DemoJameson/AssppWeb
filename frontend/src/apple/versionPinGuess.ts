@@ -12,10 +12,14 @@ import {
   type DownloadSession,
 } from "./downloadProduct";
 import { DownloadError } from "./errors";
-import { artifactMatchesPlatform } from "./platform";
+import {
+  artifactMatchesPlatform,
+  platformsFromSupported,
+} from "./platform";
 import { latestVersionIdForPlatform } from "./platformVersion";
 import { recordedVersionIdsExceptPlatform } from "./versionPins";
 import { fetchPackageBuilds } from "../api/packageBuilds";
+import { fetchVersionPlatforms } from "../api/versionMetadata";
 import { storeIdToCountry } from "./config";
 import type { Platform } from "../types";
 import i18n from "../i18n";
@@ -53,9 +57,12 @@ export async function guessPlatformPinFromIOSList(
   // Every id another platform is known by is off limits: an id recorded under
   // tvOS is a tvOS build, however well it probes here. The iOS list joins the set
   // for the history check below, so a probe that falls back to the iOS history
-  // does not read as a hit.
-  const foreign = await foreignPlatformVersionIds(session);
-  const knownForeign = new Set([...versions, ...foreign]);
+  // does not read as a hit. A version-level declaration can later clear an id.
+  const foreign = await Promise.all([
+    foreignPlatformVersionIds(session),
+    packageIndexVersionIds(session),
+  ]);
+  const knownForeign = new Set([...versions, ...foreign[0], ...foreign[1]]);
   const candidates = neighbourVersionIds(newest, knownForeign);
   for (let start = 0; start < candidates.length; start += PIN_GUESS_CONCURRENCY) {
     const batch = candidates.slice(start, start + PIN_GUESS_CONCURRENCY);
@@ -92,11 +99,13 @@ function neighbourVersionIds(
   return ids;
 }
 
-/** The ids belonging to the app's *other* platforms, from three best-effort sources: the
- * id each other platform's own source names now (tvOS/watchOS MDM catalogues, macOS/visionOS
- * storefront pages); every id a past download recorded under another platform (builds no catalogue lists
- * any more); and every build the package-app index holds under another platform (its *older*
- * builds — the pin store keeps only the newest id). A silent source just means one less id ruled out.
+/** The ids belonging to the app's *other* platforms, from two best-effort sources:
+ * the id each other platform's own source names now (tvOS/watchOS MDM catalogues,
+ * macOS/visionOS storefront pages), and every id a past download recorded under
+ * another platform. The package-app index's *older* ids are unioned back in
+ * separately by the caller (see `packageIndexVersionIds`), so they stay excluded
+ * unless a version-level declaration says the build is universal. A silent source
+ * just means one less id ruled out.
  */
 async function foreignPlatformVersionIds(
   session: DownloadSession,
@@ -105,7 +114,7 @@ async function foreignPlatformVersionIds(
   const platform = session.app.platform;
   const others = OTHER_PIN_PLATFORMS.filter((other) => other !== platform);
 
-  const [named, recorded, builds] = await Promise.all([
+  const [named, recorded] = await Promise.all([
     Promise.all(
       others.map(async (other) => {
         try {
@@ -122,18 +131,33 @@ async function foreignPlatformVersionIds(
       }),
     ),
     recordedVersionIdsExceptPlatform(session.app.id, platform),
-    fetchPackageBuilds(session.app.id),
   ]);
 
-  const indexed = builds
-    .filter((build) => build.platform !== platform)
-    .map((build) => build.versionId);
+  return [...named, ...recorded].filter(
+    (id): id is string => typeof id === "string" && id !== "",
+  );
+}
 
-  return [
-    ...named.filter((id): id is string => typeof id === "string" && id !== ""),
-    ...recorded,
-    ...indexed.filter((id): id is string => typeof id === "string" && id !== ""),
-  ];
+/** The package index's ids under another platform, minus a version-level
+ * declaration that names this platform too. The index is per-platform and keeps
+ * only one build; the version cache is the one place a *version* can say it is
+ * universal, so that declaration wins. */
+async function packageIndexVersionIds(
+  session: DownloadSession,
+): Promise<string[]> {
+  const platform = session.app.platform;
+  const [builds, declarations] = await Promise.all([
+    fetchPackageBuilds(session.app.id),
+    fetchVersionPlatforms(session.app.id),
+  ]);
+  return builds
+    .filter((build) => build.platform !== platform)
+    .map((build) => build.versionId)
+    .filter((id): id is string => typeof id === "string" && id !== "")
+    .filter((id) => {
+      const declared = platformsFromSupported(declarations[id]);
+      return declared.length === 0 || !declared.includes(platform);
+    });
 }
 
 /** The app's iOS version ids, newest first — `[0]` is what a guess offsets from. */

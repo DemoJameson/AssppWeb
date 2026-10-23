@@ -6,6 +6,8 @@ interface VersionMetadataResponse {
     versionId?: string;
     displayVersion?: string;
     releaseDate?: string;
+    minimumOsVersion?: string;
+    supportedPlatforms?: string[];
     source?: "package" | "package-read" | "client";
   }>;
 }
@@ -29,6 +31,13 @@ export async function fetchVersionMetadata(
         map[entry.versionId] = {
           displayVersion: entry.displayVersion,
           releaseDate: entry.releaseDate,
+          ...(entry.minimumOsVersion
+            ? { minimumOsVersion: entry.minimumOsVersion }
+            : {}),
+          ...(Array.isArray(entry.supportedPlatforms) &&
+          entry.supportedPlatforms.length > 0
+            ? { supportedPlatforms: entry.supportedPlatforms }
+            : {}),
           source: entry.source,
         };
       }
@@ -61,6 +70,37 @@ export async function saveVersionMetadata(
   }
 }
 
+interface VersionPlatformsResponse {
+  platforms?: Record<string, string[]>;
+}
+
+/** Reads the declared platforms of every *attested package* version of an app —
+ * the backend omits client- and URL-supplied entries, since only what this
+ * instance compiled may clear another platform's recorded build. Best effort: a
+ * missing answer just means no id gains extra evidence. */
+export async function fetchVersionPlatforms(
+  appId: string | number,
+): Promise<Record<string, string[]>> {
+  try {
+    const res = await apiGet<VersionPlatformsResponse>(
+      `/api/version-metadata/${encodeURIComponent(String(appId))}/platforms`,
+    );
+    const platforms: Record<string, string[]> = {};
+    for (const [versionId, supported] of Object.entries(res?.platforms ?? {})) {
+      if (
+        /^\d+$/.test(versionId) &&
+        Array.isArray(supported) &&
+        supported.length > 0
+      ) {
+        platforms[versionId] = supported;
+      }
+    }
+    return platforms;
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Asks the backend to read a version's metadata out of its own package — the
  * per-build source of truth for the release date, which the exchange's app-level
@@ -85,6 +125,13 @@ export async function fetchPackageVersionMetadata(
     return {
       displayVersion: res.entry.displayVersion,
       releaseDate: res.entry.releaseDate,
+      ...(res.entry.minimumOsVersion
+        ? { minimumOsVersion: res.entry.minimumOsVersion }
+        : {}),
+      ...(Array.isArray(res.entry.supportedPlatforms) &&
+      res.entry.supportedPlatforms.length > 0
+        ? { supportedPlatforms: res.entry.supportedPlatforms }
+        : {}),
       source: res.entry.source,
     };
   } catch {

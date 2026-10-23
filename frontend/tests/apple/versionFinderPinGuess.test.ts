@@ -266,6 +266,28 @@ describe("apple/versionFinder pin guess", () => {
     expect(appPresenceFromProbeError(error)).toBe("inconclusive");
   });
 
+  it("does not rule out an id whose version metadata also declares this platform", async () => {
+    const macApp = { ...bareTvosApp, platform: "macos" } as Software;
+    vi.mocked(apiGet).mockImplementation(async (path: string) =>
+      (path.includes("/platforms")
+        ? { platforms: { "13": ["iPhoneOS", "macOS"] } }
+        : path.includes("package-builds")
+          ? { builds: [{ platform: "ios", versionId: "13" }] }
+          : { pins: [] }) as never,
+    );
+    vi.mocked(requestDownloadProduct).mockImplementation(async (_session, pin) => {
+      if (!pin) return replyWithVersions(["10", "11", "12"]);
+      if (pin === "13") {
+        return replyWithVersions(["20", "21"], "https://example.com/app.pkg");
+      }
+      throw new Error("not served");
+    });
+
+    const result = await listVersions(account, macApp);
+
+    expect(result.versions).toEqual(["21", "20"]);
+  });
+
   it("rules out an older build of another platform the index holds", async () => {
     // The Forward case exactly: the iOS pin is 888154622 and the tvOS 1.3.18 build
     // here is 888154623 — one step away and *not* the newest tvOS id, so the pin store

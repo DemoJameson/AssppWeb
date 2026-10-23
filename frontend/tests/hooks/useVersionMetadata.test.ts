@@ -370,6 +370,8 @@ describe("useVersionMetadataMap", () => {
     vi.mocked(fetchPackageVersionMetadata).mockResolvedValue({
       displayVersion: "2.2.2",
       releaseDate: "2026-05-05T00:00:00Z",
+      minimumOsVersion: "16.4",
+      supportedPlatforms: ["iPhoneOS"],
       source: "package-read",
     });
 
@@ -380,6 +382,10 @@ describe("useVersionMetadataMap", () => {
 
     await vi.waitFor(() => {
       expect(result.current.versionMeta["101"]?.displayVersion).toBe("2.2.2");
+      expect(result.current.versionMeta["101"]?.minimumOsVersion).toBe("16.4");
+      expect(result.current.versionMeta["101"]?.supportedPlatforms).toEqual([
+        "iPhoneOS",
+      ]);
     });
     // The backend reads the date out of the package the pinned exchange named.
     expect(fetchPackageVersionMetadata).toHaveBeenCalledWith(

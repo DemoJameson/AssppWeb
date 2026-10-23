@@ -1273,6 +1273,8 @@ describe('ProductDetail download action', () => {
         versionId: '901',
         displayVersion: '3.4.5',
         releaseDate: '2026-09-01T00:00:00Z',
+        minimumOsVersion: '17.0',
+        supportedPlatforms: ['iPhoneOS'],
         source: 'package' as const,
       },
     };
@@ -1305,7 +1307,7 @@ describe('ProductDetail download action', () => {
       expect(detailsTable()['search.product.version']).toBe('3.4.5 (901)'),
     );
     expect(detailsTable()['search.product.size']).toBe('—');
-    expect(detailsTable()['search.product.minOs']).toBe('—');
+    expect(detailsTable()['search.product.minOs']).toBe('iOS 17.0');
     expect(detailsTable()['search.product.released']).toBe('2026-09-01');
 
     // Picking the recorded build brings the record's numbers back.

@@ -220,11 +220,12 @@ export default function ProductDetail() {
     : recordIsCurrent
       ? app?.fileSizeBytes
       : undefined;
-  const currentMinimumOs = heldBuild
-    ? heldBuild.software.minimumOsVersion
-    : recordIsCurrent
-      ? app?.minimumOsVersion ?? ""
-      : "";
+  // A package-read minimum OS belongs to the build on screen, just like its
+  // date; only fall back to the record when that record *is* this build.
+  const currentMinimumOs =
+    heldBuild?.software.minimumOsVersion ||
+    currentMeta?.minimumOsVersion ||
+    (recordIsCurrent ? app?.minimumOsVersion ?? "" : "");
   // A date may only come from a package read (`utils/versionLabels` prints only
   // those): the exchange dates the *app*, not the build. A held package's own
   // date is the one the version list shows; the record's is the recorded build's.

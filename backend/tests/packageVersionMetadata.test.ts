@@ -122,7 +122,7 @@ function buildPreflightXar(distribution: string): Buffer {
 }
 
 function preflightDistribution(version: string, packageVersion: string): string {
-  return `<installer-gui-script><product id="com.example.mac" version="${version}"/><pkg-ref id="com.example.pkg"><relocate><bundle id="com.example.mac"/></relocate></pkg-ref><pkg-ref id="com.unrelated.pkg" version="9.9.9.0.1.1700000000"/><pkg-ref id="com.example.pkg" version="${packageVersion}"/><pkg-ref id="com.example.pkg" version="${packageVersion}"/></installer-gui-script>`;
+  return `<installer-gui-script><product id="com.example.mac" version="${version}"/><allowed-os-versions><os-version min="15.7"/></allowed-os-versions><pkg-ref id="com.example.pkg"><relocate><bundle id="com.example.mac"/></relocate></pkg-ref><pkg-ref id="com.unrelated.pkg" version="9.9.9.0.1.1700000000"/><pkg-ref id="com.example.pkg" version="${packageVersion}"/><pkg-ref id="com.example.pkg" version="${packageVersion}"/></installer-gui-script>`;
 }
 
 describe('readVersionMetadataFromRanges', () => {
@@ -146,6 +146,29 @@ describe('readVersionMetadataFromRanges', () => {
     expect(metadata.releaseDate).toBe(
       new Date('2025-03-04T05:06:08Z').toISOString(),
     );
+  });
+
+  it('reads the build’s minimum OS and declared platforms from its Info.plist', async () => {
+    const zip = buildZip([
+      {
+        name: 'Payload/Sample.app/Info.plist',
+        data: infoPlist(
+          '2.1.0',
+          '<key>MinimumOSVersion</key><string>17.2</string>' +
+            '<key>CFBundleSupportedPlatforms</key><array>' +
+            '<string>iPhoneOS</string><string>AppleTVOS</string></array>',
+        ),
+        at: new Date('2025-03-04T05:06:08Z'),
+      },
+    ]);
+
+    const metadata = await readVersionMetadataFromRanges(
+      readerOver(zip),
+      zip.length,
+    );
+
+    expect(metadata.minimumOsVersion).toBe('17.2');
+    expect(metadata.supportedPlatforms).toEqual(['iPhoneOS', 'AppleTVOS']);
   });
 
   it('prefers the plist’s own release date', async () => {
@@ -293,6 +316,8 @@ describe('readVersionMetadataFromXarRanges', () => {
 
     expect(metadata.displayVersion).toBe('4.2');
     expect(metadata.releaseDate).toBe('2012-07-06T09:54:33.000Z');
+    expect(metadata.minimumOsVersion).toBe('15.7');
+    expect(metadata.supportedPlatforms).toEqual(['macOS']);
   });
 
   it('rejects a preflight archive for a different bundle', async () => {
@@ -361,6 +386,8 @@ describe('versionMetadataFromDownloadURL', () => {
     ).resolves.toEqual({
       displayVersion: '4.2',
       releaseDate: '2012-07-06T09:54:33.000Z',
+      minimumOsVersion: '15.7',
+      supportedPlatforms: ['macOS'],
     });
   });
 });

@@ -112,6 +112,10 @@ export interface VersionMetadata {
    * version.
    */
   releaseDate: string;
+  /** The build's own deployment floor, read from its package. */
+  minimumOsVersion?: string;
+  /** `CFBundleSupportedPlatforms`; the legacy Mac preflight names macOS itself. */
+  supportedPlatforms?: string[];
   /**
    * Where the date came from: `package` (this instance's compiled package),
    * `package-read` (a package read at a client-supplied URL the server cannot

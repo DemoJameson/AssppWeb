@@ -116,7 +116,45 @@ describe("schema upgrades", () => {
           },
         ]);
         expect(db.prepare("PRAGMA user_version").get()).toEqual({
-          user_version: 3,
+          user_version: 4,
+        });
+        expect(columns(db, "version_metadata")).toEqual(
+          expect.arrayContaining([
+            "minimum_os",
+            "supported_platforms",
+          ]),
+        );
+      },
+    );
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  it("adds the version metadata fields to a previous SQLite release", async () => {
+    const dir = scratch("asspp-vm-upgrade-");
+    await withDb(
+      dir,
+      (d) => {
+        const old = new Database(path.join(d, "asspp.db"));
+        old.exec(`
+          CREATE TABLE version_metadata (
+            app_id          INTEGER NOT NULL,
+            version_id      INTEGER NOT NULL,
+            display_version TEXT NOT NULL,
+            release_date    TEXT NOT NULL,
+            source          TEXT NOT NULL,
+            seeded_at       INTEGER NOT NULL,
+            PRIMARY KEY (app_id, version_id)
+          );
+          PRAGMA user_version = 3;
+        `);
+        old.close();
+      },
+      (db) => {
+        expect(columns(db, "version_metadata")).toEqual(
+          expect.arrayContaining(["minimum_os", "supported_platforms"]),
+        );
+        expect(db.prepare("PRAGMA user_version").get()).toEqual({
+          user_version: 4,
         });
       },
     );
@@ -138,6 +176,7 @@ describe("schema upgrades", () => {
       () => {},
       (db) => {
         expect(columns(db, "package_app_builds")).toContain("release_date");
+        expect(columns(db, "version_metadata")).toContain("minimum_os");
       },
     );
     fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

@@ -19,11 +19,10 @@ const MAX_VALUE_LENGTH = 64;
 let initialized = false;
 
 // Module-level prepared statements — prepared once, reused across calls.
-let stmtSelectSource: import("better-sqlite3").Statement<[number, number]> | undefined;
 let stmtSelectEntry: import("better-sqlite3").Statement<[number, number]> | undefined;
-let stmtUpsertPackage: import("better-sqlite3").Statement<[number, number, string, string, number]> | undefined;
-let stmtUpsertPackageRead: import("better-sqlite3").Statement<[number, number, string, string, number]> | undefined;
-let stmtUpsertClient: import("better-sqlite3").Statement<[number, number, string, string, number]> | undefined;
+let stmtUpsertPackage: import("better-sqlite3").Statement<[number, number, string, string, string | null, string | null, number]> | undefined;
+let stmtUpsertPackageRead: import("better-sqlite3").Statement<[number, number, string, string, string | null, string | null, number]> | undefined;
+let stmtUpsertClient: import("better-sqlite3").Statement<[number, number, string, string, string | null, string | null, number]> | undefined;
 let stmtSelectForApp: import("better-sqlite3").Statement<[number]> | undefined;
 let stmtCount: import("better-sqlite3").Statement<[]> | undefined;
 let stmtEvict: import("better-sqlite3").Statement<[number]> | undefined;
@@ -33,29 +32,26 @@ export function initVersionMetadataCache(): void {
   if (initialized) return;
   initialized = true;
   const db = getDb();
-  stmtSelectSource = db.prepare<[number, number]>(
-    "SELECT source FROM version_metadata WHERE app_id = ? AND version_id = ?",
-  );
   stmtSelectEntry = db.prepare<[number, number]>(
-    "SELECT version_id, display_version, release_date, source FROM version_metadata WHERE app_id = ? AND version_id = ?",
+    "SELECT version_id, display_version, release_date, minimum_os, supported_platforms, source FROM version_metadata WHERE app_id = ? AND version_id = ?",
   );
-  stmtUpsertPackage = db.prepare<[number, number, string, string, number]>(
+  stmtUpsertPackage = db.prepare<[number, number, string, string, string | null, string | null, number]>(
     `INSERT OR REPLACE INTO version_metadata
-       (app_id, version_id, display_version, release_date, source, seeded_at)
-     VALUES (?, ?, ?, ?, 'package', ?)`,
+       (app_id, version_id, display_version, release_date, minimum_os, supported_platforms, source, seeded_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'package', ?)`,
   );
-  stmtUpsertPackageRead = db.prepare<[number, number, string, string, number]>(
+  stmtUpsertPackageRead = db.prepare<[number, number, string, string, string | null, string | null, number]>(
     `INSERT OR REPLACE INTO version_metadata
-       (app_id, version_id, display_version, release_date, source, seeded_at)
-     VALUES (?, ?, ?, ?, 'package-read', ?)`,
+       (app_id, version_id, display_version, release_date, minimum_os, supported_platforms, source, seeded_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'package-read', ?)`,
   );
-  stmtUpsertClient = db.prepare<[number, number, string, string, number]>(
+  stmtUpsertClient = db.prepare<[number, number, string, string, string | null, string | null, number]>(
     `INSERT OR REPLACE INTO version_metadata
-       (app_id, version_id, display_version, release_date, source, seeded_at)
-     VALUES (?, ?, ?, ?, 'client', ?)`,
+       (app_id, version_id, display_version, release_date, minimum_os, supported_platforms, source, seeded_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'client', ?)`,
   );
   stmtSelectForApp = db.prepare<[number]>(
-    `SELECT version_id, display_version, release_date, source
+    `SELECT version_id, display_version, release_date, minimum_os, supported_platforms, source
      FROM version_metadata WHERE app_id = ?`,
   );
   stmtCount = db.prepare<[]>("SELECT COUNT(*) AS n FROM version_metadata");
@@ -74,7 +70,6 @@ export function initVersionMetadataCache(): void {
  */
 export function resetVersionMetadataCacheForTest(): void {
   initialized = false;
-  stmtSelectSource = undefined;
   stmtSelectEntry = undefined;
   stmtUpsertPackage = undefined;
   stmtUpsertPackageRead = undefined;
@@ -104,12 +99,47 @@ export function seedVersionMetadata(
   if (!displayVersion || !releaseDate) return;
 
 
-  const existing = stmtSelectSource!.get(Number(appKey), Number(versionId)) as
-    | { source: string }
+  const existing = stmtSelectEntry!.get(Number(appKey), Number(versionId)) as
+    | {
+        source: string;
+        display_version: string;
+        release_date: string;
+        minimum_os: string | null;
+        supported_platforms: string | null;
+      }
     | undefined;
+  if (existing?.source === "package") {
+    // Package entries are immutable in their identity fields, but an old row
+    // predates the new fields. Fill only what it lacks; a read is not a rewrite.
+    const minimum = cleanValue(metadata.minimumOsVersion);
+    const platforms = cleanPlatforms(metadata.supportedPlatforms);
+    const missingMinimum = !existing.minimum_os && minimum;
+    const missingPlatforms =
+      parsePlatforms(existing.supported_platforms).length === 0 ? platforms : [];
+    if (!missingMinimum && missingPlatforms.length === 0) return;
+    stmtUpsertPackage!.run(
+      Number(appKey),
+      Number(versionId),
+      existing.display_version,
+      existing.release_date,
+      existing.minimum_os ?? minimum ?? null,
+      existing.supported_platforms ?? serializePlatforms(missingPlatforms),
+      Date.now(),
+    );
+    evictOldest();
+    return;
+  }
   if (existing && !mayReplace(existing.source, "package")) return;
 
-  stmtUpsertPackage!.run(Number(appKey), Number(versionId), displayVersion, releaseDate, Date.now());
+  stmtUpsertPackage!.run(
+    Number(appKey),
+    Number(versionId),
+    displayVersion,
+    releaseDate,
+    cleanValue(metadata.minimumOsVersion) ?? null,
+    serializePlatforms(metadata.supportedPlatforms),
+    Date.now(),
+  );
 
   evictOldest();
 }
@@ -131,6 +161,8 @@ interface SavedEntry {
   versionId: string;
   displayVersion: string;
   releaseDate: string;
+  minimumOsVersion?: string;
+  supportedPlatforms?: string[];
   source: VersionMetadataSource;
 }
 
@@ -144,6 +176,8 @@ function saveEntry(
   displayVersion: unknown,
   releaseDate: unknown,
   source: "package-read" | "client",
+  minimumOsVersion?: unknown,
+  supportedPlatforms?: unknown,
 ): { saved: boolean; entry?: SavedEntry } {
   initVersionMetadataCache();
 
@@ -161,9 +195,14 @@ function saveEntry(
         version_id: number;
         display_version: string;
         release_date: string;
+        minimum_os: string | null;
+        supported_platforms: string | null;
         source: string;
       }
     | undefined;
+
+  const minimumOs = cleanValue(minimumOsVersion);
+  const platforms = cleanPlatforms(supportedPlatforms);
 
   if (existing && !mayReplace(existing.source, source)) {
     return {
@@ -172,6 +211,12 @@ function saveEntry(
         versionId: String(existing.version_id),
         displayVersion: existing.display_version,
         releaseDate: existing.release_date,
+        ...(existing.minimum_os
+          ? { minimumOsVersion: existing.minimum_os }
+          : {}),
+        ...(parsePlatforms(existing.supported_platforms).length > 0
+          ? { supportedPlatforms: parsePlatforms(existing.supported_platforms) }
+          : {}),
         source: existing.source as VersionMetadataSource,
       },
     };
@@ -179,12 +224,27 @@ function saveEntry(
 
   const statement =
     source === "package-read" ? stmtUpsertPackageRead! : stmtUpsertClient!;
-  statement.run(Number(appKey), Number(versionKey), display, release, Date.now());
+  statement.run(
+    Number(appKey),
+    Number(versionKey),
+    display,
+    release,
+    minimumOs ?? null,
+    serializePlatforms(platforms),
+    Date.now(),
+  );
 
   evictOldest();
   return {
     saved: true,
-    entry: { versionId: versionKey, displayVersion: display, releaseDate: release, source },
+    entry: {
+      versionId: versionKey,
+      displayVersion: display,
+      releaseDate: release,
+      ...(minimumOs ? { minimumOsVersion: minimumOs } : {}),
+      ...(platforms.length > 0 ? { supportedPlatforms: platforms } : {}),
+      source,
+    },
   };
 }
 
@@ -198,8 +258,18 @@ export function saveClientVersionMetadata(
   versionId: string,
   displayVersion: unknown,
   releaseDate: unknown,
+  minimumOsVersion?: unknown,
+  supportedPlatforms?: unknown,
 ): { saved: boolean; entry?: SavedEntry } {
-  return saveEntry(appId, versionId, displayVersion, releaseDate, "client");
+  return saveEntry(
+    appId,
+    versionId,
+    displayVersion,
+    releaseDate,
+    "client",
+    minimumOsVersion,
+    supportedPlatforms,
+  );
 }
 
 /**
@@ -214,19 +284,38 @@ export function savePackageReadVersionMetadata(
   versionId: string,
   displayVersion: unknown,
   releaseDate: unknown,
+  minimumOsVersion?: unknown,
+  supportedPlatforms?: unknown,
 ): { saved: boolean; entry?: SavedEntry } {
-  return saveEntry(appId, versionId, displayVersion, releaseDate, "package-read");
+  return saveEntry(
+    appId,
+    versionId,
+    displayVersion,
+    releaseDate,
+    "package-read",
+    minimumOsVersion,
+    supportedPlatforms,
+  );
 }
 
 /** Read access for the route: storefront-public fields only. */
 export function getVersionMetadataForApp(
   appId: string | number,
-): Array<{ versionId: string; displayVersion: string; releaseDate: string; source: VersionMetadataSource }> {
+): Array<{
+  versionId: string;
+  displayVersion: string;
+  releaseDate: string;
+  minimumOsVersion?: string;
+  supportedPlatforms?: string[];
+  source: VersionMetadataSource;
+}> {
   initVersionMetadataCache();
   const rows = stmtSelectForApp!.all(Number(String(appId).trim())) as Array<{
     version_id: number;
     display_version: string;
     release_date: string;
+    minimum_os: string | null;
+    supported_platforms: string | null;
     source: string;
   }>;
 
@@ -234,6 +323,10 @@ export function getVersionMetadataForApp(
     versionId: String(r.version_id),
     displayVersion: r.display_version,
     releaseDate: r.release_date,
+    ...(r.minimum_os ? { minimumOsVersion: r.minimum_os } : {}),
+    ...(parsePlatforms(r.supported_platforms).length > 0
+      ? { supportedPlatforms: parsePlatforms(r.supported_platforms) }
+      : {}),
     source: r.source as VersionMetadataSource,
   }));
 }
@@ -247,6 +340,31 @@ function cleanValue(value: unknown): string | undefined {
   const trimmed = value.trim();
   if (!trimmed || trimmed.length > MAX_VALUE_LENGTH) return undefined;
   return trimmed;
+}
+
+function cleanPlatforms(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => cleanValue(entry))
+        .filter((entry): entry is string => entry !== undefined),
+    ),
+  );
+}
+
+function serializePlatforms(value: unknown): string | null {
+  const platforms = cleanPlatforms(value);
+  return platforms.length > 0 ? JSON.stringify(platforms) : null;
+}
+
+function parsePlatforms(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    return cleanPlatforms(JSON.parse(value));
+  } catch {
+    return [];
+  }
 }
 
 /** Evicts oldest-seeded entries until the directory fits the configured cap. */

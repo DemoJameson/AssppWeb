@@ -16,6 +16,27 @@ export const PLATFORMS: Platform[] = [
 ];
 
 
+/** Apple's `CFBundleSupportedPlatforms` spellings → our platform. */
+const SUPPORTED_PLATFORM_NAMES: Record<string, Platform> = {
+  iPhoneOS: "ios",
+  AppleTVOS: "tvos",
+  WatchOS: "watchos",
+  XROS: "visionos",
+  macOS: "macos",
+};
+
+/** Every platform a package declares, in the same order as its plist. */
+export function platformsFromSupported(
+  supported: readonly string[] | undefined,
+): Platform[] {
+  const platforms = new Set<Platform>();
+  for (const value of supported ?? []) {
+    const platform = SUPPORTED_PLATFORM_NAMES[value.trim()];
+    if (platform) platforms.add(platform);
+  }
+  return [...platforms];
+}
+
 /** Brand names, not translatable — every locale shows these verbatim. */
 export const PLATFORM_LABELS: Record<Platform, string> = {
   ios: "iOS",

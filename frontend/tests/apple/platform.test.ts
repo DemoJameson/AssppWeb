@@ -94,6 +94,18 @@ describe("parsePlatform", () => {
   });
 });
 
+describe("platformsFromSupported", () => {
+  it("maps Apple's package declarations to the store platforms", async () => {
+    const { platformsFromSupported } = await import("../../src/apple/platform");
+
+    expect(
+      platformsFromSupported(["iPhoneOS", "AppleTVOS", "WatchOS", "XROS"]),
+    ).toEqual(["ios", "tvos", "watchos", "visionos"]);
+    expect(platformsFromSupported(["macOS"])).toEqual(["macos"]);
+    expect(platformsFromSupported(undefined)).toEqual([]);
+  });
+});
+
 describe("PLATFORMS", () => {
   it("covers every platform the labels and mappers know", () => {
     for (const platform of PLATFORMS) {

@@ -10,6 +10,7 @@ import { DOMParser } from "@xmldom/xmldom";
 import bplistParser from "bplist-parser";
 import plist from "plist";
 import { validateDownloadURL } from "./downloadManager.js";
+import { supportedPlatformsFromPlist } from "./packagePlatform.js";
 
 /** Reads `bytes=[start, end]` (inclusive) of a resource. */
 export type RangeReader = (start: number, end: number) => Promise<Buffer>;
@@ -44,12 +45,17 @@ const INFO_PLIST = /^Payload\/[^/]+\.app\/Info\.plist$/;
 export interface PackageVersionMetadata {
   displayVersion: string;
   releaseDate: string;
+  /** The build's own deployment floor, read from Info.plist or the Mac Distribution. */
+  minimumOsVersion?: string;
+  /** `CFBundleSupportedPlatforms`; the legacy Mac preflight names macOS itself. */
+  supportedPlatforms?: string[];
 }
 
 /**
- * Reads the version's display version and release date out of an IPA, given a reader over
- * that archive and its total size. Throws when the archive cannot be read or the payload
- * carries no app — the caller treats that as "no date".
+ * Reads a version's display version, release date, deployment floor and declared
+ * platforms out of an IPA, given a reader over that archive and its total size.
+ * Throws when the archive cannot be read or the payload carries no app — the caller
+ * treats that as "no package metadata".
  */
 export async function readVersionMetadataFromRanges(
   read: RangeReader,
@@ -79,8 +85,17 @@ export async function readVersionMetadataFromRanges(
     plistDate(infoPlist?.releaseDate) ??
     plistDate(infoPlist?.ReleaseDate) ??
     entry.modifiedAt.toISOString();
+  const minimumOsVersion =
+    firstString(infoPlist?.MinimumOSVersion) ??
+    firstString(infoPlist?.minimumOSVersion);
+  const supportedPlatforms = supportedPlatformsFromPlist(infoPlist);
 
-  return { displayVersion, releaseDate };
+  return {
+    displayVersion,
+    releaseDate,
+    ...(minimumOsVersion ? { minimumOsVersion } : {}),
+    ...(supportedPlatforms.length > 0 ? { supportedPlatforms } : {}),
+  };
 }
 
 /**
@@ -321,7 +336,13 @@ function macPreflightVersionMetadata(
     );
   }
 
-  return { displayVersion, releaseDate: buildTime };
+  const minimumOsVersion = macMinimumOsVersion(document);
+  return {
+    displayVersion,
+    releaseDate: buildTime,
+    ...(minimumOsVersion ? { minimumOsVersion } : {}),
+    supportedPlatforms: ["macOS"],
+  };
 }
 
 function legacyMacPackageBuildTime(
@@ -574,6 +595,16 @@ function plistDate(value: unknown): string | undefined {
 
 function firstString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
+}
+
+/** The Distribution XML's first `<os-version min="…">` floor. */
+function macMinimumOsVersion(document: Document): string | undefined {
+  const versions = Array.from(document.getElementsByTagName("os-version"));
+  for (const version of versions) {
+    const minimum = version.getAttribute("min")?.trim();
+    if (minimum) return minimum;
+  }
+  return undefined;
 }
 
 /**

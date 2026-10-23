@@ -10,7 +10,10 @@ import bplistParser from "bplist-parser";
 import bplistCreator from "bplist-creator";
 import plist from "plist";
 import { convertCgbiToPng, isCgbiPng } from "./cgbiPng.js";
-import { platformFromSupported } from "./packagePlatform.js";
+import {
+  platformFromSupported,
+  supportedPlatformsFromPlist,
+} from "./packagePlatform.js";
 import type { Sinf, Platform } from "../types/index.js";
 
 const execFile = promisify(execFileCb);
@@ -82,6 +85,8 @@ export interface PackageMetadata {
    * served its iOS build.
    */
   platform?: Platform;
+  /** Every platform spelling the package declares, e.g. `["iPhoneOS"]`. */
+  supportedPlatforms?: string[];
 }
 
 export interface InjectResult {
@@ -285,6 +290,7 @@ function packageMetadata(
     ),
     externalVersionId: firstValue(store, ["softwareVersionExternalIdentifier"]),
     platform: platformFromSupported(infoPlist),
+    supportedPlatforms: supportedPlatformsFromPlist(infoPlist),
   };
 }
 
