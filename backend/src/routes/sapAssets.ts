@@ -39,6 +39,14 @@ router.get("/sap-assets/:name", async (req: Request, res: Response) => {
     return;
   }
 
+  // The digest is part of the URL so browser and Cache API entries are bound to
+  // the bytes they were fetched for. A stale or missing pin is a caller error;
+  // serving today's file under an old URL would make immutable caches unsafe.
+  if (req.query.sha256 !== spec.strippedSha256) {
+    res.status(409).json({ error: "SAP asset digest does not match" });
+    return;
+  }
+
   const encoding = preferredEncoding(req.headers["accept-encoding"]);
   const wantsCompression = dataOverCompressionThreshold(spec.strippedSize);
   const brotli =

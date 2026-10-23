@@ -68,8 +68,8 @@ Apple requires every request to the auth endpoint to carry `X-Apple-ActionSignat
 │      sign-sap-setup      → setup exchange endpoint (POST plist)   │
 │      sign-sap-setup-cert → certificate endpoint (GET plist)       │
 │      sign-sap-version    → protocol version (200)                 │
-│ 2. GET /api/sap-assets/:name → five Apple binaries (backend-     │
-│    extracted, digest-pinned, browser-cached in the Cache API)     │
+│ 2. GET /api/sap-assets/:name?sha256=<pin> → five Apple binaries  │
+│    (backend-extracted, digest-pinned, browser-cached)            │
 │ 3. SAP signer worker (Web Worker, off the UI thread):             │
 │      Unicorn 2.1.4 → TCI interpreter backend → wasm              │
 │      Mach-O x86_64 images loaded + dyld-info relocated in TS     │
@@ -108,7 +108,7 @@ Build: `bash frontend/scripts/unicorn-wasm-patch/build.sh` (requires docker; ems
 
 `backend/src/services/sapAssets.ts` extracts the five binaries once from Apple's public OSXUpd10.9.pkg: xar TOC parse → HTTP range download of the Payload tail (~380 MB) → bzip2 stream (with a synthetic `BZh9` header from a fixed offset) → cpio (odc and newc formats) → pinned SHA-256 verification → **fat-binary stripping to the x86_64 slice** (the emulated guest architecture; CoreFP ships as an i386+x86_64 universal, so this halves it) → cache under `DATA_DIR/sap-assets`. All data is public Apple content (same trust class as the bag proxy). Specs carry two pin sets: the original Apple digest verifies the extraction; the stripped digest (a deterministic function of the original) verifies what is served and what the browser downloads. Distribution sizes: 40.3 MB original → 25.1 MB stripped → ~12.1 MB on the wire with the route's precompressed Brotli response (gzip remains the fallback). The bz2 stream is truncated mid-file, so the decoder can emit a late crc error after the wanted members are captured — the pipeline swallows it by design (an unhandled rejection would crash Node). The browser loads the five assets in parallel; Cache API entries are raw and independent of the HTTP representation.
 
-On startup `ensureSapAssets` prefers `DATA_DIR/sap-assets`, then seeds from the image-prebaked directory (`BUNDLED_SAP_ASSETS`, default `/opt/asspp/sap-assets`), and only then falls back to network extraction (the bzip2 decoder is imported lazily because cross-built images may lack a matching napi binary for the runtime arch — see Dockerfile). Routes (`backend/src/routes/sapAssets.ts`): `GET /api/sap-assets/status`, `POST /api/sap-assets/prepare`, `GET /api/sap-assets/:name` (Brotli when accepted, gzip fallback). The extraction also writes a quality-11 Brotli sidecar (`<name>.br`); the route copies a missing sidecar from the image once, then serves it directly. An old image without sidecars falls back to gzip.
+On startup `ensureSapAssets` prefers `DATA_DIR/sap-assets`, then seeds from the image-prebaked directory (`BUNDLED_SAP_ASSETS`, default `/opt/asspp/sap-assets`), and only then falls back to network extraction (the bzip2 decoder is imported lazily because cross-built images may lack a matching napi binary for the runtime arch — see Dockerfile). Routes (`backend/src/routes/sapAssets.ts`): `GET /api/sap-assets/status`, `POST /api/sap-assets/prepare`, `GET /api/sap-assets/:name?sha256=<pin>` (Brotli when accepted, gzip fallback). The query must match the current pin, so neither the browser's HTTP cache nor the Cache API can serve bytes from a previous pin at the same URL. The extraction also writes a quality-11 Brotli sidecar (`<name>.br`); the route copies a missing sidecar from the image once, then serves it directly. An old image without sidecars falls back to gzip.
 
 ### Container image
 
@@ -503,12 +503,14 @@ terminal success state. `2059` retries once with the Apple Arcade
 ### Expired sessions are renewed before the exchange is retried
 
 Imported accounts carry the password token and cookies they had at export time,
-so a download or version list can answer `2034`, `2042`, or `1008` before any
-license step runs. `useDownloadAction` renews that session through
-`authenticate(account.email, account.password, …)` and repeats the same request
-once with the new token and cookies. A second session failure is Apple's answer
-to the renewed session and surfaces unchanged; the renewal is not a general
-retry loop.
+so a download can answer `2034`, `2042`, `1008`, or `5002`, and a version list
+can answer `2034` or `2042`, before any license step runs. `useDownloadAction`
+renews that session through `authenticate(account.email, account.password, …)`
+and repeats the same request once with the new token and cookies. A second
+session failure is Apple's answer to the renewed session and surfaces unchanged;
+the renewal is not a general retry loop. The renewed account remains the current
+one even when that second request fails for another reason, so a following
+license step never falls back to the session that just expired.
 
 ### Finding apps (link, bundle id, or App ID)
 

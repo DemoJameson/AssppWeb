@@ -14,6 +14,7 @@ import { purchaseApp } from "../apple/purchase";
 import { authenticate } from "../apple/authenticate";
 import {
   FAILURE_DEVICE_VERIFICATION_FAILED,
+  FAILURE_LICENSE_ALREADY_EXISTS,
   FAILURE_LICENSE_NOT_FOUND,
   FAILURE_PASSWORD_TOKEN_EXPIRED,
   FAILURE_SIGN_IN_REQUIRED,
@@ -35,11 +36,12 @@ import { needsVersionExchange } from "../utils/software";
 import { getAccountContext } from "../utils/toast";
 import type { Account, Software } from "../types";
 
-/** Download treats device verification as a session failure too. */
+/** Download treats an already-owned order and device verification as session failures too. */
 const DOWNLOAD_SESSION_FAILURE_TYPES: ReadonlySet<string> = new Set([
   FAILURE_PASSWORD_TOKEN_EXPIRED,
   FAILURE_SIGN_IN_REQUIRED,
   FAILURE_DEVICE_VERIFICATION_FAILED,
+  FAILURE_LICENSE_ALREADY_EXISTS,
 ]);
 
 /** ListVersions intentionally does not classify 1008 as a session failure. */
@@ -226,8 +228,12 @@ export function useDownloadAction() {
     // No license yet (FAILURE_LICENSE_NOT_FOUND) → acquire one and retry once.
     let currentAccount = account;
     let download: Awaited<ReturnType<typeof getDownloadInfo>>;
-    const requestDownload = (sessionAccount: Account) =>
-      getDownloadInfo(sessionAccount, app, pin, { onStage });
+    const requestDownload = (sessionAccount: Account) => {
+      // Keep the renewed account even if this attempt fails: the license step
+      // below must not fall back to the session that just expired.
+      currentAccount = sessionAccount;
+      return getDownloadInfo(sessionAccount, app, pin, { onStage });
+    };
     try {
       const attempt = await retryWithRenewedSession(
         currentAccount,
@@ -370,8 +376,12 @@ export function useDownloadAction() {
     ): Promise<Awaited<ReturnType<typeof listVersions>>> => {
       let currentAccount = account;
       let result: Awaited<ReturnType<typeof listVersions>>;
-      const requestVersions = (sessionAccount: Account) =>
-        listVersions(sessionAccount, app, pinnedVersionId, onStage);
+      const requestVersions = (sessionAccount: Account) => {
+        // Keep the renewed account even if this attempt fails: the license step
+        // below must not fall back to the session that just expired.
+        currentAccount = sessionAccount;
+        return listVersions(sessionAccount, app, pinnedVersionId, onStage);
+      };
       try {
         const attempt = await retryWithRenewedSession(
           currentAccount,

@@ -48,6 +48,7 @@ beforeEach(async () => {
       put: vi.fn(async (url: string, response: Response) => {
         cache.set(url, new Uint8Array(await response.arrayBuffer()));
       }),
+      delete: vi.fn(async (url: string) => cache.delete(url)),
     })),
     delete: vi.fn(async () => true),
   });
@@ -88,7 +89,8 @@ describe("loadSapAssets", () => {
 
     for (const [index, name] of names.entries()) {
       const data = bytes(assets.SAP_ASSET_SPECS[index].size, index + 1);
-      resolvers.get(`/api/sap-assets/${name}`)!(responseFor(data));
+      const spec = assets.SAP_ASSET_SPECS.find((candidate) => candidate.name === name)!;
+      resolvers.get(assets.sapAssetURL(spec))!(responseFor(data));
     }
     await loading;
   });
@@ -100,8 +102,8 @@ describe("loadSapAssets", () => {
       0,
     );
     fetchMock.mockImplementation((url: string) => {
-      const spec = assets.SAP_ASSET_SPECS.find((candidate) =>
-        url.endsWith(candidate.name),
+      const spec = assets.SAP_ASSET_SPECS.find(
+        (candidate) => url === assets.sapAssetURL(candidate),
       )!;
       return Promise.resolve(responseFor(bytes(spec.size, 1)));
     });
@@ -121,13 +123,27 @@ describe("loadSapAssets", () => {
   it("uses cached assets without a network request", async () => {
     for (const [index, spec] of assets.SAP_ASSET_SPECS.entries()) {
       const data = bytes(spec.size, index + 1);
-      cache.set(`/api/sap-assets/${spec.name}`, data);
+      cache.set(assets.sapAssetURL(spec), data);
     }
 
     const bundle = await assets.loadSapAssets();
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(bundle.coreFP.length).toBe(14_904_192);
+  });
+
+  it("migrates a digestless v2 cache entry to the pinned URL", async () => {
+    for (const [index, spec] of assets.SAP_ASSET_SPECS.entries()) {
+      cache.set(`/api/sap-assets/${spec.name}`, bytes(spec.size, index + 1));
+    }
+
+    await assets.loadSapAssets();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    for (const spec of assets.SAP_ASSET_SPECS) {
+      expect(cache.has(assets.sapAssetURL(spec))).toBe(true);
+      expect(cache.has(`/api/sap-assets/${spec.name}`)).toBe(false);
+    }
   });
 
   it("stops progress and aborts peers after the first failure", async () => {
@@ -137,7 +153,7 @@ describe("loadSapAssets", () => {
       (url: string, init: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
           signals.set(url, init.signal!);
-          if (url.endsWith("CommerceCore")) {
+          if (url.includes("/CommerceCore?")) {
             queueMicrotask(() => reject(new Error("boom")));
             return;
           }

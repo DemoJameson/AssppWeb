@@ -295,6 +295,44 @@ describe("useDownloadAction", () => {
     expect(getDownloadInfo).toHaveBeenCalledTimes(2);
   });
 
+  it("renews a download for failureType 5002", async () => {
+    vi.mocked(getDownloadInfo)
+      .mockRejectedValueOnce(new DownloadError("expired", "5002"))
+      .mockResolvedValueOnce({ output, updatedCookies: [] });
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, app);
+    });
+
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(getDownloadInfo).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(getDownloadInfo).mock.calls[1][0].passwordToken).toBe(
+      "fresh-token",
+    );
+  });
+
+  it("keeps the renewed account when the retried download needs a license", async () => {
+    vi.mocked(getDownloadInfo)
+      .mockRejectedValueOnce(new DownloadError("expired", "2034"))
+      .mockRejectedValueOnce(new DownloadError("license", "9610"))
+      .mockResolvedValueOnce({ output, updatedCookies: [] });
+    vi.mocked(authenticate)
+      .mockResolvedValueOnce({ ...account, passwordToken: "fresh-token" })
+      .mockRejectedValueOnce(new Error("2FA required"));
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.startDownload(account, app);
+    });
+
+    expect(authenticate).toHaveBeenCalledTimes(2);
+    expect(purchaseApp).toHaveBeenCalledWith(
+      expect.objectContaining({ passwordToken: "fresh-token" }),
+      app,
+    );
+  });
+
   it("leaves a recalled record's per-build facts out of the request", async () => {
     // A record recalled from the package index describes the build it came from,
     // while the picker may serve another. The date is re-read from the arriving
@@ -371,7 +409,7 @@ describe("useDownloadAction", () => {
 
   it("does not purchase for unrelated failures", async () => {
     vi.mocked(getDownloadInfo).mockRejectedValueOnce(
-      new DownloadError("boom", "5002"),
+      new DownloadError("boom", "2001"),
     );
 
     const { result } = renderHook(() => useDownloadAction());
@@ -728,6 +766,27 @@ describe("useDownloadAction", () => {
     expect(versions).toEqual(["333"]);
     const titles = useToastStore.getState().toasts.map((toast) => toast.title);
     expect(titles).toContain("toast.title.licenseSuccess");
+  });
+
+  it("keeps the renewed account when the retried version list needs a license", async () => {
+    vi.mocked(listVersions)
+      .mockRejectedValueOnce(new DownloadError("expired", "2034"))
+      .mockRejectedValueOnce(new DownloadError("license", "9610"))
+      .mockResolvedValueOnce({ versions: ["333"], updatedCookies: [] });
+    vi.mocked(authenticate)
+      .mockResolvedValueOnce({ ...account, passwordToken: "fresh-token" })
+      .mockRejectedValueOnce(new Error("2FA required"));
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.listVersionsWithLicense(account, app);
+    });
+
+    expect(authenticate).toHaveBeenCalledTimes(2);
+    expect(purchaseApp).toHaveBeenCalledWith(
+      expect.objectContaining({ passwordToken: "fresh-token" }),
+      app,
+    );
   });
 
   it("propagates other version list failures", async () => {

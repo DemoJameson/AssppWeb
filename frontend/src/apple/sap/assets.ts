@@ -1,7 +1,8 @@
 // SAP asset delivery: the five Apple binaries (CoreFP, CoreFP.icxs,
 // CommerceKit, CommerceCore, StoreAgent) are extracted once by the backend from a public
 // Apple software update package and served from /api/sap-assets. The browser
-// caches them in the Cache API keyed by their pinned SHA-256 digests.
+// caches them in the Cache API keyed by digest-qualified URLs, so changing a pin
+// cannot keep serving the previous bytes from either cache.
 
 import { authHeaders } from "../../api/client";
 import type { SapAssetBundle } from "./types";
@@ -49,6 +50,18 @@ export const SAP_ASSET_SPECS: SapAssetSpec[] = [
 // v2 adds StoreAgent. A v1 cache has the old four files; reusing that name would
 // leave every user downloading the fifth asset separately on first kbsync use.
 const CACHE_NAME = "asspp-sap-assets-v2";
+
+/** The URL names both the asset and its pinned bytes, so Cache API and HTTP cache
+ * entries can never outlive the pin that produced them. */
+export function sapAssetURL(spec: SapAssetSpec): string {
+  return `/api/sap-assets/${spec.name}?sha256=${spec.sha256}`;
+}
+
+/** v2 keys written before digest-qualified URLs. They are read once and then
+ * copied under the current key, so adding a pin does not redownload every asset. */
+function legacySapAssetURL(spec: SapAssetSpec): string {
+  return `/api/sap-assets/${spec.name}`;
+}
 
 async function fetchWithProgress(
   url: string,
@@ -136,12 +149,19 @@ export async function loadSapAssets(
     let data: Uint8Array<ArrayBuffer> | null = null;
 
     if (cache) {
-      const cached = await cache.match(`/api/sap-assets/${spec.name}`);
+      const url = sapAssetURL(spec);
+      const cached =
+        (await cache.match(url)) ??
+        (await cache.match(legacySapAssetURL(spec)));
       if (cached) {
         const cachedBytes = new Uint8Array(await cached.arrayBuffer());
         if (await digestMatches(cachedBytes, spec.sha256)) {
           // Hand out the verified view directly; a copy doubled peak memory for nothing.
           data = cachedBytes;
+          if (!(await cache.match(url))) {
+            await cache.put(url, new Response(cachedBytes));
+            await cache.delete(legacySapAssetURL(spec));
+          }
           progress.set(spec.name, spec.size);
           reportProgress();
         }
@@ -151,7 +171,7 @@ export async function loadSapAssets(
     if (!data) {
       if (failed) throw aborted();
       data = await fetchWithProgress(
-        `/api/sap-assets/${spec.name}`,
+        sapAssetURL(spec),
         (loaded) => {
           // The response body is decoded by the browser; its length is the raw
           // size. The denominator below is also raw, so progress stays honest
@@ -168,7 +188,7 @@ export async function loadSapAssets(
       if (cache) {
         const copy = new Uint8Array(data);
         await cache.put(
-          `/api/sap-assets/${spec.name}`,
+          sapAssetURL(spec),
           new Response(copy.buffer as ArrayBuffer, {
             headers: { "Content-Type": "application/octet-stream" },
           }),
