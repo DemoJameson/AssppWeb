@@ -28,7 +28,7 @@ import { isNewerVersion } from "../../utils/version";
 import { versionRowLabel } from "../../utils/versionLabels";
 import { needsVersionExchange } from "../../utils/software";
 import { storeIdToCountry } from "../../apple/config";
-import type { DownloadProgressStage } from "../../apple/sap/client";
+import type { DownloadExchangeProgress } from "../../apple/sap/client";
 import InlineProgressStatus from "../common/InlineProgressStatus";
 import type { Account, DownloadTask, Software } from "../../types";
 
@@ -96,9 +96,9 @@ async function checkForUpdate(
     account: Account,
     app: Software,
     recordedVersionId?: string,
-    onStage?: (stage: DownloadProgressStage | null) => void,
+    onStage?: (progress: DownloadExchangeProgress | null) => void,
   ) => Promise<ServableVersion | undefined>,
-  onStage?: (stage: DownloadProgressStage | null) => void,
+  onStage?: (progress: DownloadExchangeProgress | null) => void,
 ): Promise<UpdateCheck> {
   // The platform travels with the lookup: the backend answers a delisted app per
   // platform, else an id search would only see the iOS build (see `lookupEntityFor`).
@@ -114,7 +114,7 @@ async function checkForUpdate(
       account,
       app,
       task.software.externalVersionId,
-      (stage) => onStage?.(stage),
+      onStage,
     );
     if (!newest) return { status: "unknown" };
     const newer = isNewerServable(newest, task);
@@ -189,14 +189,12 @@ export default function DownloadList() {
   const [updating, setUpdating] = useState(false);
   const [retryStage, setRetryStage] = useState<{
     id: string;
-    stage: DownloadProgressStage | null;
+    progress: DownloadExchangeProgress | null;
   } | null>(null);
-  const [checkUpdateStage, setCheckUpdateStage] = useState<
-    DownloadProgressStage | null
-  >(null);
-  const [updateStage, setUpdateStage] = useState<DownloadProgressStage | null>(
-    null,
-  );
+  const [checkUpdateProgress, setCheckUpdateProgress] =
+    useState<DownloadExchangeProgress | null>(null);
+  const [updateProgress, setUpdateProgress] =
+    useState<DownloadExchangeProgress | null>(null);
 
   useEffect(() => {
     return () => {
@@ -389,7 +387,7 @@ export default function DownloadList() {
         task.software,
         task.software.externalVersionId || undefined,
         undefined,
-        (stage) => setRetryStage({ id, stage }),
+        (progress) => setRetryStage({ id, progress }),
       );
     } catch (err) {
       toastDownloadError(account, task.software, err);
@@ -429,7 +427,7 @@ export default function DownloadList() {
         task,
         country,
         lookupNewestServableVersion,
-        setCheckUpdateStage,
+        setCheckUpdateProgress,
       );
 
       // A check that could not be made is not an answer — report failure, not "already latest".
@@ -449,7 +447,7 @@ export default function DownloadList() {
           account,
           found.app,
           undefined,
-          setCheckUpdateStage,
+          setCheckUpdateProgress,
         )).versions;
       setUpdateTarget({
         task,
@@ -463,7 +461,7 @@ export default function DownloadList() {
     } catch {
       addToast(t("downloads.package.checkUpdateFailed"), "error");
     } finally {
-      setCheckUpdateStage(null);
+      setCheckUpdateProgress(null);
       setCheckingUpdateId(null);
     }
   }
@@ -499,14 +497,14 @@ export default function DownloadList() {
         app,
         pin || undefined,
         undefined,
-        setUpdateStage,
+        setUpdateProgress,
       );
       if (!picksHeldBuild) await deleteDownload(task.id);
       setUpdateTarget(null);
     } catch {
       addToast(t("downloads.package.updateFailed"), "error");
     } finally {
-      setUpdateStage(null);
+      setUpdateProgress(null);
       setUpdating(false);
     }
   }
@@ -738,11 +736,11 @@ export default function DownloadList() {
                 onRetry={owner ? handleRetry : undefined}
                 onCheckUpdate={owner ? handleCheckUpdate : undefined}
                 checkingUpdate={checkingUpdateId === task.id}
-                actionStage={
+                actionProgress={
                   task.id === checkingUpdateId
-                    ? checkUpdateStage
+                    ? checkUpdateProgress
                     : task.id === retryStage?.id
-                      ? retryStage.stage
+                      ? retryStage.progress
                       : null
                 }
                 onDelete={handleDelete}
@@ -830,7 +828,7 @@ export default function DownloadList() {
               />
             </div>
           )}
-          <InlineProgressStatus stage={updateStage} />
+          <InlineProgressStatus progress={updateProgress} />
           <div className="mt-6 grid min-w-0 grid-cols-2 gap-2">
             <button
               type="button"

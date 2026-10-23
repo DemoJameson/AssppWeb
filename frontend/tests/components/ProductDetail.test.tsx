@@ -303,7 +303,23 @@ describe('ProductDetail download action', () => {
 
   it('keeps the download button stable until startDownload resolves', async () => {
     const deferred = deferredPromise();
-    mocks.startDownload.mockReturnValue(deferred.promise);
+    mocks.startDownload.mockImplementation(
+      async (
+        _account: Account,
+        _app: Software,
+        _versionId: string | undefined,
+        _country: string | undefined,
+        onStage?: (
+          progress: {
+            stage: "preparing" | "initializing" | "connecting" | "confirming";
+            percent: number | null;
+          } | null,
+        ) => void,
+      ) => {
+        onStage?.({ stage: "preparing", percent: 42 });
+        await deferred.promise;
+      },
+    );
     const user = userEvent.setup();
 
     const { rerender } = renderProductDetail();
@@ -343,6 +359,15 @@ describe('ProductDetail download action', () => {
     expect(downloadButton).toHaveClass('w-full', 'min-w-0');
     expect(downloadButton).not.toHaveClass('opacity-50');
     expect(downloadButton.querySelector('.animate-spin')).toBeInTheDocument();
+    const progressLine = screen.getByRole('status');
+    expect(progressLine).toHaveTextContent(
+      'downloads.progress.preparing',
+    );
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      '42',
+    );
+    expect(document.querySelectorAll('.animate-spin')).toHaveLength(1);
     // The icon slot holds the spinner while the download runs — and it stays
     // in the layout on phones now that the buttons sit on a two-column grid.
     expect(iconSlot).toHaveClass('flex');
@@ -386,6 +411,7 @@ describe('ProductDetail download action', () => {
     expect(downloadButton).toHaveClass('w-full', 'min-w-0');
     expect(downloadButton).not.toHaveClass('opacity-50');
     expect(downloadButton.querySelector('.animate-spin')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(downloadButton.querySelector('span[aria-hidden="true"]')).toBe(
       iconSlot,
     );

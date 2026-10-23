@@ -15,7 +15,7 @@ import {
 import { useAccounts } from "../../hooks/useAccounts";
 import { useAccountHashes } from "../../hooks/useAccountHashes";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
-import type { DownloadProgressStage } from "../../apple/sap/client";
+import type { DownloadExchangeProgress } from "../../apple/sap/client";
 import InlineProgressStatus from "../common/InlineProgressStatus";
 import { useSelectedAccount } from "../../hooks/useSelectedAccount";
 import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
@@ -122,9 +122,8 @@ export default function ProductDetail() {
   const [selectedVersion, setSelectedVersion] = useState("");
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [checkingVersions, setCheckingVersions] = useState(false);
-  const [actionStage, setActionStage] = useState<DownloadProgressStage | null>(
-    null,
-  );
+  const [actionProgress, setActionProgress] =
+    useState<DownloadExchangeProgress | null>(null);
   const [fetchingVersions, setFetchingVersions] = useState(false);
   const autoFetchVersionInfo = useSettingsStore((s) => s.autoFetchVersionInfo);
   const autoAcquireLicense = useSettingsStore((s) => s.autoAcquireLicense);
@@ -650,7 +649,7 @@ export default function ProductDetail() {
         account,
         app,
         routeVersionId || undefined,
-        setActionStage,
+        setActionProgress,
       );
       rememberVersionList(
         versionListKey(app.id, app.platform, country),
@@ -661,7 +660,7 @@ export default function ProductDetail() {
       addToast(getErrorMessage(e, t("search.versions.loadFailed")), "error");
     } finally {
       setFetchingVersions(false);
-      setActionStage(null);
+      setActionProgress(null);
       setLoadingAction(null);
     }
   }
@@ -698,12 +697,12 @@ export default function ProductDetail() {
         app,
         currentVersionId || undefined,
         country,
-        setActionStage,
+        setActionProgress,
       );
     } catch (e) {
       toastDownloadError(account, app, e);
     } finally {
-      setActionStage(null);
+      setActionProgress(null);
       setLoadingAction(null);
     }
   }
@@ -968,16 +967,19 @@ export default function ProductDetail() {
                   </button>
                 )}
               </div>
-              {actionStage ? (
-                <InlineProgressStatus stage={actionStage} />
+              {actionProgress ? (
+                <InlineProgressStatus progress={actionProgress} />
               ) : (
-                <div className="min-h-4 text-xs" aria-live="polite">
-                  {isSelectingVersions && fetchingVersions && (
-                    <p role="status" className="text-gray-500 dark:text-gray-400">
-                      {t("search.versions.fetching")}
-                    </p>
-                  )}
-                </div>
+                isSelectingVersions &&
+                fetchingVersions && (
+                  <p
+                    role="status"
+                    aria-live="polite"
+                    className="min-h-4 text-xs text-gray-500 dark:text-gray-400"
+                  >
+                    {t("search.versions.fetching")}
+                  </p>
+                )
               )}
               </div>
             )}

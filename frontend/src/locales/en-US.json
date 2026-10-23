@@ -156,6 +156,8 @@
   "downloads": {
     "progress": {
       "preparing": "Preparing download components…",
+      "preparingLabel": "Preparing download components",
+      "initializing": "Initializing download components…",
       "connecting": "Connecting to the App Store…",
       "confirming": "Confirming download information…"
     },

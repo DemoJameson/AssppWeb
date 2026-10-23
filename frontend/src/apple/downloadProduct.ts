@@ -276,7 +276,7 @@ async function sendEntDownload(
 
   while (true) {
     try {
-      onStage?.("connecting");
+      onStage?.({ stage: "connecting", percent: null });
       const response = await appleRequest({
         method: "POST",
         host: endpoint.host,
@@ -304,7 +304,7 @@ async function sendEntDownload(
       });
 
       const reply = toReply(response, endpoint);
-      onStage?.("confirming");
+      onStage?.({ stage: "confirming", percent: null });
 
       // A structured failure is Apple's answer about the account or app, not
       // evidence that the kbsync blob is stale. Leave ent/download and let the

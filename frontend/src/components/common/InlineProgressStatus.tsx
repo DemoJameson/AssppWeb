@@ -1,9 +1,8 @@
 import { useTranslation } from "react-i18next";
-import Spinner from "./Spinner";
-import type { DownloadProgressStage } from "../../apple/sap/client";
+import type { DownloadExchangeProgress } from "../../apple/sap/client";
 
 interface InlineProgressStatusProps {
-  stage: DownloadProgressStage | null;
+  progress: DownloadExchangeProgress | null;
 }
 
 /**
@@ -11,22 +10,48 @@ interface InlineProgressStatusProps {
  * stage is implementation-free so the user never has to know what kbsync is.
  */
 export default function InlineProgressStatus({
-  stage,
+  progress,
 }: InlineProgressStatusProps) {
   const { t } = useTranslation();
+  const percent = progress?.percent;
+  const hasPercent =
+    progress?.stage === "preparing" &&
+    percent !== null &&
+    percent !== undefined;
+  const label = progress
+    ? hasPercent
+      ? t("downloads.progress.preparingLabel")
+      : t(`downloads.progress.${progress.stage}`)
+    : null;
 
   return (
-    <div className="min-h-4 text-xs" aria-live="polite">
-      {stage && (
-        <p
-          role="status"
-          className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400"
-        >
-          <Spinner />
-          <span className="min-w-0 truncate">
-            {t(`downloads.progress.${stage}`)}
+    <div className="min-h-4 text-xs">
+      {progress && (
+        <>
+          {/* Only stage changes enter the live region; byte-by-byte progress does not. */}
+          <span role="status" aria-live="polite" className="sr-only">
+            {t(`downloads.progress.${progress.stage}`)}
           </span>
-        </p>
+          <p
+            aria-hidden="true"
+            className="flex min-w-0 items-center gap-1.5 text-gray-500 tabular-nums dark:text-gray-400"
+          >
+            <span className="min-w-0 truncate">{label}</span>
+            {hasPercent && (
+              <span className="shrink-0 tabular-nums"> {percent}%</span>
+            )}
+          </p>
+          {hasPercent && (
+            <span
+              role="progressbar"
+              aria-label={t("downloads.progress.preparing")}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={percent}
+              className="sr-only"
+            />
+          )}
+        </>
       )}
     </div>
   );

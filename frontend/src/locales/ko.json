@@ -156,6 +156,8 @@
   "downloads": {
     "progress": {
       "preparing": "다운로드 구성 요소를 준비하고 있습니다…",
+      "preparingLabel": "다운로드 구성 요소를 준비하고 있습니다",
+      "initializing": "다운로드 구성 요소를 초기화하고 있습니다…",
       "connecting": "App Store에 연결하고 있습니다…",
       "confirming": "다운로드 정보를 확인하고 있습니다…"
     },

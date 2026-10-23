@@ -12,7 +12,7 @@ import { formatDateISO, formatDateTimeISO } from '../../utils/software';
 import { formatBytes } from '../../utils/format';
 import { taskIconUrl } from '../../utils/icon';
 import { PLATFORM_LABELS } from '../../apple/platform';
-import type { DownloadProgressStage } from '../../apple/sap/client';
+import type { DownloadExchangeProgress } from '../../apple/sap/client';
 import InlineProgressStatus from '../common/InlineProgressStatus';
 import type { DownloadTask } from '../../types';
 
@@ -35,7 +35,7 @@ interface DownloadItemProps {
   /** True while this row's update check is in flight. */
   checkingUpdate?: boolean;
   /** User-visible exchange stages for this row's retry or update check. */
-  actionStage?: DownloadProgressStage | null;
+  actionProgress?: DownloadExchangeProgress | null;
 }
 
 export default function DownloadItem({
@@ -49,7 +49,7 @@ export default function DownloadItem({
   onRetry,
   onCheckUpdate,
   checkingUpdate = false,
-  actionStage = null,
+  actionProgress = null,
 }: DownloadItemProps) {
   const { t } = useTranslation();
   const { accounts } = useAccounts();
@@ -290,15 +290,15 @@ export default function DownloadItem({
       )}
 
       {task.status === 'completed' && task.hasFile && (
-        <div className="mt-3 border-t border-gray-100 pt-3 dark:border-gray-800">
+        <div className="mt-2 border-t border-gray-100 pt-2 dark:border-gray-800">
           <PackageQuickActions task={task} size="compact" />
         </div>
       )}
 
-      <InlineProgressStatus stage={actionStage} />
+      {actionProgress && <InlineProgressStatus progress={actionProgress} />}
 
       <div
-        className={`mt-3 grid min-w-0 gap-2 text-[15px] ${
+        className={`${actionProgress ? 'mt-1.5' : 'mt-2'} grid min-w-0 gap-2 text-[15px] ${
           actionCount === 3
             ? 'grid-cols-3'
             : actionCount === 2

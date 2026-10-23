@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DownloadList from "../../src/components/Download/DownloadList";
@@ -81,11 +87,16 @@ vi.mock("../../src/components/Download/DownloadItem", () => ({
     highlight,
     onRetry,
     onCheckUpdate,
+    actionProgress,
   }: {
     task: DownloadTask;
     highlight?: boolean;
     onRetry?: (id: string) => void;
     onCheckUpdate?: (id: string) => void;
+    actionProgress?: {
+      stage: "preparing" | "initializing" | "connecting" | "confirming";
+      percent: number | null;
+    } | null;
   }) => (
     // The name stands alone in the flagged div: the row-text assertions of the
     // highlight tests read it whole, so an affordance must not join it.
@@ -93,6 +104,11 @@ vi.mock("../../src/components/Download/DownloadItem", () => ({
       <div data-highlight={highlight ? "true" : "false"}>
         {task.software.name}
       </div>
+      {actionProgress ? (
+        <span data-testid={`progress-${task.id}`}>
+          {actionProgress.stage}:{actionProgress.percent ?? "none"}
+        </span>
+      ) : null}
       {task.status === "failed" && onRetry ? (
         <button type="button" onClick={() => onRetry(task.id)}>
           retry-{task.id}
@@ -492,6 +508,45 @@ describe("DownloadList update check", () => {
       "downloads.package.noUpdate",
       "info",
     );
+  });
+
+  it("passes a row's preparation percentage through to its status", async () => {
+    mocks.lookupApp.mockResolvedValue(recalledApp);
+    let finishLookup!: (value: {
+      versionId: string;
+      displayVersion: string;
+      versions: string[];
+    }) => void;
+    const lookupReady = new Promise<{
+      versionId: string;
+      displayVersion: string;
+      versions: string[];
+    }>((resolve) => {
+      finishLookup = resolve;
+    });
+    mocks.lookupNewestServableVersion.mockImplementation(
+      async (_account, _app, _recorded, onStage) => {
+        onStage?.({ stage: "preparing", percent: 42 });
+        return lookupReady;
+      },
+    );
+
+    renderList();
+    fireEvent.click(screen.getByRole("button", { name: "check-1" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("progress-1")).toHaveTextContent(
+        "preparing:42",
+      );
+    });
+    await act(async () => {
+      finishLookup({
+        versionId: "2",
+        displayVersion: "1.3.19",
+        versions: ["2", "1"],
+      });
+      await lookupReady;
+    });
   });
 
   it("fetches the build the user picked by its id", async () => {

@@ -259,7 +259,7 @@ describe("apple/download", () => {
       ),
     ];
 
-    const stages: Array<string | null> = [];
+    const stages: Array<{ stage: string; percent: number | null } | null> = [];
     const { output } = await getDownloadInfo(account, app, undefined, {
       onStage: (stage) => stages.push(stage),
     });
@@ -282,7 +282,10 @@ describe("apple/download", () => {
       "1234567890",
       "a2JzeW5j",
     );
-    expect(stages).toEqual(["connecting", "confirming"]);
+    expect(stages).toEqual([
+      { stage: "connecting", percent: null },
+      { stage: "confirming", percent: null },
+    ]);
   });
 
   it("falls back to volumeStore when kbsync generation fails", async () => {
@@ -292,7 +295,7 @@ describe("apple/download", () => {
     vi.mocked(generateDownloadKBSync).mockRejectedValue(new Error("guest failed"));
     downloadReplies = [reply(downloadDoc())];
 
-    const stages: Array<string | null> = [];
+    const stages: Array<{ stage: string; percent: number | null } | null> = [];
     const { output } = await getDownloadInfo(account, app, undefined, {
       onStage: (stage) => stages.push(stage),
     });

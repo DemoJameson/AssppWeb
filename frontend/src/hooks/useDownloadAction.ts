@@ -7,6 +7,7 @@ import { useSettingsStore } from "../store/settings";
 import { useAccountsStore } from "../store/accounts";
 import { DownloadError, getDownloadInfo } from "../apple/download";
 import type {
+  DownloadExchangeProgress,
   DownloadProgressStage,
   DownloadStageObserver,
 } from "../apple/sap/client";
@@ -98,7 +99,11 @@ export interface ServableVersion {
  * use them as effect dependencies, so a new one per render would re-run those
  * effects and, when they read the backend and write a subscribed store, loop.
  */
-export type { DownloadProgressStage, DownloadStageObserver };
+export type {
+  DownloadExchangeProgress,
+  DownloadProgressStage,
+  DownloadStageObserver,
+};
 
 export function useDownloadAction() {
   const { updateAccount } = useAccounts();

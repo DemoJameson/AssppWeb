@@ -223,9 +223,20 @@ let prepared: PreparedSigner | null = null;
 let preparation: Promise<PreparedSigner> | null = null;
 let wasmBinary: ArrayBuffer | null = null;
 
-export type DownloadProgressStage = "preparing" | "connecting" | "confirming";
+export type DownloadProgressStage =
+  | "preparing"
+  | "initializing"
+  | "connecting"
+  | "confirming";
+
+export interface DownloadExchangeProgress {
+  stage: DownloadProgressStage;
+  /** 0–99 while assets download; null for stages with no measurable progress. */
+  percent: number | null;
+}
+
 export type DownloadStageObserver = (
-  stage: DownloadProgressStage | null,
+  progress: DownloadExchangeProgress | null,
 ) => void;
 
 export interface DownloadKBSync {
@@ -240,6 +251,8 @@ export interface DownloadKBSync {
 interface GeneratingKBSync {
   key: string;
   promise: Promise<string>;
+  progress: DownloadExchangeProgress;
+  observers: Set<DownloadStageObserver>;
 }
 
 let generatingKBSync: GeneratingKBSync | null = null;
@@ -390,51 +403,104 @@ export async function generateDownloadKBSync(
     return { blob: cachedBlob, fromAcceptedCache: true };
   }
 
-  const notify = (stage: DownloadProgressStage | null) => {
-    if (onStage) onStage(stage);
-  };
-
   if (generatingKBSync?.key === key) {
-    notify("preparing");
+    const underway = generatingKBSync;
+    const detach = observeGeneration(underway, onStage);
     try {
-      const blob = await generatingKBSync.promise;
+      const blob = await underway.promise;
       return { blob, fromAcceptedCache: false };
     } finally {
-      notify(null);
+      detach();
+      onStage?.(null);
     }
   }
 
-  const promise = generateKBSync(hw, numericDsid);
-  const generation = { key, promise };
+  const generation: GeneratingKBSync = {
+    key,
+    promise: Promise.resolve(""),
+    progress: { stage: "preparing", percent: 0 },
+    observers: new Set(),
+  };
   generatingKBSync = generation;
-  notify("preparing");
+  const detach = observeGeneration(generation, onStage);
+  generation.promise = generateKBSync(
+    hw,
+    numericDsid,
+    (loaded, total) => {
+      const percent = total
+        ? Math.min(99, Math.max(0, Math.round((loaded / total) * 100)))
+        : 0;
+      reportGenerationProgress(generation, {
+        stage: "preparing",
+        percent,
+      });
+    },
+    () => {
+      reportGenerationProgress(generation, {
+        stage: "initializing",
+        percent: null,
+      });
+    },
+  );
   try {
-    const blob = await promise;
+    const blob = await generation.promise;
     return { blob, fromAcceptedCache: false };
   } finally {
+    detach();
     if (generatingKBSync === generation) {
       generatingKBSync = null;
     }
-    notify(null);
+    onStage?.(null);
   }
 }
 
 async function generateKBSync(
   hardwareID: Uint8Array,
   dsid: number,
+  onAssetsProgress?: (loaded: number, total: number) => void,
+  onAssetsLoaded?: () => void,
 ): Promise<string> {
   const worker = new Worker(new URL("./worker.ts", import.meta.url), {
     type: "module",
   });
   const driver = new WorkerMachineDriver(worker);
   try {
-    const assets = await loadSapAssets();
+    const assets = await loadSapAssets(onAssetsProgress);
+    onAssetsLoaded?.();
     const wasm = await loadWorkerWasmBinary();
     await driver.open(assets, wasm, true);
     return bytesToBase64(await driver.generateKBSync(hardwareID, dsid));
   } finally {
     await driver.close().catch(() => driver.terminate());
   }
+}
+
+function reportGenerationProgress(
+  generation: GeneratingKBSync,
+  progress: DownloadExchangeProgress,
+): void {
+  if (
+    generation.progress.stage === progress.stage &&
+    generation.progress.percent === progress.percent
+  ) {
+    return;
+  }
+  generation.progress = progress;
+  for (const observer of generation.observers) {
+    observer(progress);
+  }
+}
+
+function observeGeneration(
+  generation: GeneratingKBSync,
+  observer?: DownloadStageObserver,
+): () => void {
+  if (!observer) {
+    return () => undefined;
+  }
+  generation.observers.add(observer);
+  observer(generation.progress);
+  return () => generation.observers.delete(observer);
 }
 
 function endpointsEqual(left: SapEndpoints, right: SapEndpoints): boolean {

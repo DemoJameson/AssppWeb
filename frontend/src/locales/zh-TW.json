@@ -156,6 +156,8 @@
   "downloads": {
     "progress": {
       "preparing": "正在準備下載元件…",
+      "preparingLabel": "正在準備下載元件",
+      "initializing": "正在初始化下載元件…",
       "connecting": "正在連接 App Store…",
       "confirming": "正在確認下載資訊…"
     },
