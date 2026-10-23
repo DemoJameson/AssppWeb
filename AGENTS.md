@@ -386,37 +386,43 @@ that, tens or hundreds of megabytes would be fetched for a package nothing could
 open. Neither is ever persisted or returned to a client (`sanitizeTaskForResponse`,
 and they are cleared together with the other per-attempt material on completion).
 
-`tools/macdecrypt/` is that decrypter: it loads the SAP assets plus the
-`storeagent` image Apple ships inside the same update package, opens a StoreAgent
-session and decrypts the file in place, 32 KiB at a time. It is its own Go
-module, and its module path deliberately sits under `github.com/majd/ipatool/v2/`
-so it may import the ipatool (MIT) internal packages where the emulation lives —
-Go's internal check compares the importing package's path. The dependency comes
-from the module proxy at the version pinned in `tools/macdecrypt/go.mod`
-(v2.6.0); the Dockerfile has
-the stage. That stage builds *natively* per target platform (no
-`--platform=$BUILDPLATFORM`): purego forces a dynamically linked ELF even with
-CGO off, so the interpreter recorded in the binary is the builder's own — an
-Alpine builder records the musl loader the Alpine runtime has, while a cross
-build records a glibc one no Alpine container ships, and `exec` of the helper
-then fails with ENOENT despite the file existing (the arm64 variant published
-by the QEMU cross build did exactly that on Apple-Silicon hosts). The stage
-runs the built helper before exporting it, so that failure cannot return.
-On an amd64 dev machine the arm64 variant still cannot decrypt end to end:
-its StoreAgent emulation runs nested under QEMU, and ipatool's hardcoded
-per-call 60 s emulation cap (`sapGuestTimeout`) then times out — that failure
-is the test environment, not the architecture, and it clears on real Apple
-Silicon hardware, where OrbStack runs the helper natively.
+`tools/macdecrypt/` is that decrypter. It is pinned at ipatool's macOS 27
+stack (the go.mod pseudo-version of `5dc4c80`): the guest is the arm64e
+`AppleMediaServices`, `commerce`, `CoreFP` and `CoreFP.icxs` images the helper
+resolves itself from Apple's public macOS 27.0.1 (26A434) restore image, and
+`commerce` carries the StoreAgent entry points — the 10.9-era update package
+and its separate `storeagent` image are gone from this stack (the browser's
+SAP signer and kbsync path still run the 10.9 x86_64 assets; that pipeline is
+unchanged). The machine runs on Unicorn's
+arm64 backend (2.1.4, CPU model max, with a compatibility layer for the
+atomics that build does not implement) rather than the x86_64 TCI emulation.
+The helper opens a StoreAgent session and decrypts the file in place, 32 KiB
+at a time. It is its own Go module, and its module path deliberately sits
+under `github.com/majd/ipatool/v2/` so it may import the ipatool (MIT)
+internal packages where the emulation lives — Go's internal check compares the
+importing package's path. The dependency comes from the module proxy at the
+version pinned in `tools/macdecrypt/go.mod`; the Dockerfile has the stage.
+That stage builds *natively* per target platform (no `--platform=$BUILDPLATFORM`):
+purego forces a dynamically linked ELF even with CGO off, so the interpreter
+recorded in the binary is the builder's own — an Alpine builder records the
+musl loader the Alpine runtime has, while a cross build records a glibc one no
+Alpine container ships, and `exec` of the helper then fails with ENOENT despite
+the file existing (the arm64 variant published by the QEMU cross build did
+exactly that on Apple-Silicon hosts). The stage runs the built helper before
+exporting it, so that failure cannot return. The guest architecture is not the
+host's: an amd64 container emulates arm64 on a native Unicorn (x86_64 JIT),
+but a nested QEMU dev machine runs the emulation under emulation, and ipatool's
+hardcoded per-call 60 s cap (`sapGuestTimeout`) then times out — that failure
+is the test environment, not the architecture, and it clears where the helper
+runs natively (Apple Silicon, or amd64 on bare x86_64).
 For a development instance, `bash tools/macdecrypt/build.sh` — or
 `tools/macdecrypt/build.ps1` on Windows without bash (PowerShell, no bash
 needed) — builds into `tools/macdecrypt/macdecrypt(.exe)`, where the backend
 finds it by convention; there is no `MACDECRYPT_PATH` — the helper is looked
 for at `/opt/asspp/macdecrypt` (the image) then that repo path, and a macOS
-task fails naming both when neither exists. Measured throughput is ~2 MB/s, so a
-70 MB package takes about 35 s — which is why this runs on the server rather
-than in the browser's TCI-interpreted engine (the browser would need minutes per
-download). Its first run downloads Apple's assets and the Unicorn runtime it
-emulates with, cached under `<DATA_DIR>/cache` so a replacement container does
+task fails naming both when neither exists. Its first run resolves the macOS 27
+assets (range-reads of the restore image's AEA cryptexes, 125 MB cached) and
+the Unicorn runtime, under `<DATA_DIR>/cache`, so a replacement container does
 not pay again (`services/macDecrypt.ts` sets `XDG_CACHE_HOME` for the child).
 
 `services/macDecrypt.ts` runs it and replaces the ciphertext with the package it

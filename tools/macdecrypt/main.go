@@ -6,7 +6,11 @@
 // This directory is its own module, deliberately under
 // github.com/majd/ipatool/v2/ so it may import that module's internal packages
 // (emulation, Mach-O loader, Unicorn binding); the dependency comes from the
-// module proxy at the version pinned in go.mod.
+// module proxy at the version pinned in go.mod. The pin carries ipatool's
+// macOS 27 migration: the images are the arm64 frameworks it resolves from
+// Apple's macOS 27.0.1 restore image (commerce carries StoreAgent itself),
+// and the emulator is Unicorn's arm64 backend rather than the x86_64 one of
+// the 10.9-era stack.
 //
 //	macdecrypt -in encrypted.pkg -out app.pkg \
 //	           -hardware-id 05ca1a6f5004 -dp-info <base64|@file>
@@ -111,8 +115,8 @@ func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), decryptTimeout)
 	defer cancel()
 
-	// Apple's machinery, emulated: the same four SAP assets the signing path
-	// uses, plus the StoreAgent image the decryption runs in.
+	// Apple's machinery, emulated: the four macOS 27 arm64 SAP assets, whose
+	// commerce image carries the StoreAgent entry points the decryption runs in.
 	bundle, err := assets.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("load Apple SAP assets: %w", err)
