@@ -881,7 +881,7 @@ export default function ProductDetail() {
               </div>
             ) : (
               <div className="space-y-2">
-              <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+              <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-4 lg:gap-3">
               {(app.price === undefined || app.price === 0) &&
                 app.metadataSource !== "local" &&
                 app.metadataSource !== "bare" &&

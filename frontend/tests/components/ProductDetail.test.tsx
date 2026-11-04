@@ -477,9 +477,9 @@ describe('ProductDetail download action', () => {
 
     expect(actionRow).toBe(downloadButton.parentElement);
     expect(actionRow).toBe(selectVersionButton.parentElement);
-    // Two columns on phones so icon and label fit; four from sm up, the same
-    // slots whichever actions happen to be showing.
-    expect(actionRow).toHaveClass('grid', 'grid-cols-2', 'sm:grid-cols-4');
+    // Two columns while the sidebar leaves too little room (phones and tablets);
+    // four only once the content area is wide enough for every label.
+    expect(actionRow).toHaveClass('grid', 'grid-cols-2', 'lg:grid-cols-4');
     expect(Array.from(actionRow?.children ?? [])).toEqual([
       licenseButton,
       downloadButton,
