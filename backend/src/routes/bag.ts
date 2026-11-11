@@ -1,10 +1,11 @@
 import { Router, Request, Response } from "express";
 import https from "https";
+import bplistParser from "bplist-parser";
+import plist from "plist";
 import { BAG_TIMEOUT_MS, BAG_MAX_BYTES } from "../config.js";
+import { STORE_USER_AGENT } from "../services/appleUserAgents.js";
 
 const router = Router();
-const userAgent =
-  "Configurator/2.17 (Macintosh; OS X 15.2; 24C5089c) AppleWebKit/0620.1.16.11.6";
 
 // Proxy for Apple's bag endpoint: public data (service URLs, no credentials),
 // proxied server-side because init.itunes.apple.com requires TLS 1.3, which
@@ -22,7 +23,9 @@ router.get("/bag", async (req: Request, res: Response) => {
     return;
   }
 
-  const url = `https://init.itunes.apple.com/bag.xml?guid=${encodeURIComponent(guid)}`;
+  // `ix=6` is the current bag generation ipatool 2.8.0 asks for; it keeps the
+  // native auth endpoint and SAP keys in the reply.
+  const url = `https://init.itunes.apple.com/bag.xml?ix=6&guid=${encodeURIComponent(guid)}`;
 
   try {
     const body = await new Promise<string>((resolve, reject) => {
@@ -30,7 +33,7 @@ router.get("/bag", async (req: Request, res: Response) => {
         url,
         {
           headers: {
-            "User-Agent": userAgent,
+            "User-Agent": STORE_USER_AGENT,
             Accept: "application/xml",
           },
           timeout: BAG_TIMEOUT_MS,
@@ -74,12 +77,52 @@ router.get("/bag", async (req: Request, res: Response) => {
       return;
     }
 
-    // Return raw plist XML for the client to parse
-    res.type("text/xml").send(plistMatch[0]);
+    // Older/default bags wrap the real dictionary in {bag = <data>}. Unwrap it
+    // here so the browser sees the same flat XML whichever generation Apple
+    // serves; the inner value may be XML or a binary plist.
+    res.type("text/xml").send(unwrapSignedBag(plistMatch[0]));
   } catch (err) {
     console.error("Bag proxy error:", err instanceof Error ? err.message : err);
     res.status(502).json({ error: "Bag request failed" });
   }
 });
+
+function unwrapSignedBag(xml: string): string {
+  try {
+    const outer = plist.parse(xml) as Record<string, unknown>;
+    const bytes = plistBytes(outer.bag);
+    if (!bytes) return xml;
+
+    if (bytes.subarray(0, 8).toString("utf8") === "bplist00") {
+      const parsed = bplistParser.parseBuffer(bytes);
+      const inner = Array.isArray(parsed) ? parsed[0] : parsed;
+      if (inner && typeof inner === "object") {
+        return plist.build(inner as Parameters<typeof plist.build>[0]);
+      }
+    }
+
+    const text = bytes.toString("utf8");
+    if (text.includes("<plist")) {
+      const inner = plist.parse(text);
+      if (inner && typeof inner === "object") {
+        return plist.build(inner as Parameters<typeof plist.build>[0]);
+      }
+    }
+  } catch {
+    // An ordinary (already flat) bag, or a shape we do not understand, stays
+    // untouched.
+  }
+
+  return xml;
+}
+
+function plistBytes(value: unknown): Buffer | null {
+  if (Buffer.isBuffer(value)) return value;
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  if (typeof value === "string" && value.trim() !== "") {
+    return Buffer.from(value, "base64");
+  }
+  return null;
+}
 
 export default router;

@@ -2,7 +2,8 @@ import type { Account, Software } from "../types";
 import { appleRequest } from "./request";
 import { buildPlist, parsePlist } from "./plist";
 import { extractAndMergeCookies } from "./cookies";
-import { purchaseAPIHost } from "./config";
+import { purchaseAPIHost, storeUserAgent } from "./config";
+import { sendMachineValidatedRequest } from "./machineValidation";
 import i18n from "../i18n";
 
 export class PurchaseError extends Error {
@@ -30,6 +31,9 @@ export async function purchaseApp(
     throw new PurchaseError(i18n.t("errors.purchase.paidNotSupported"));
   }
 
+  // The Anisette helper owns the current provisioning finish URL. Do not fetch
+  // the public bag here: purchases run before every download and version list,
+  // so a slow bag proxy must not delay the buyProduct request.
   try {
     return await purchaseWithParams(account, app, "STDQ");
   } catch (e) {
@@ -82,24 +86,38 @@ async function purchaseWithParams(
 
   const headers: Record<string, string> = {
     "Content-Type": "application/x-apple-plist",
+    "User-Agent": storeUserAgent,
     "iCloud-DSID": account.directoryServicesIdentifier,
     "X-Dsid": account.directoryServicesIdentifier,
-    "X-Apple-Store-Front": `${account.store}-1`,
+    "X-Apple-Store-Front": account.storeFront || `${account.store}-1`,
     "X-Token": account.passwordToken,
   };
 
-  const response = await appleRequest({
-    method: "POST",
-    host,
-    path,
+  let requestCookies = [...account.cookies];
+  const response = await sendMachineValidatedRequest({
+    deviceIdentifier: deviceId,
+    endpoint: `https://${host}${path}`,
     headers,
-    body: plistBody,
-    cookies: account.cookies,
+    send: (finalHeaders) =>
+      appleRequest({
+        method: "POST",
+        host,
+        path,
+        headers: finalHeaders,
+        body: plistBody,
+        cookies: requestCookies,
+      }),
+    onResponse: (response) => {
+      requestCookies = extractAndMergeCookies(
+        response.rawHeaders,
+        requestCookies,
+      );
+    },
   });
 
   const updatedCookies = extractAndMergeCookies(
     response.rawHeaders,
-    account.cookies,
+    requestCookies,
   );
 
   const dict = parseReply(response.body);

@@ -47,7 +47,15 @@ export async function guessPlatformPinFromIOSList(
 ): Promise<string | undefined> {
   // A failure to read the iOS list is "we never got to ask", not "this platform
   // has no build": it travels up as the failure it is, leaving the question open.
-  const versions = await listIOSVersionIds(session);
+  // The anchor list and the foreign-id lookups are independent; overlap them
+  // instead of paying for the iOS exchange before the other sources start.
+  const [versions, foreign] = await Promise.all([
+    listIOSVersionIds(session),
+    Promise.all([
+      foreignPlatformVersionIds(session),
+      packageIndexVersionIds(session),
+    ]),
+  ]);
 
   const newest = Number(versions[0] ?? "");
   // Version ids are positive integers; anything else cannot be offset into a
@@ -58,22 +66,19 @@ export async function guessPlatformPinFromIOSList(
   // tvOS is a tvOS build, however well it probes here. The iOS list joins the set
   // for the history check below, so a probe that falls back to the iOS history
   // does not read as a hit. A version-level declaration can later clear an id.
-  const foreign = await Promise.all([
-    foreignPlatformVersionIds(session),
-    packageIndexVersionIds(session),
-  ]);
   const knownForeign = new Set([...versions, ...foreign[0], ...foreign[1]]);
   const candidates = neighbourVersionIds(newest, knownForeign);
   for (let start = 0; start < candidates.length; start += PIN_GUESS_CONCURRENCY) {
     const batch = candidates.slice(start, start + PIN_GUESS_CONCURRENCY);
-    const probed = await Promise.all(
-      batch.map(async (candidate) => ({
-        candidate,
-        serves: await servesPlatformVersion(session, candidate, knownForeign),
-      })),
+    // Start the whole batch together, but consume it nearest-first. A nearby
+    // hit therefore returns without waiting for the rest of the batch's slow
+    // (usually rejected) probes.
+    const probes = batch.map((candidate) =>
+      servesPlatformVersion(session, candidate, knownForeign),
     );
-    const hit = probed.find((entry) => entry.serves);
-    if (hit) return hit.candidate;
+    for (let index = 0; index < probes.length; index += 1) {
+      if (await probes[index]) return batch[index];
+    }
   }
 
   return undefined;
@@ -146,6 +151,7 @@ async function packageIndexVersionIds(
   session: DownloadSession,
 ): Promise<string[]> {
   const platform = session.app.platform;
+  if (!platform) return [];
   const [builds, declarations] = await Promise.all([
     fetchPackageBuilds(session.app.id),
     fetchVersionPlatforms(session.app.id),

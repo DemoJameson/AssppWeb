@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
-# Build stages run on the build machine's native architecture (BUILDPLATFORM)
-# and produce platform-independent artifacts; only the runtime layer is built
-# per target platform. This keeps linux/386 builds as cheap as amd64/arm64.
+# JS/asset build stages run on the build machine's native architecture
+# (BUILDPLATFORM) and produce platform-independent artifacts. The two Go
+# helpers build natively per target platform because purego makes them
+# dynamically linked to the runtime image's libc.
 FROM --platform=$BUILDPLATFORM node:24-alpine AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
@@ -32,6 +33,41 @@ WORKDIR /app/backend
 COPY --from=backend-build /app/backend ./
 ARG SAP_ASSETS_OUT=/out
 RUN DATA_DIR=/tmp/sap-extract-work node --import tsx scripts/extract-sap-assets.mts ${SAP_ASSETS_OUT}
+
+# The macOS 27 Anisette/StoreAgent assets. They are platform-independent data
+# (arm64e Mach-O images), so this stage runs on the build platform and is shared
+# by both helpers. `prepare-assets` resolves them from Apple's pinned restore
+# image once; the cache mount keeps the extraction across helper code changes
+# and is keyed by go.mod, so changing the pinned ipatool version starts a fresh
+# extraction instead of reusing assets from another pin.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS apple-cache
+WORKDIR /src
+COPY tools/anisette/go.mod tools/anisette/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY tools/anisette/*.go ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/anisette .
+RUN --mount=type=cache,target=/root/.cache/asspp-apple,sharing=locked \
+    cache="/root/.cache/asspp-apple/$(sha256sum go.mod | cut -d' ' -f1)" \
+    && mkdir -p "$cache" /out/cache \
+    && XDG_CACHE_HOME="$cache" /out/anisette prepare-assets \
+    && cp -a "$cache/ipatool" /out/cache/ \
+    && touch /out/cache/ipatool/.complete
+
+# The Anisette helper. Built natively per target platform for the same reason
+# as macdecrypt: purego makes the binary dynamically linked, so the interpreter
+# must be the runtime image's own (musl on Alpine).
+FROM golang:1.26-alpine AS anisette
+WORKDIR /src
+COPY tools/anisette/go.mod tools/anisette/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY tools/anisette/*.go ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/anisette .
+RUN sh -c 'out="$(/out/anisette 2>&1 || true)"; case "$out" in \
+    *"No such file"*|*"not found"*|*"Exec format"*) \
+        echo "built helper is not runnable: $out"; exit 1;; \
+    *) echo "helper runs on $(uname -m)" ;; esac'
 
 # The macOS package decrypter. Apple serves a macOS download as a
 # FairPlay-encrypted package — not a xar archive at all until Apple's own
@@ -89,10 +125,12 @@ RUN --mount=type=cache,target=/root/.npm \
 # saves nothing while racing another stage's concurrent npm ci (ENOTEMPTY).
 COPY --from=frontend-build /app/frontend/dist ./public
 COPY --from=sap-assets /out /opt/asspp/sap-assets
-# Apple serves a macOS package encrypted, and this is what opens it. It fetches
-# its own copy of Apple's assets and the Unicorn runtime on first use; with
-# DATA_DIR on a volume that only happens once per deployment (see macDecrypt.ts,
-# which points XDG_CACHE_HOME at <DATA_DIR>/cache).
+COPY --from=apple-cache /out/cache /opt/asspp/apple-cache
+COPY --from=anisette /out/anisette /opt/asspp/anisette
+# Apple serves a macOS package encrypted, and this is what opens it. It reads
+# the prebaked macOS 27 assets through <DATA_DIR>/cache (appleCache.ts seeds
+# them from /opt/asspp/apple-cache) and downloads the Unicorn runtime on first
+# use if the cache does not already have it.
 # `services/macDecrypt.ts` looks the helper up at this exact path.
 COPY --from=macdecrypt /out/macdecrypt /opt/asspp/macdecrypt
 RUN mkdir -p /data/packages

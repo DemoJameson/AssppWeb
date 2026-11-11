@@ -8,6 +8,7 @@ import AppErrorBoundary from './components/common/AppErrorBoundary';
 import GlobalDownloadNotifier from './components/common/GlobalDownloadNotifier';
 import ToastContainer from './components/common/ToastContainer';
 import PasswordGate from './components/Auth/PasswordGate';
+import { useAnisetteWarmup } from './hooks/useAnisetteWarmup';
 import { useSettingsStore } from './store/settings';
 import { lazyWithRetry } from './utils/lazyWithRetry';
 
@@ -56,6 +57,11 @@ function Loading() {
   );
 }
 
+function AnisetteWarmup() {
+  useAnisetteWarmup();
+  return null;
+}
+
 export default function App() {
   const theme = useSettingsStore((s) => s.theme);
 
@@ -85,6 +91,7 @@ export default function App() {
       <div className="flex h-screen h-[100dvh] overflow-hidden bg-gray-50 text-gray-900 selection:bg-blue-200 dark:bg-gray-950 dark:text-gray-100 dark:selection:bg-blue-800">
         <ToastContainer />
         <GlobalDownloadNotifier />
+        <AnisetteWarmup />
 
         <Sidebar />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden md:pt-[env(safe-area-inset-top)]">

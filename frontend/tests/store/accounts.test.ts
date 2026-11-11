@@ -3,10 +3,15 @@ import type { Account } from "../../src/types";
 
 const mocks = vi.hoisted(() => ({
   forgetDownloadKBSync: vi.fn(),
+  clearAnisetteState: vi.fn(),
 }));
 
 vi.mock("../../src/apple/sap/kbsyncCache", () => ({
   forgetDownloadKBSync: mocks.forgetDownloadKBSync,
+}));
+
+vi.mock("../../src/apple/anisetteStore", () => ({
+  clearAnisetteState: mocks.clearAnisetteState,
 }));
 
 import { useAccountsStore } from "../../src/store/accounts";
@@ -27,12 +32,14 @@ const mockAccount: Account = {
 describe("store/accounts", () => {
   beforeEach(async () => {
     mocks.forgetDownloadKBSync.mockReset();
+    mocks.clearAnisetteState.mockReset();
     // Clear the store
     const state = useAccountsStore.getState();
     for (const account of state.accounts) {
       await state.removeAccount(account.email);
     }
     await state.loadAccounts();
+    mocks.clearAnisetteState.mockReset();
   });
 
   it("should start with empty accounts", async () => {
@@ -128,5 +135,32 @@ describe("store/accounts", () => {
     const accounts = useAccountsStore.getState().accounts;
     expect(accounts).toHaveLength(1);
     expect(accounts[0].firstName).toBe("Replaced");
+  });
+
+  it("clears the old Anisette state when add changes the device", async () => {
+    await useAccountsStore.getState().addAccount(mockAccount);
+
+    await useAccountsStore.getState().addAccount({
+      ...mockAccount,
+      deviceIdentifier: "aabbccddee00",
+    });
+
+    expect(mocks.clearAnisetteState).toHaveBeenCalledWith("aabbccddeeff");
+  });
+
+  it("keeps an Anisette state still used by another account", async () => {
+    await useAccountsStore.getState().addAccount(mockAccount);
+    await useAccountsStore.getState().addAccount({
+      ...mockAccount,
+      email: "other@example.com",
+      deviceIdentifier: "aabbccddeeff",
+    });
+
+    await useAccountsStore.getState().addAccount({
+      ...mockAccount,
+      deviceIdentifier: "aabbccddee01",
+    });
+
+    expect(mocks.clearAnisetteState).not.toHaveBeenCalled();
   });
 });

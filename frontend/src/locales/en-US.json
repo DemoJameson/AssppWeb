@@ -127,6 +127,8 @@
       "addSuccess": "Account added successfully.",
       "preparingAssets": "Preparing signing components {{percent}}%",
       "preparingSigner": "Initializing the request signer…",
+      "preparingDevice": "Preparing device verification…",
+      "preparingDeviceHint": "First run: preparing Apple's device-verification components. This can take a minute.",
       "signerFailed": "Failed to prepare signing components: {{error}}",
       "signerFirstRun": "First run: preparing the signing component (~12 MB, this once).",
       "retrySignIn": "Retry Sign In"
@@ -478,6 +480,7 @@
       "invalidSinf": "Invalid sinf item",
       "noSinf": "No sinf found in response",
       "tooManyRedirects": "Too many redirects",
+      "kbsyncTimeout": "The download signing component did not finish within {{seconds}} seconds.",
       "invalidEndpoint": "Invalid download endpoint advertised by the server",
       "updateMismatch": "The update endpoint returned a download for a different app or version"
     },
@@ -507,8 +510,14 @@
       "emptyBody": "Authentication failed: server returned HTTP {{status}} with empty body",
       "missingAccountInfo": "Missing accountInfo in response",
       "missingAddress": "Missing address in response",
+      "missingDsid": "Apple returned no directory services identifier",
       "unknownReason": "Authentication failed for an unknown reason",
-      "signerTimeout": "The signing component stopped responding."
+      "signerTimeout": "The signing component stopped responding.",
+      "deviceVerificationUnavailable": "Apple requires device verification, but this server's Anisette helper is unavailable.",
+      "deviceVerificationState": "The device-verification state is missing. Please sign in again.",
+      "deviceVerificationLoop": "Apple kept requesting device verification ({{action}}).",
+      "deviceVerificationUnsupported": "Apple requested an unsupported device-verification action: {{action}}.",
+      "retryExhausted": "Apple did not answer usably after several attempts (HTTP {{status}})."
     }
   },
   "toast": {

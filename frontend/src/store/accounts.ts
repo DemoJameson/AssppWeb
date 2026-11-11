@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { openDB, type IDBPDatabase } from "idb";
 import type { Account } from "../types";
 import { forgetDownloadKBSync } from "../apple/sap/kbsyncCache";
+import { clearAnisetteState } from "../apple/anisetteStore";
 
 const DB_NAME = "asspp-accounts";
 const STORE_NAME = "accounts";
@@ -30,6 +31,22 @@ interface AccountsState {
   updateAccount: (account: Account) => Promise<void>;
 }
 
+async function clearAnisetteStateIfUnused(
+  get: () => AccountsState,
+  deviceIdentifier: string | undefined,
+): Promise<void> {
+  if (!deviceIdentifier) return;
+  if (
+    get().accounts.some(
+      (candidate) => candidate.deviceIdentifier === deviceIdentifier,
+    )
+  ) {
+    return;
+  }
+
+  await clearAnisetteState(deviceIdentifier);
+}
+
 export const useAccountsStore = create<AccountsState>((set, get) => ({
   accounts: [],
   loading: true,
@@ -42,6 +59,9 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
   },
 
   addAccount: async (account: Account) => {
+    const previous = get().accounts.find(
+      (candidate) => candidate.email === account.email,
+    );
     const db = await getDB();
     await db.put(STORE_NAME, account);
     set({
@@ -50,6 +70,21 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
         account,
       ],
     });
+
+    if (
+      previous?.deviceIdentifier &&
+      previous.deviceIdentifier !== account.deviceIdentifier
+    ) {
+      try {
+        await forgetDownloadKBSync(
+          previous.deviceIdentifier,
+          previous.directoryServicesIdentifier,
+        );
+      } catch (error) {
+        console.warn("[accounts] failed to clear cached kbsync", error);
+      }
+      await clearAnisetteStateIfUnused(get, previous.deviceIdentifier);
+    }
   },
 
   removeAccount: async (email: string) => {
@@ -62,7 +97,7 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
     // a cache failure must not make the UI report a failed delete.
     if (account?.deviceIdentifier && account.directoryServicesIdentifier) {
       try {
-        forgetDownloadKBSync(
+        await forgetDownloadKBSync(
           account.deviceIdentifier,
           account.directoryServicesIdentifier,
         );
@@ -70,9 +105,13 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
         console.warn("[accounts] failed to clear cached kbsync", error);
       }
     }
+    await clearAnisetteStateIfUnused(get, account?.deviceIdentifier);
   },
 
   updateAccount: async (account: Account) => {
+    const previous = get().accounts.find(
+      (candidate) => candidate.email === account.email,
+    );
     const db = await getDB();
     await db.put(STORE_NAME, account);
     set({
@@ -80,6 +119,21 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
         a.email === account.email ? account : a,
       ),
     });
+
+    if (
+      previous?.deviceIdentifier &&
+      previous.deviceIdentifier !== account.deviceIdentifier
+    ) {
+      try {
+        await forgetDownloadKBSync(
+          previous.deviceIdentifier,
+          previous.directoryServicesIdentifier,
+        );
+      } catch (error) {
+        console.warn("[accounts] failed to clear cached kbsync", error);
+      }
+      await clearAnisetteStateIfUnused(get, previous.deviceIdentifier);
+    }
   },
 }));
 

@@ -63,6 +63,8 @@ export interface Account {
   password: string;
   appleId: string;
   store: string;
+  /** The full `X-Apple-Store-Front` value from sign-in, including its suffix. */
+  storeFront?: string;
   firstName: string;
   lastName: string;
   passwordToken: string;

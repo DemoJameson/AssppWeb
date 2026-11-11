@@ -18,9 +18,10 @@
 // Progress: one `progress <written> <total>` line per step on stdout; errors on
 // stderr, prefixed with the command name.
 //
-// Environment: XDG_CACHE_HOME (or HOME) picks where the Apple assets and the
-// Unicorn runtime are cached — point it at a persistent directory so a container
-// downloads them only once.
+// Environment: the OS user cache directory picks where the Apple assets and the
+// Unicorn runtime are cached — XDG_CACHE_HOME on Linux, HOME/Library/Caches on
+// macOS, LocalAppData on Windows. Point it at a persistent directory so a
+// container downloads them only once.
 package main
 
 import (

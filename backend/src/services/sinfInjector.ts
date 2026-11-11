@@ -664,7 +664,9 @@ async function addFilesToZip(
 
     // In-place zip update: -0 stores uncompressed (SINF/plist are tiny); "--"
     // stops file args from being parsed as flags.
-    await execFile("zip", ["-0", ipaPath, "--", ...relativePaths], {
+    // `zip` runs with cwd=tmpDir; a relative DATA_DIR would otherwise make the
+    // archive path resolve inside the temp directory.
+    await execFile("zip", ["-0", path.resolve(ipaPath), "--", ...relativePaths], {
       cwd: tmpDir,
       maxBuffer: 1024 * 1024,
     });

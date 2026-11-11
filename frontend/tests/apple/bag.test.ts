@@ -33,7 +33,7 @@ describe("apple/bag", () => {
     );
   });
 
-  it("normalizes a native auth endpoint at the plist root to the /fast/ path", async () => {
+  it("keeps a native auth endpoint at the plist root as the bag advertises it", async () => {
     const xml = buildPlist({
       authenticateAccount: "https://auth.itunes.apple.com/auth/v1/native",
     });
@@ -48,7 +48,7 @@ describe("apple/bag", () => {
     const result = await fetchBag("aabbccddeeff");
 
     expect(result.authURL).toBe(
-      "https://auth.itunes.apple.com/auth/v1/native/fast/",
+      "https://auth.itunes.apple.com/auth/v1/native",
     );
   });
 
@@ -96,6 +96,8 @@ describe("apple/bag", () => {
         updateProduct: "https://downloaddispatch.itunes.apple.com/up/updateProduct",
         volumeStoreDownloadProduct:
           "https://downloaddispatch.itunes.apple.com/WebObjects/DownloadDispatch.woa/wa/ent/download",
+        songDownloadDone:
+          "https://buy.itunes.apple.com/WebObjects/MZFastFinance.woa/wa/songDownloadDone",
       },
     });
     vi.stubGlobal(
@@ -117,19 +119,58 @@ describe("apple/bag", () => {
     expect(result.entDownloadEndpoint).toBe(
       "https://downloaddispatch.itunes.apple.com/WebObjects/DownloadDispatch.woa/wa/ent/download",
     );
+    expect(result.songDownloadDoneEndpoint).toBe(
+      "https://buy.itunes.apple.com/WebObjects/MZFastFinance.woa/wa/songDownloadDone",
+    );
+  });
+
+  it("extracts both machine provisioning families from the bag", async () => {
+    const xml = buildPlist({
+      authenticateAccount: "https://auth.itunes.apple.com/auth/v1/native",
+      "amd-finish-provisioning":
+        "https://auth.itunes.apple.com/auth/v1/otp/1.5/finish",
+      "md-finish-provisioning":
+        "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/finishMachineProvisioning",
+      "amd-sync-machine":
+        "https://auth.itunes.apple.com/auth/v1/otp/1.5/sync",
+      "md-sync-machine":
+        "https://auth.itunes.apple.com/auth/v1/otp/1.0/sync",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () => xml,
+      }),
+    );
+
+    const result = await fetchBag("aabbccddeeff");
+
+    expect(result.amdFinishProvisioning).toBe(
+      "https://auth.itunes.apple.com/auth/v1/otp/1.5/finish",
+    );
+    expect(result.mdFinishProvisioning).toBe(
+      "https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/finishMachineProvisioning",
+    );
+    expect(result.amdSyncMachine).toBe(
+      "https://auth.itunes.apple.com/auth/v1/otp/1.5/sync",
+    );
+    expect(result.mdSyncMachine).toBe(
+      "https://auth.itunes.apple.com/auth/v1/otp/1.0/sync",
+    );
   });
 
   describe("normalizeAuthURL", () => {
-    it("appends /fast/ to a bare native auth endpoint", () => {
+    it("keeps a bare native auth endpoint as-is", () => {
       expect(
         normalizeAuthURL("https://auth.itunes.apple.com/auth/v1/native"),
-      ).toBe("https://auth.itunes.apple.com/auth/v1/native/fast/");
+      ).toBe("https://auth.itunes.apple.com/auth/v1/native");
     });
 
-    it("adds the trailing slash when /fast is already present", () => {
+    it("keeps /fast without adding a trailing slash", () => {
       expect(
         normalizeAuthURL("https://auth.itunes.apple.com/auth/v1/native/fast"),
-      ).toBe("https://auth.itunes.apple.com/auth/v1/native/fast/");
+      ).toBe("https://auth.itunes.apple.com/auth/v1/native/fast");
     });
 
     it("is idempotent on an already-normalized endpoint", () => {

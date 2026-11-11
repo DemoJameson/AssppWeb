@@ -11,15 +11,18 @@ import { useSapStore } from "../../store/sap";
 import i18n from "../../i18n";
 import {
   acceptDownloadKBSync,
-  cachedDownloadKBSync,
   forgetDownloadKBSync,
   invalidateDownloadKBSync,
+  KBSYNC_CACHE_TIMEOUT_MS,
+  loadDownloadKBSync,
 } from "./kbsyncCache";
 
 export {
   acceptDownloadKBSync,
+  clearDownloadKBSyncCache,
   forgetDownloadKBSync,
   invalidateDownloadKBSync,
+  KBSYNC_CACHE_TIMEOUT_MS,
 } from "./kbsyncCache";
 
 interface WorkerResult {
@@ -43,10 +46,20 @@ interface WorkerError {
  */
 export const SAP_CALL_TIMEOUT_MS = 2 * 60 * 1000;
 
+/**
+ * Whole-attempt budget for one kbsync generation: asset load, worker startup
+ * and the StoreAgent call. ipatool wraps the same stages in a single two-minute
+ * deadline; bounding each stage separately lets a wedged worker consume several
+ * minutes before the exchange can fall back.
+ */
+export const KBSYNC_TOTAL_TIMEOUT_MS = 2 * 60 * 1000;
+
 class WorkerMachineDriver implements SapMachineDriver {
   private nextId = 1;
   /** Set once a call has run past its timeout: the worker is done for. */
   private wedged = false;
+  /** Set once the worker has been terminated: no call may be posted to it. */
+  private terminated = false;
   private readonly pending = new Map<
     number,
     { resolve: (value: WorkerResult) => void; reject: (error: Error) => void }
@@ -79,7 +92,7 @@ class WorkerMachineDriver implements SapMachineDriver {
     request: Record<string, unknown>,
     transfer?: Transferable[],
   ): Promise<WorkerResult> {
-    if (this.wedged) {
+    if (this.wedged || this.terminated) {
       // The worker is gone; any further call would just wait out another timeout.
       return Promise.reject(new Error(i18n.t("errors.auth.signerTimeout")));
     }
@@ -108,7 +121,7 @@ class WorkerMachineDriver implements SapMachineDriver {
   }
 
   async close(): Promise<void> {
-    if (this.wedged) {
+    if (this.wedged || this.terminated) {
       this.terminate();
       return;
     }
@@ -118,6 +131,7 @@ class WorkerMachineDriver implements SapMachineDriver {
 
   /** Drops the worker without waiting for it to acknowledge anything. */
   terminate(): void {
+    this.terminated = true;
     // In-flight calls lost their worker; reject now so callers are not left on
     // a promise nothing can resolve.
     for (const entry of this.pending.values()) {
@@ -256,13 +270,70 @@ interface GeneratingKBSync {
 }
 
 let generatingKBSync: GeneratingKBSync | null = null;
+/** One IndexedDB read per key, shared by concurrent callers. */
+const cacheLoads = new Map<string, Promise<string | null>>();
 
-async function loadWorkerWasmBinary(): Promise<ArrayBuffer> {
+function loadCachedKBSyncOnce(
+  key: string,
+  hardwareID: string,
+  dsid: string,
+): Promise<string | null> {
+  const running = cacheLoads.get(key);
+  if (running) return running;
+
+  const load = loadDownloadKBSync(hardwareID, dsid).finally(() => {
+    if (cacheLoads.get(key) === load) cacheLoads.delete(key);
+  });
+  cacheLoads.set(key, load);
+  return load;
+}
+
+function kbsyncTimeoutError(timeoutMs: number): Error {
+  return new Error(
+    i18n.t("errors.download.kbsyncTimeout", {
+      seconds: Math.round(timeoutMs / 1000),
+    }),
+  );
+}
+
+function withKBSyncTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  onTimeout?: () => void,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      onTimeout?.();
+      reject(kbsyncTimeoutError(timeoutMs));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, deadline]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+async function joinGeneration(
+  generation: GeneratingKBSync,
+  onStage?: DownloadStageObserver,
+): Promise<DownloadKBSync> {
+  const detach = observeGeneration(generation, onStage);
+  try {
+    const blob = await generation.promise;
+    return { blob, fromAcceptedCache: false };
+  } finally {
+    detach();
+    onStage?.(null);
+  }
+}
+
+async function loadWorkerWasmBinary(signal?: AbortSignal): Promise<ArrayBuffer> {
   if (wasmBinary) {
     return wasmBinary;
   }
   const url = new URL("./vendor/unicorn.wasm", import.meta.url);
-  const response = await fetch(url);
+  const response = await fetch(url, signal ? { signal } : undefined);
   if (!response.ok) {
     throw new Error(`SAP engine download failed: HTTP ${response.status}`);
   }
@@ -398,21 +469,33 @@ export async function generateDownloadKBSync(
   }
 
   const key = `${hardwareID.toLowerCase()}:${numericDsid}`;
-  const cachedBlob = cachedDownloadKBSync(key);
+  if (generatingKBSync?.key === key) {
+    return joinGeneration(generatingKBSync, onStage);
+  }
+
+  const startedAt = Date.now();
+  const cacheLoad = loadCachedKBSyncOnce(key, hardwareID, dsid);
+  const cachedBlob = await withKBSyncTimeout(
+    cacheLoad,
+    KBSYNC_CACHE_TIMEOUT_MS,
+    () => {
+      // A blocked IndexedDB read is still pending after the race rejects. If it
+      // stays in the map, every retry joins the same promise and waits out the
+      // cache timeout again instead of asking the storage layer anew.
+      if (cacheLoads.get(key) === cacheLoad) cacheLoads.delete(key);
+    },
+  ).catch(() => null);
   if (cachedBlob !== null) {
     return { blob: cachedBlob, fromAcceptedCache: true };
   }
 
   if (generatingKBSync?.key === key) {
-    const underway = generatingKBSync;
-    const detach = observeGeneration(underway, onStage);
-    try {
-      const blob = await underway.promise;
-      return { blob, fromAcceptedCache: false };
-    } finally {
-      detach();
-      onStage?.(null);
-    }
+    return joinGeneration(generatingKBSync, onStage);
+  }
+
+  const remaining = KBSYNC_TOTAL_TIMEOUT_MS - (Date.now() - startedAt);
+  if (remaining <= 0) {
+    throw kbsyncTimeoutError(KBSYNC_TOTAL_TIMEOUT_MS);
   }
 
   const generation: GeneratingKBSync = {
@@ -441,6 +524,7 @@ export async function generateDownloadKBSync(
         percent: null,
       });
     },
+    remaining,
   );
   try {
     const blob = await generation.promise;
@@ -459,19 +543,48 @@ async function generateKBSync(
   dsid: number,
   onAssetsProgress?: (loaded: number, total: number) => void,
   onAssetsLoaded?: () => void,
+  timeoutMs = KBSYNC_TOTAL_TIMEOUT_MS,
 ): Promise<string> {
   const worker = new Worker(new URL("./worker.ts", import.meta.url), {
     type: "module",
   });
   const driver = new WorkerMachineDriver(worker);
-  try {
-    const assets = await loadSapAssets(onAssetsProgress);
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const startedAt = Date.now();
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      driver.terminate();
+      console.warn(
+        `[kbsync] timed out after ${Math.round(timeoutMs / 1000)}s`,
+      );
+      reject(kbsyncTimeoutError(timeoutMs));
+    }, timeoutMs);
+  });
+  const work = (async (): Promise<string> => {
+    const assets = await loadSapAssets(onAssetsProgress, controller.signal);
     onAssetsLoaded?.();
-    const wasm = await loadWorkerWasmBinary();
+    console.info(`[kbsync] assets ready in ${Date.now() - startedAt}ms`);
+    const wasm = await loadWorkerWasmBinary(controller.signal);
     await driver.open(assets, wasm, true);
-    return bytesToBase64(await driver.generateKBSync(hardwareID, dsid));
+    console.info(`[kbsync] worker ready in ${Date.now() - startedAt}ms`);
+    const blob = bytesToBase64(await driver.generateKBSync(hardwareID, dsid));
+    console.info(`[kbsync] generated in ${Date.now() - startedAt}ms`);
+    return blob;
+  })();
+  // A transfer that loses the race must not surface later as an unhandled
+  // rejection: the deadline already answered for it.
+  work.catch(() => undefined);
+  try {
+    return await Promise.race([work, deadline]);
   } finally {
-    await driver.close().catch(() => driver.terminate());
+    clearTimeout(timer);
+    controller.abort();
+    // The kbsync worker is a short-lived resource whose answer is already in
+    // hand. Terminate it here: a graceful close would add its own two-minute
+    // call timeout outside KBSYNC_TOTAL_TIMEOUT_MS.
+    driver.terminate();
   }
 }
 

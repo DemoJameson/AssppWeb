@@ -3,6 +3,7 @@ import { buildPlist } from "../../src/apple/plist";
 import { getVersionMetadata } from "../../src/apple/versionLookup";
 import { appleRequest } from "../../src/apple/request";
 import { fetchBag } from "../../src/apple/bag";
+import { generateDownloadKBSync } from "../../src/apple/sap/client";
 import i18n from "../../src/i18n";
 import type { Account, Software } from "../../src/types";
 
@@ -16,6 +17,8 @@ vi.mock("../../src/apple/bag", () => ({
 
 vi.mock("../../src/apple/sap/client", () => ({
   generateDownloadKBSync: vi.fn(),
+  acceptDownloadKBSync: vi.fn(),
+  invalidateDownloadKBSync: vi.fn(),
 }));
 
 const LOOKUP_HOST = "uclient-api.itunes.apple.com";
@@ -62,6 +65,23 @@ const metadataDoc = (metadata: Record<string, unknown>) =>
         URL: "https://iosapps.example.com/app.ipa",
         sinfs: [{ id: 0, sinf: "AAAA" }],
         metadata,
+      },
+    ],
+  });
+
+const entMetadataDoc = (metadata: Record<string, unknown>) =>
+  buildPlist({
+    pings: [],
+    songList: [
+      {
+        URL: "https://iosapps.example.com/app.ipa",
+        sinfs: [{ id: 0, sinf: "AAAA" }],
+        metadata: {
+          itemId: 1492142120,
+          softwareVersionBundleId: "com.example.app",
+          softwareVersionExternalIdentifier: VERSION_ID,
+          ...metadata,
+        },
       },
     ],
   });
@@ -129,6 +149,39 @@ describe("apple/versionLookup", () => {
     );
     // An explicitly pinned request must not consult the catalogue.
     expect(allCalls().filter((c) => c.host === LOOKUP_HOST)).toHaveLength(0);
+  });
+
+  it("prefers the StoreAgent ent/download endpoint for version metadata", async () => {
+    vi.mocked(fetchBag).mockResolvedValue({
+      authURL: "https://auth.example",
+      entDownloadEndpoint: `https://${DISPATCH_HOST}/WebObjects/DownloadDispatch.woa/wa/ent/download`,
+      redownloadEndpoint: `https://${DISPATCH_HOST}/r/redownload`,
+      updateEndpoint: `https://${DISPATCH_HOST}/up/updateProduct`,
+    });
+    vi.mocked(generateDownloadKBSync).mockResolvedValue({
+      blob: "kb",
+      fromAcceptedCache: false,
+    });
+    downloadReplies = [
+      reply(
+        entMetadataDoc({
+          bundleShortVersionString: "4.5.6",
+          releaseDate: "2024-03-01T08:00:00Z",
+        }),
+      ),
+    ];
+
+    const result = await getVersionMetadata(account, app, VERSION_ID);
+
+    expect(result.metadata.displayVersion).toBe("4.5.6");
+    expect(generateDownloadKBSync).toHaveBeenCalledWith(
+      "aabbccddeeff",
+      "1234567890",
+      undefined,
+    );
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path).toContain("/ent/download");
   });
 
   it("normalises a plist date value to ISO", async () => {

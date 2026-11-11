@@ -120,9 +120,17 @@ function aborted(): DOMException {
  */
 export async function loadSapAssets(
   onProgress?: (loadedBytes: number, totalBytes: number) => void,
+  signal?: AbortSignal,
 ): Promise<SapAssetBundle> {
   const totalBytes = SAP_ASSET_SPECS.reduce((sum, spec) => sum + spec.size, 0);
   const controller = new AbortController();
+  if (signal) {
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+  }
   let failed = false;
   let cache: Cache | null = null;
   try {

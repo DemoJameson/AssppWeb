@@ -26,8 +26,15 @@ import {
   lookupLatestMacOSVersionId,
 } from "./platformVersion";
 import { withRecordedFallback } from "./versionPins";
-import { needsPlatformPin } from "./platform";
+import {
+  isPlatform,
+  needsPlatformPin,
+  platformsFromSupported,
+  samePlatformFamily,
+} from "./platform";
 import { needsVersionExchange } from "../utils/software";
+import { fetchPackageBuilds } from "../api/packageBuilds";
+import { fetchVersionPlatforms } from "../api/versionMetadata";
 import i18n from "../i18n";
 
 export interface VersionListOutput {
@@ -39,6 +46,8 @@ export interface VersionListOutput {
   versions: string[];
   /** Apple's own pointer to the newest version, as ipatool reports it. */
   latestExternalVersionId?: string;
+  /** Display version of `latestExternalVersionId`, when Apple names it. */
+  latestDisplayVersion?: string;
 }
 
 /**
@@ -58,9 +67,13 @@ export async function listVersions(
 
   // ipatool's ListVersions pins macOS/tvOS/watchOS/visionOS before the exchange
   // so the version list reflects the requested platform, not the default device
-  // class (iOS). iOS/iPad pass an empty pin and let the exchange resolve one on fallback.
+  // class (iOS). iOS/iPad pass an empty pin when nothing else names a build and
+  // let the exchange resolve one on fallback.
   const requestedPin = pinnedVersionId?.trim();
-  const pin = requestedPin ? requestedPin : await platformVersionPin(session);
+  const pin =
+    requestedPin ||
+    (await packageIndexPin(session)) ||
+    (await platformVersionPin(session));
 
   const reply = await requestDownloadProduct(session, pin, { onStage });
 
@@ -68,14 +81,56 @@ export async function listVersions(
 
   const metadata = itemsOf(reply)[0].metadata as Record<string, any> | undefined;
   const latest = metadata?.softwareVersionExternalIdentifier;
+  const latestDisplayVersion = metadata?.bundleShortVersionString;
 
   return {
     versions: versionIdentifiersFromReply(reply),
     // Unlike ipatool, a missing "latest" pointer is not an error here: this app
     // offers "latest" as an explicit choice rather than reading it off the reply.
     latestExternalVersionId: latest === undefined || latest === null ? undefined : String(latest),
+    latestDisplayVersion:
+      typeof latestDisplayVersion === "string" && latestDisplayVersion !== ""
+        ? latestDisplayVersion
+        : undefined,
     updatedCookies: session.cookies,
   };
+}
+
+/**
+ * A build this instance already holds for the requested platform. The package
+ * index records a build under the platform its package declared, which may be
+ * the other half of a universal iOS/tvOS pair or the iOS side of an iPad build;
+ * the version-level declaration covers the other platform. Asking its id keeps
+ * the list exchange from falling back to the account's default build (often
+ * tvOS for a universal app).
+ */
+async function packageIndexPin(
+  session: ReturnType<typeof createDownloadSession>,
+): Promise<string> {
+  const platform = session.app.platform;
+  if (!needsVersionExchange(session.app) || !platform) return "";
+
+  const [builds, declarations] = await Promise.all([
+    fetchPackageBuilds(session.app.id),
+    fetchVersionPlatforms(session.app.id),
+  ]);
+  return (
+    builds.find(
+      (build) => {
+        if (!build.versionId) return false;
+        if (
+          isPlatform(build.platform) &&
+          samePlatformFamily(build.platform, platform)
+        ) {
+          return true;
+        }
+        const declared = platformsFromSupported(declarations[build.versionId]);
+        return declared.some((candidate) =>
+          samePlatformFamily(candidate, platform),
+        );
+      },
+    )?.versionId ?? ""
+  );
 }
 
 /**

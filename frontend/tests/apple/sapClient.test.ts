@@ -112,6 +112,8 @@ beforeEach(async () => {
 
   const i18n = (await import("../../src/i18n")).default;
   await i18n.changeLanguage("en-US");
+  const cache = await import("../../src/apple/sap/kbsyncCache");
+  await cache.clearDownloadKBSyncCache();
 
   assets = await import("../../src/apple/sap/assets");
   vi.mocked(assets.loadSapAssets).mockResolvedValue(ASSETS);
@@ -226,7 +228,7 @@ describe("sap signer client", () => {
     expect(StubWorker.created).toHaveLength(1);
     expect(StubWorker.created[0].terminated).toBe(true);
 
-    client.acceptDownloadKBSync("aabbccddeeff", "1234567890", "CAc=");
+    await client.acceptDownloadKBSync("aabbccddeeff", "1234567890", "CAc=");
     const reused = await client.generateDownloadKBSync(
       "aabbccddeeff",
       "1234567890",
@@ -247,13 +249,51 @@ describe("sap signer client", () => {
     expect(StubWorker.created).toHaveLength(1);
   });
 
+  it("persists an accepted kbsync across module reloads", async () => {
+    const first = await client.generateDownloadKBSync(
+      "aabbccddeeff",
+      "1234567890",
+    );
+    await client.acceptDownloadKBSync(
+      "aabbccddeeff",
+      "1234567890",
+      first.blob,
+    );
+    expect(StubWorker.created).toHaveLength(1);
+
+    vi.resetModules();
+    StubWorker.created.length = 0;
+    const reloaded = await import("../../src/apple/sap/client");
+    const reused = await reloaded.generateDownloadKBSync(
+      "aabbccddeeff",
+      "1234567890",
+    );
+
+    expect(reused).toEqual({ blob: "CAc=", fromAcceptedCache: true });
+    expect(StubWorker.created).toHaveLength(0);
+  });
+
+  it("bounds the whole kbsync attempt at two minutes", async () => {
+    vi.useFakeTimers();
+    StubWorker.silent = new Set(["open"]);
+
+    const pending = client
+      .generateDownloadKBSync("aabbccddeeff", "1234567890")
+      .catch((error: Error) => error);
+    await vi.advanceTimersByTimeAsync(client.KBSYNC_TOTAL_TIMEOUT_MS);
+    const error = await pending;
+
+    expect(error.message).toMatch(/did not finish/i);
+    expect(StubWorker.created[0].terminated).toBe(true);
+  });
+
   it("forgets a cached kbsync for one account/device pair", async () => {
     const first = await client.generateDownloadKBSync(
       "aabbccddeeff",
       "1234567890",
     );
-    client.acceptDownloadKBSync("aabbccddeeff", "1234567890", first.blob);
-    client.forgetDownloadKBSync("aabbccddeeff", "1234567890");
+    await client.acceptDownloadKBSync("aabbccddeeff", "1234567890", first.blob);
+    await client.forgetDownloadKBSync("aabbccddeeff", "1234567890");
 
     const next = await client.generateDownloadKBSync(
       "aabbccddeeff",
@@ -268,8 +308,8 @@ describe("sap signer client", () => {
       "aabbccddeeff",
       "1234567890",
     );
-    client.acceptDownloadKBSync("aabbccddeeff", "1234567890", first.blob);
-    client.invalidateDownloadKBSync(
+    await client.acceptDownloadKBSync("aabbccddeeff", "1234567890", first.blob);
+    await client.invalidateDownloadKBSync(
       "aabbccddeeff",
       "1234567890",
       first.blob,

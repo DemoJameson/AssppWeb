@@ -37,6 +37,36 @@ export function platformsFromSupported(
   return [...platforms];
 }
 
+/**
+ * iOS and iPadOS are one package family: Apple declares both as `iPhoneOS` in
+ * `CFBundleSupportedPlatforms`, and a universal build can cover either name.
+ */
+export function samePlatformFamily(a: Platform, b: Platform): boolean {
+  if (a === b) return true;
+  return (a === "ios" || a === "ipad") && (b === "ios" || b === "ipad");
+}
+
+/** Whether `value` is one of the store platforms this client understands. */
+export function isPlatform(value: string | undefined): value is Platform {
+  return value !== undefined && PLATFORMS.includes(value as Platform);
+}
+
+/**
+ * Whether a package's declared platforms cover `platform`. An empty or unknown
+ * declaration is unconstrained: legacy packages predate the field, and a version
+ * the storefront has forgotten may have no metadata to consult.
+ */
+export function packageCoversPlatform(
+  supported: readonly string[] | undefined,
+  platform: Platform,
+): boolean {
+  const declared = platformsFromSupported(supported);
+  return (
+    declared.length === 0 ||
+    declared.some((candidate) => samePlatformFamily(candidate, platform))
+  );
+}
+
 /** Brand names, not translatable — every locale shows these verbatim. */
 export const PLATFORM_LABELS: Record<Platform, string> = {
   ios: "iOS",

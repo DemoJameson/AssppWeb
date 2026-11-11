@@ -2,11 +2,33 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildPlist } from "../../src/apple/plist";
 import { purchaseApp, PurchaseError } from "../../src/apple/purchase";
 import { appleRequest } from "../../src/apple/request";
+import {
+  fetchStoreProof,
+  handleAuthAction,
+} from "../../src/apple/anisette";
+import {
+  getAnisetteState,
+  setAnisetteState,
+} from "../../src/apple/anisetteStore";
+import { clearStoreProofCache } from "../../src/apple/machineValidation";
 import i18n from "../../src/i18n";
 import type { Account, Software } from "../../src/types";
 
 vi.mock("../../src/apple/request", () => ({
   appleRequest: vi.fn(),
+}));
+
+vi.mock("../../src/apple/anisette", () => ({
+  fetchStoreProof: vi.fn(),
+  handleAuthAction: vi.fn(),
+  runAnisetteTask: vi.fn(
+    async (_device: string, task: () => Promise<unknown>) => task(),
+  ),
+}));
+
+vi.mock("../../src/apple/anisetteStore", () => ({
+  getAnisetteState: vi.fn(),
+  setAnisetteState: vi.fn(),
 }));
 
 const account: Account = {
@@ -46,7 +68,13 @@ const successDoc = () => buildPlist({ jingleDocType: "purchaseSuccess", status: 
 const failureDoc = (failureType: string, customerMessage?: string) =>
   buildPlist({ failureType, ...(customerMessage ? { customerMessage } : {}) });
 
-type RequestOptions = { host: string; path: string; body?: string };
+type RequestOptions = {
+  host: string;
+  path: string;
+  body?: string;
+  headers?: Record<string, string>;
+  cookies?: Account["cookies"];
+};
 
 let replies: Reply[] = [];
 
@@ -55,7 +83,12 @@ const calls = () => vi.mocked(appleRequest).mock.calls.map((call) => call[0] as 
 describe("apple/purchase", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearStoreProofCache();
     replies = [];
+    vi.mocked(getAnisetteState).mockResolvedValue(undefined);
+    vi.mocked(fetchStoreProof).mockReset();
+    vi.mocked(handleAuthAction).mockReset();
+    vi.mocked(setAnisetteState).mockReset();
 
     vi.mocked(appleRequest).mockImplementation(async () => {
       const next = replies.shift();
@@ -124,6 +157,58 @@ describe("apple/purchase", () => {
     expect(sent).toHaveLength(2);
     expect(sent[0].body).toContain('<key>pricingParameters</key><string>STDQ</string>');
     expect(sent[1].body).toContain('<key>pricingParameters</key><string>GAME</string>');
+  });
+
+  it("provisions and retries when buyProduct asks for SP", async () => {
+    vi.mocked(getAnisetteState).mockResolvedValue("state-1");
+    vi.mocked(fetchStoreProof).mockResolvedValueOnce({
+      state: "state-2",
+      headers: {
+        "X-Apple-AMD": "otp",
+        "X-Apple-AMD-M": "machine",
+      },
+    });
+    vi.mocked(handleAuthAction).mockResolvedValueOnce({
+      state: "state-2",
+      headers: {
+        "X-Apple-AMD": "otp2",
+        "X-Apple-AMD-M": "machine2",
+      },
+    });
+    replies = [
+      {
+        status: 204,
+        statusText: "No Content",
+        headers: {
+          "x-apple-amd-action": "SP",
+          "x-apple-amd-data": "challenge",
+        },
+        rawHeaders: [["Set-Cookie", "action=abc; Path=/"]],
+        body: "",
+      },
+      reply(successDoc()),
+    ];
+
+    await purchaseApp(account, freeApp);
+
+    expect(handleAuthAction).toHaveBeenCalledWith(
+      "aabbccddeeff",
+      "state-1",
+      "SP",
+      "challenge",
+      expect.stringContaining("/buyProduct"),
+      expect.any(Object),
+      expect.objectContaining({ family: "amd" }),
+    );
+    const sent = calls();
+    expect(sent).toHaveLength(2);
+    expect(sent[1].headers?.["X-Apple-AMD"]).toBe("otp2");
+    expect(
+      sent[1].cookies?.some(
+        (cookie) => cookie.name === "action" && cookie.value === "abc",
+      ),
+    ).toBe(true);
+    expect(fetchStoreProof).toHaveBeenCalledTimes(1);
   });
 
   it("does not retry a failure that is not the unavailable one", async () => {

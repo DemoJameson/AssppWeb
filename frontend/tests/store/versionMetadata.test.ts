@@ -56,6 +56,34 @@ describe("versionMetadata store", () => {
     expect(entries["2"].displayVersion).toBe("2.0.0");
   });
 
+  it("lets a cached package read replace a client-only seed", () => {
+    useVersionMetadataStore.getState().mergeEntries({
+      "1": {
+        displayVersion: "1.0.0",
+        releaseDate: "",
+        source: "client",
+      },
+    });
+
+    useVersionMetadataStore.getState().mergeEntries({
+      "1": {
+        displayVersion: "1.0.0",
+        releaseDate: "2026-06-06T00:00:00Z",
+        minimumOsVersion: "16.0",
+        supportedPlatforms: ["iPhoneOS"],
+        source: "package-read",
+      },
+    });
+
+    expect(useVersionMetadataStore.getState().entries["1"]).toEqual({
+      displayVersion: "1.0.0",
+      releaseDate: "2026-06-06T00:00:00Z",
+      minimumOsVersion: "16.0",
+      supportedPlatforms: ["iPhoneOS"],
+      source: "package-read",
+    });
+  });
+
   describe("putEntry", () => {
     const put = (id: string, metadata: VersionMetadata) =>
       useVersionMetadataStore.getState().putEntry(id, metadata);

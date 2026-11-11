@@ -13,6 +13,8 @@
 - `frontend/` — React SPA (TypeScript, Vite, Tailwind CSS); tests in `frontend/tests/` (not collocated with src)
 - `cloudflare/` + `wrangler.jsonc` — Cloudflare Workers + Containers deployment wrapper around the Docker image
 - `Dockerfile` / `compose.yml` — single container serves both backend and SPA
+- `tools/anisette/` — Go helper that generates Apple's Anisette/AMD machine-validation headers (ipatool `536d7ba` internals); it never sees Apple credentials
+- `tools/macdecrypt/` — Go helper that decrypts FairPlay-encrypted macOS packages with Apple StoreAgent; pinned to the same ipatool `536d7ba` stack
 - `frontend/scripts/unicorn-wasm-patch/` — patches + glue + build script for the Unicorn TCI WASM engine (see SAP section)
 - `references/` is gitignored personal infrastructure (never commit); a local ApplePackage checkout may or may not exist
 
@@ -44,6 +46,11 @@ The server is a blind TCP proxy. It NEVER sees Apple credentials.
 │    - Fetches init.itunes.apple.com/bag.xml via HTTPS │
 │    - Returns public Apple service URLs (no creds)    │
 │                                                      │
+│  Anisette helper: POST /api/anisette/*               │
+│    - Local Go process; Apple ADI/FairPlay emulation   │
+│    - Returns X-Apple-AMD/AMD-M machine proofs only    │
+│    - Never receives password, token, cookies, or body │
+│                                                      │
 │  After client obtains download info:                 │
 │    Client POSTs: { downloadURL, sinfs, metadata }    │
 │    - downloadURL = Apple CDN (public, no auth)       │
@@ -56,7 +63,7 @@ The server is a blind TCP proxy. It NEVER sees Apple credentials.
 └──────────────────────────────────────────────────────┘
 ```
 
-**Key invariant**: The server NEVER sees Apple credentials. All Apple TLS terminates at the browser via libcurl.js WASM (Mbed TLS 1.3). The server only receives public CDN URLs and non-secret metadata for IPA compilation. The bag proxy (`/api/bag`) only returns public Apple service URLs — no credentials pass through it.
+**Key invariant**: The server NEVER sees Apple credentials. All credential-bearing Apple TLS terminates at the browser via libcurl.js WASM (Mbed TLS 1.3). The Anisette helper makes only credential-free machine-provisioning requests to Apple (`gsa.apple.com`, `auth.itunes.apple.com`); it receives a device identifier, an opaque provisioning state, and Apple's machine challenge — never the password, password token, cookies, or request body. The server otherwise receives public CDN URLs and non-secret metadata for IPA compilation. The bag proxy (`/api/bag`) only returns public Apple service URLs — no credentials pass through it.
 
 ## Architecture — SAP Request Signing (X-Apple-ActionSignature)
 
@@ -87,7 +94,7 @@ Apple requires every request to the auth endpoint to carry `X-Apple-ActionSignat
 - `machImage.ts` — Mach-O 64 parser: fat-binary slicing, LC_SEGMENT_64, symtab lookup, dyld_info rebase/bind/weak/lazy opcodes. **Opcode tables**: rebase uses nibbles 0x00–0x80 (SET_TYPE 0x10, SET_SEGMENT 0x20, …); bind is shifted down one slot (DO_BIND 0x90) because rebase-only ADD_ADDR_IMM_SCALED occupies bind's 0x90 slot elsewhere. Segment offsets move in uint64 BigInt space — bind ADD_ADDR_ULEB deltas are 64-bit encodings of negative steps. Fixups targeting a segment's BSS tail (within vmsize, past fileSize) are skipped: dyld would zero-fill them.
 - `shims.ts` — guest libc/CF/IOKit shims. POSIX `int -1` is written as `0xffffffff`; pointer sentinels use a separate non-zero f64-safe handle because guest addresses cross the wasm glue as doubles
 - `machine.ts` — entry-point invocation, scratch/stack layout, output disposal, and StoreAgent kbsync generation
-- `signer.ts` / `client.ts` / `worker.ts` — orchestration; emulation runs in a Web Worker, Apple network calls ride the wisp tunnel on the main thread. `client.ts` keeps the signer as a singleton bound to the deviceIdentifier (rebuilding it means copying the 25.1 MB asset bundle into a fresh worker), with a zustand store (`store/sap.ts`), a warmup hook (`hooks/useSapWarmup.ts`, fires once an account exists), and an inline progress indicator (`components/common/SapStatus.tsx`). `generateDownloadKBSync` opens a separate short-lived worker so StoreAgent starts from clean SAP state; concurrent callers share that run, and only a blob accepted by ent/download is cached for reuse. The signer worker intentionally does not load StoreAgent, and the kbsync worker intentionally does not initialize the signer: the two guest profiles must not share a machine
+- `signer.ts` / `client.ts` / `worker.ts` — orchestration; emulation runs in a Web Worker, Apple network calls ride the wisp tunnel on the main thread. `client.ts` keeps the signer as a singleton bound to the deviceIdentifier (rebuilding it means copying the 25.1 MB asset bundle into a fresh worker), with a zustand store (`store/sap.ts`), a warmup hook (`hooks/useSapWarmup.ts`, fires once an account exists), and an inline progress indicator (`components/common/SapStatus.tsx`). `generateDownloadKBSync` opens a separate short-lived worker so StoreAgent starts from clean SAP state; concurrent callers share that run, and only a blob accepted by ent/download is persisted in IndexedDB (`sap/kbsyncCache.ts`) for reuse across page reloads. The whole attempt is bounded at two minutes (`KBSYNC_TOTAL_TIMEOUT_MS`). The signer worker intentionally does not load StoreAgent, and the kbsync worker intentionally does not initialize the signer: the two guest profiles must not share a machine
 - `protocol.ts` — certificate fetch + setup exchange (plist `<data>` round-trip via appleRequest)
 - `assets.ts` — asset download with progress, SHA-256 verification (stripped-file pins), Cache API persistence; accepts both thin and fat Mach-O payloads
 - `vendor/unicorn.mjs|.wasm` — prebuilt engine (regenerate via `frontend/scripts/unicorn-wasm-patch/build.sh`)
@@ -112,7 +119,7 @@ On startup `ensureSapAssets` prefers `DATA_DIR/sap-assets`, then seeds from the 
 
 ### Container image
 
-The Dockerfile prebakes the stripped SAP assets and their Brotli sidecars at build time (a `sap-assets` stage runs `backend/scripts/extract-sap-assets.mts`; Docker layer caching makes it a no-op on rebuilds). Release images ship both, so a fresh VPS serves Brotli with zero network use. Build stages run on `$BUILDPLATFORM` (JS artifacts are platform-independent); the runtime image installs production deps per target platform because `yauzl-promise` → `@node-rs/crc32` ships prebuilt napi binaries per arch. Published platforms: `linux/amd64`, `linux/arm64`. **linux/386 is out**: official node images dropped it and `@node-rs/crc32` has no linux-ia32 build.
+The Dockerfile prebakes the stripped SAP assets and their Brotli sidecars at build time (a `sap-assets` stage runs `backend/scripts/extract-sap-assets.mts`; Docker layer caching makes it a no-op on rebuilds). Release images ship both, so a fresh VPS serves Brotli with zero network use. The `apple-cache` stage prebakes the seven macOS 27 Anisette/StoreAgent files (~167 MiB) into `/opt/asspp/apple-cache`; `backend/src/services/appleCache.ts` seeds the helper cache under `DATA_DIR` from that copy, so the first Anisette proof and the first macOS decryption do not download Apple's restore image. The `anisette` and `macdecrypt` stages build natively per target platform (purego links the runtime's own libc); the asset stages run on `$BUILDPLATFORM` because their files are platform-independent. The runtime image installs production deps per target platform because `yauzl-promise` → `@node-rs/crc32` ships prebuilt napi binaries per arch. Published platforms: `linux/amd64`, `linux/arm64`. **linux/386 is out**: official node images dropped it and `@node-rs/crc32` has no linux-ia32 build.
 
 ### SAP invariants
 
@@ -122,7 +129,38 @@ The Dockerfile prebakes the stripped SAP assets and their Brotli sidecars at bui
 - Every call *into* the emulation is bounded at two minutes (`SAP_CALL_TIMEOUT_MS` in `client.ts`). Nothing else bounds them — they run before the Apple request they sign for, so the request's own 20 s timeout never sees them — and a Worker that stops answering would otherwise leave the sign-in button spinning with no way out. A timed-out call is **wedged**, not slow: the driver terminates the worker, refuses further calls and drops the cached signer, so a retry rebuilds instead of waiting another two minutes on the same dead emulation
 - A preparation that fails after its worker was created terminates that worker. The worker holds ~160 MB of wasm heap and nothing outside `runPreparation` can reach it, so a transient Apple 502 on the setup exchange (measured) must not leave one running per attempt
 - First login downloads ~12 MB over the wire (25.1 MB stripped assets, precompressed with Brotli); the five files load in parallel, and a background warmup and inline progress line cover it. Release images prebake the assets, so the backend serves them instantly
-- The live bag currently returns the legacy `MZFinance` authenticate endpoint (see upstream PR discussion), so `normalizeAuthURL` only ever adds the trailing slash to it; all three advertised endpoints sit in the SAP-signed list — signing applies regardless
+- The live bag currently returns the native `auth.itunes.apple.com/auth/v1/native` authenticate endpoint; `normalizeAuthURL` leaves that path untouched and only adds the trailing slash to the legacy storefront path. All three advertised endpoints sit in the SAP-signed list — signing applies regardless
+
+## Architecture — Anisette / MD / AMD Machine Validation
+
+Apple's Store authentication now expects a machine-validation proof alongside the SAP signature. ipatool generates it locally by running Apple's macOS 27 ADI, FairPlay, and AppleMediaServices frameworks under Unicorn; this project does the same in a separate Go helper (`tools/anisette/`, pinned to ipatool `536d7ba`). The pin includes the latest three upstream commits: dynamic storefront discovery, authentication server dialogs, and percent-encoded URL query support.
+
+```
+Browser                         Backend helper                    Apple
+  │ POST /api/anisette/auth/headers │                                │
+  │  deviceIdentifier, state       │ AnisetteHeaders / StoreAMDHeaders
+  │ ──────────────────────────────>│ ───────────────────────────────>│ GSA provisioning
+  │ <────────────────────────────── │ <───────────────────────────────│
+  │ X-Apple-AMD / AMD-M + state    │                                │
+  │                                                                 │
+  │ POST auth (SAP signature + AMD) ───────────────────────────────>│
+  │ <────────────────────────────── 204/404 X-Apple-AMD-Action: RP/SP
+  │ POST /api/anisette/auth/action │                                │
+  │  action, challenge, identity   │ SP: kbsync + otp/1.5/finish    │
+  │ ──────────────────────────────>│ ───────────────────────────────>│
+  │ <────────────────────────────── │ <───────────────────────────────│
+  │ retry auth with new AMD proof  │                                │
+```
+
+- **The password never reaches the helper.** The browser still signs the exact auth body with the SAP signer and sends it through Wisp; the helper receives only the device identifier, an opaque state, Apple's action/challenge, public identity headers, and the public endpoint.
+- State is per device/browser, not per account. `frontend/src/apple/anisetteStore.ts` keeps it in IndexedDB beside the accounts; a failed write keeps the latest value in memory for the rest of the page session so an `SP` action still has the state the helper just returned. The backend never persists it. Deleting an account or changing its `deviceIdentifier` clears the old state.
+- Auth flow: initial `/auth/headers` → Apple `RP` (drop every MD/AMD machine header and retry) → Apple `SP` (helper uses the family Apple named; AMD generates the `^uint64(1)` kbsync and posts `otp/1.5/finish`, MD posts the bag's `finishMachineProvisioning`; both include the uppercase device GUID) → retry with the fresh proof. A 2FA retry reuses the saved state. The state records the last family, so later proofs use the same one. The headers are prepared for the exact `https://host/path` the attempt will call; a pod redirect or endpoint failover re-prepares them for the new target. Authentication server dialogs are surfaced before redirect handling, and only trusted Apple `OpenURL` actions are shown.
+- Download flow: every commerce request (volumeStore, redownload, updateProduct, ent/download, buyProduct) asks `/api/anisette/store/proof` for the exact URL before sending. The proof is URL-bound; `followRedirects` asks again for each hop. A page keeps the proof for two minutes per device and exact endpoint and shares one in-flight generation between concurrent callers, so the version probe that precedes a click and the download itself reuse it instead of each paying the multi-second machine-proof cost; an `SP` action replaces the cached entry with the new headers. If Apple answers `RP`/`SP`, the same action loop provisions and replays the commerce request instead of treating the empty reply as a download failure. A missing state (imported account that never signed in here) means no proof is attached and Apple's own answer decides.
+- Apple can also answer `SM` (machine sync), which ipatool-cpp logs but does not implement. The commerce loop retries once without machine headers and then returns Apple's response; it must not turn `SM` into an "unsupported action" failure that aborts the whole download.
+- When a backend download task transitions to completed, `GlobalDownloadNotifier` calls `apple/downloadDone.ts`: a best-effort `songDownloadDone` GET using the bag endpoint, account pod, device GUID, cookies and DSID (mirroring ipatool-cpp). It never changes the task's success state.
+- The helper only accepts loopback connections, a bearer token, and allowlisted Apple auth/commerce URLs. The backend also applies per-IP rate limits because these endpoints are expensive and `accessAuth` is optional. It serializes proofs because each opens several emulated machines; a timed-out helper is killed and replaced rather than left holding `proofMu`. The one exception is a cold helper still loading Apple's bundle: every proof handler calls `loadBundle` before it locks `proofMu`, and the helper runs that first load on its own ten-minute budget, so a proof that gives up waiting leaves the load running and leaves the helper alone — killing it would abort an extraction that cannot resume. The supervisor reads `bundleReady` from the helper's `/health`; a load still incomplete after the 12-minute cold-start grace is killed as a stall. The supervisor gives the helper only its runtime/cache/proxy environment, never the backend's secrets (`ACCESS_PASSWORD` included). `prepare` warms the asset bundle and Unicorn runtime; the authenticated app fires it in the background once an account exists, and the add-account page also warms it while the user types.
+- The helper loads the 167 MB `assets.Bundle` once and passes it into the copied storeauth provisioning flow; it does not re-read and re-hash the asset set for every proof.
+- First use on a fresh data volume costs the prebaked cache copy (or, in dev, a one-time Apple restore-image extraction). The image prebakes the seven assets but not the Unicorn runtime; a first proof downloads that ~15 MB library into the helper cache under `DATA_DIR` if it is absent. The helper retries idempotent asset range reads on 403/429/5xx because Apple's CDN throttles bursts.
 
 ## Reference Implementation
 
@@ -195,9 +233,11 @@ The relay still only relays: no byte is interpreted, and only the *presence* of 
 
 `appleRequest` (`frontend/src/apple/request.ts`) bounds every Apple call at 20 s (`APPLE_REQUEST_TIMEOUT_MS`), aborts the underlying WASM curl transfer, and raises `AppleUnreachableError` for anything that produced no answer (stall, timeout, dead connection) — which is the type `authenticate` uses to decide its fallback below. Without it the WASM client has no timeout at all: a request Apple never answers stays pending for as long as the peer holds the socket, which showed up as a sign-in button spinning forever.
 
-Apple answers sign-ins on two equivalent endpoints: the storefront one the bag advertises (`buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate/`) and the native one (`auth.itunes.apple.com/auth/v1/native/fast/`, `defaultAuthURL` in `bag.ts`, also what this client uses when the bag cannot be read). They do not fail together — measured from one network, the storefront host's whole address pool went silent for minutes while the native endpoint answered 5 of 5 requests in 336–1368 ms. `authenticate` therefore repeats a request that never reached Apple (`AppleUnreachableError`) on the other endpoint, keeping the two-try budget; a *refusal* from Apple is a response, not an error, so it never moves endpoints.
+Apple answers sign-ins on two equivalent endpoints: the storefront one the bag advertises (`buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate/`) and the native one (`auth.itunes.apple.com/auth/v1/native`; `defaultAuthURL` in `bag.ts` is `/auth/v1/native/fast/`, also what this client uses when the bag cannot be read). They do not fail together — measured from one network, the storefront host's whole address pool went silent for minutes while the native endpoint answered 5 of 5 requests in 336–1368 ms. `authenticate` therefore repeats a request that never reached Apple (`AppleUnreachableError`) on the other endpoint, keeping the two-try budget; a *refusal* from Apple is a response, not an error, so it never moves endpoints.
 
-Both endpoints answer only with a **trailing slash** on their path — the bare form 301s to an HTML page instead of a plist, which is what made sign-in failures read like nonsense. `normalizeAuthURL` (`bag.ts`) adds it to whatever the bag advertises, and `authenticate` runs a redirect's `Location` through the same normalizer so a pod hop cannot drop it.
+Within one endpoint, `sendAuthenticationRequest` retries the transient HTTP shapes ipatool retries: `204`, `403`, `404`, `429`, and `5xx`. `204`/`403`/`404`/`5xx` keep the short backoff; `429` honours `Retry-After` and otherwise uses Go upstream's 10s/20s exponential delay, refusing a requested wait longer than 30s instead of hammering an active limit. A response carrying `X-Apple-AMD-Action` or `X-Apple-MD-Action` is returned immediately (it is machine provisioning, not a failure); `204`/`404` are only retried when machine validation is actually available, so a missing helper surfaces as a clear device-verification error instead of three identical empty answers. A response whose body parses as a plist is an answer — including a populated credential or 2FA refusal — and is returned without retrying; only an empty or non-plist body is retried. After those retries an HTTP refusal is surfaced as a failure; it is not an `AppleUnreachableError` and does not move to the other auth endpoint.
+
+The legacy storefront endpoint answers only with a **trailing slash** on its path — the bare form 301s to an HTML page instead of a plist. `normalizeAuthURL` (`bag.ts`) adds it to the legacy path; the native endpoint is sent exactly as the bag advertises it (ipatool does the same), with the uppercase `guid` in the body rather than the query. `authenticate` resolves a relative `Location` against the host that answered, then runs it through the same normalizer so a pod hop cannot drop the legacy slash.
 
 ## Download Endpoint Chain (Frontend)
 
@@ -214,6 +254,8 @@ account/app pair, so the flow walks up to four of them:
    Legacy primary. Names the version `externalVersionId`.
 3. **redownload** — the bag's `redownloadProduct` URL. Names the version `appExtVrsId`.
 4. **updateProduct** — the bag's `updateProduct` URL. Same version key as redownload.
+
+Every one of those requests now asks the Anisette helper for a Store proof bound to its exact URL (`/api/anisette/store/proof`). The legacy requests also carry the current Store `User-Agent`, `X-Apple-Store-Front`, and `X-Token` (ipatool's `downloadProductRequest`), while `followRedirects` fetches a fresh proof for each hop because the proof is URL-bound. `sendMachineValidatedRequest` (`machineValidation.ts`) answers `RP`/`SP` for both the MD and AMD families and replays the same commerce request, including `buyProduct`; this is the commerce counterpart of the sign-in loop. A redirect to a non-commerce Apple host drops `X-Token` before the next hop. A missing provisioning state (an imported account that has never signed in on this browser) leaves the request without machine headers; Apple's answer is then the authority.
 
 An ent/download miss falls through to the legacy chain. Version-pin guessing
 sets `legacyOnly` on its internal probes, so an unpinned guess cannot recursively
@@ -266,7 +308,13 @@ The same exchange backs every download-flow request — `getDownloadInfo`,
 `requestDownloadProduct` — so this one fallback covers downloads, version
 listing and version metadata alike. Only the download path sets
 `requireDownloadMaterial`: version listing and metadata need the item metadata,
-not decryption material.
+not decryption material. `ent/download` is tried first for all three, matching
+ipatool's `sendDownloadProduct`: a kbsync failure skips that stage and falls
+back to the legacy chain, rather than being a reason to skip the stage up front.
+An Apple-accepted kbsync is persisted in IndexedDB (keyed by device GUID and
+DSID) so a page reload reuses it; a generated but rejected blob is never stored.
+The whole kbsync attempt has a two-minute budget, and a 2042 authorization
+dialog is replayed once with `hasBeenAuthedForBuy=true` before fallback.
 
 The licence grant (`purchaseApp`) is the flow's one request with nowhere else to
 go, so it is repeated once through `repeatUnreachable` (`apple/retry.ts`) instead:
@@ -331,8 +379,13 @@ transports, one per platform family:
 
 `downloadProduct.ts` pins tvOS/watchOS/visionOS/macOS before the preferred
 download request; `versionFinder.ts` pins the same four before the version list
-exchange. iOS/iPad resolve their pin before ent/download and let the legacy
-exchange resolve one on fallback.
+exchange. A delisted iOS/iPad record has no storefront entry to pin
+ent/download with, so it skips the preferred endpoint and goes straight to the
+legacy volumeStore chain, whose reply already belongs to the iOS device class;
+no neighbour pin is guessed. The version list also prefers a package-index
+build recorded for the requested platform. The neighbour guess is never used
+for iOS/iPad — an unpinned legacy exchange is already the iOS list, and a
+neighbour there can be a tvOS build.
 
 Both storefront transports follow the redirects Apple answers those pages
 with: the slug-less `/app/id{id}` path is 301'd to its canonical URL, and a
@@ -386,8 +439,8 @@ that, tens or hundreds of megabytes would be fetched for a package nothing could
 open. Neither is ever persisted or returned to a client (`sanitizeTaskForResponse`,
 and they are cleared together with the other per-attempt material on completion).
 
-`tools/macdecrypt/` is that decrypter. It is pinned at ipatool's macOS 27
-stack (the go.mod pseudo-version of `5dc4c80`): the guest is the arm64e
+`tools/macdecrypt/` is that decrypter. It is pinned at ipatool `536d7ba`'s
+macOS 27 stack: the guest is the arm64e
 `AppleMediaServices`, `commerce`, `CoreFP` and `CoreFP.icxs` images the helper
 resolves itself from Apple's public macOS 27.0.1 (26A434) restore image, and
 `commerce` carries the StoreAgent entry points — the 10.9-era update package
@@ -422,8 +475,10 @@ finds it by convention; there is no `MACDECRYPT_PATH` — the helper is looked
 for at `/opt/asspp/macdecrypt` (the image) then that repo path, and a macOS
 task fails naming both when neither exists. Its first run resolves the macOS 27
 assets (range-reads of the restore image's AEA cryptexes, 125 MB cached) and
-the Unicorn runtime, under `<DATA_DIR>/cache`, so a replacement container does
-not pay again (`services/macDecrypt.ts` sets `XDG_CACHE_HOME` for the child).
+the Unicorn runtime, under the helper cache in `DATA_DIR` (XDG on Linux,
+HOME/Library/Caches on macOS, LocalAppData on Windows), so a replacement
+container does not pay again (`services/macDecrypt.ts` injects the matching
+environment for the child).
 
 `services/macDecrypt.ts` runs it and replaces the ciphertext with the package it
 produces; `downloadManager` calls it in the macOS branch of the pipeline. The
@@ -816,7 +871,7 @@ cheaper than another download.
 
 ## Bag Proxy (Backend)
 
-The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using Node.js native HTTPS. It sends Configurator-compatible request headers (`User-Agent`, `Accept: application/xml`). The bag response is public data (Apple service URLs) — no credentials are involved. See `backend/src/routes/bag.ts`.
+The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using Node.js native HTTPS. It asks for the current bag generation (`ix=6`), sends the macOS 27 Configurator `User-Agent`, and accepts `application/xml`. A signed `{bag = <data>}` envelope is unwrapped server-side (XML or binary plist) before the plist is returned. The bag response is public data (Apple service URLs) — no credentials are involved. The frontend reads keys recursively from the flat/`urlBag` shapes and extracts both `amd-*` and `md-*` provisioning endpoints. It also reads `X-Apple-Request-Store-Front` when `X-Set-Apple-Store-Front` is absent, and derives a missing DSID from `X-Dsid` or the `mz_at`/`mz_at_ssl` cookie (ipatool 2.8.0's fallbacks). See `backend/src/routes/bag.ts` and `frontend/src/apple/authenticate.ts`.
 
 ## Backend
 
@@ -826,6 +881,7 @@ The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using No
 - SINF injector also handles optional `iTunesMetadata.plist` injection at IPA root
 - Bag proxy for `init.itunes.apple.com`
 - SAP asset extraction service (xar + bzip2 + cpio) with digest pinning; routes under `/api/sap-assets`
+- Anisette helper supervisor and protected routes under `/api/anisette`; it only handles credential-free machine proofs
 - Persistence: one SQLite database (`better-sqlite3@13`, WAL mode) in `services/db.ts` backs tasks, version metadata, version pins and package apps. It needs Node ≥ 22 (N-API 10) and runs on `node:24-alpine` in Docker. The first boot migrates any legacy `tasks.json`/`version-pins.json`/`version-metadata.json`/`package-apps.json` into the tables (`migrateLegacyJsonFiles`) and renames the files aside.
 - Shared version metadata cache (read-only, passively seeded — see the Version Metadata Cache section below)
 - Shared version pin store (read-only, passively seeded — see the Version Pin Store section below)
@@ -834,6 +890,7 @@ The backend proxies the bag endpoint via `GET /api/bag?guid=<deviceId>` using No
 
 - `backend/src/utils/route.ts` — shared Express route helpers (`getIdParam`, `requireAccountHash`, `verifyTaskOwnership`)
 - `backend/src/config.ts` — centralized constants (`MAX_DOWNLOAD_SIZE`, `DOWNLOAD_TIMEOUT_MS`, `BAG_TIMEOUT_MS`, `BAG_MAX_BYTES`, `MIN_ACCOUNT_HASH_LENGTH`, `VERSION_METADATA_MAX_ENTRIES`) and env-var config (`disableHttpsRedirect` via `UNSAFE_DANGEROUSLY_DISABLE_HTTPS_REDIRECT`; `storefrontFallbackCountries` via `STOREFRONT_FALLBACK_COUNTRIES`)
+- `backend/src/services/anisette.ts` — helper supervisor/proxy; `appleCache.ts` — prebaked macOS 27 asset seeding; `appleUserAgents.ts` — the current Store Configurator UA
 
 ### Version Metadata Cache
 
@@ -878,8 +935,8 @@ where a seller would go.
 - IndexedDB for credential storage (via `idb`)
 - `libcurl.js` (WASM) for browser-side TLS 1.3 via Mbed TLS — connects through Wisp protocol
 - `appleRequest()` in `frontend/src/apple/request.ts` wraps `libcurl.fetch` for all Apple API calls and forces HTTP/1.1 (`_libcurl_http_version: 1.1`)
-- Bag endpoint (`frontend/src/apple/bag.ts`) uses backend proxy (`/api/bag`) and falls back to `https://buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/authenticate` when `authenticateAccount` is missing or bag fetch fails
-- Authentication (`frontend/src/apple/authenticate.ts`) resolves bag endpoint, then sets `guid` via URL query manipulation to avoid duplicate/malformed query parameters
+- Bag endpoint (`frontend/src/apple/bag.ts`) uses backend proxy (`/api/bag`) and falls back to `defaultAuthURL` (`https://auth.itunes.apple.com/auth/v1/native/fast/`) when `authenticateAccount` is missing or bag fetch fails
+- Authentication (`frontend/src/apple/authenticate.ts`) resolves the bag endpoint; native requests keep the bag URL as-is and put the uppercase `guid` in the body, while legacy requests add the `guid` query and trailing slash. It also retains the full `X-Apple-Store-Front` response value on `Account.storeFront`; download, version-list and purchase requests send it (older accounts fall back to `${store}-1`)
 - Phone-number Apple IDs (China mainland, India — no `@` in the identifier) name no storefront, and Apple sends their verification code only to a request that asks as their region's store, so the auth request carries `X-Apple-Store-Front` from `authStoreFront()` (`apple/config.ts`, mirroring ipatool). Only ASCII spaces/hyphens are removed; every remaining character must be an ASCII digit, so a legacy username cannot be mistaken for a phone number. Emails get no header
 - 2FA input is normalized once at the `authenticate()` boundary: whitespace is removed, exactly six ASCII digits are required, and the password itself is never trimmed or rewritten. The account forms also sanitize pasted input before state is stored and keep the verify button disabled until six digits are present. Invalid input fails before bag lookup or SAP preparation
 - `authenticate()` takes the sign-in identifier (`appleId`), which is what the persisted `Account.email` field holds — that name is load-bearing (it is the IndexedDB object store's `keyPath`, keys `/accounts/:email` and the import dedupe, and travels in the export format), so a phone-number account keeps its number there rather than in another field. The add-account form trims it before signing in, because a pasted phone number carries its own separators and this value is the account's key
@@ -990,6 +1047,12 @@ SAP-specific tests:
 
 - `frontend/tests/sap/machImage.test.ts` (vitest) — synthetic Mach-O builder exercising symbol export, rebase/bind opcodes, addends, and BSS-tail fixup tolerance
 - `frontend/tests/sap/machine-live.mjs` (manual, `npx tsx`) — two isolated smoke runs against the real Apple assets: the default run opens the signer profile → Initialize (context matches native ipatool: `0x400000000200`) → Sign gated by the key exchange (`-42085`); `SAP_SMOKE=kbsync` opens a StoreAgent-only profile and generates a 196-byte kbsync blob. Run them as separate processes because the vendored Emscripten module keeps process-global C state. Requires `SAP_ASSET_DIR` pointing at a flat copy of the five assets (including `StoreAgent`), or the nested extraction layout
+
+Anisette helper tests:
+
+- `cd tools/anisette && GOCACHE=/tmp/asspp-go-cache go test ./...` — URL allowlists, AMD header mapping, machine-header stripping, and device-id validation. This does not run Apple's guest.
+- `go build -o /tmp/asspp-anisette-test . && HOME=/tmp/asspp-apple-home XDG_CACHE_HOME=/tmp/asspp-apple-cache /tmp/asspp-anisette-test prepare-assets` — real macOS 27 asset extraction; takes a few minutes on first run and needs Apple's CDN. The helper uses `HOME/Library/Caches` on macOS and `XDG_CACHE_HOME` on Linux.
+- `ANISETTE_HELPER_TOKEN=<token> /tmp/asspp-anisette-test serve -listen 127.0.0.1:18791`, then `POST /v1/auth/headers` with a random 12-hex device id — real GSA machine provisioning without any Apple account credential. This is the smoke test that proves the ADI/FairPlay guests run.
 
 Test credentials, if ever needed, belong in environment variables (`TEST_EMAIL`, `TEST_PASSWORD`, `TEST_DEVICE_ID`, `TEST_BUNDLE_ID`) and must never be committed.
 

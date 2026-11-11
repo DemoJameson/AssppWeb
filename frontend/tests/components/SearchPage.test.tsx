@@ -19,13 +19,22 @@ import type { Account } from '../../src/types';
 
 const mocks = vi.hoisted(() => ({
   accounts: [] as Account[],
+  accountsLoading: false,
   listVersions: vi.fn(),
+  fetchVersionMetadata: vi.fn(),
 }));
 
 vi.mock('../../src/api/search', () => ({
   searchApps: vi.fn(),
   lookupApp: vi.fn(),
   lookupAppById: vi.fn(),
+}));
+
+vi.mock('../../src/api/versionMetadata', () => ({
+  fetchPackageVersionMetadata: vi.fn().mockResolvedValue(undefined),
+  fetchVersionMetadata: mocks.fetchVersionMetadata,
+  fetchVersionPlatforms: vi.fn().mockResolvedValue({}),
+  saveVersionMetadata: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -47,7 +56,10 @@ vi.mock('../../src/apple/bag', () => ({
 }));
 
 vi.mock('../../src/hooks/useAccounts', () => ({
-  useAccounts: () => ({ accounts: mocks.accounts }),
+  useAccounts: () => ({
+    accounts: mocks.accounts,
+    loading: mocks.accountsLoading,
+  }),
 }));
 
 vi.mock('../../src/hooks/useDownloadAction', () => ({
@@ -100,20 +112,27 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function renderSearchPage() {
-  // The path matters: PageContainer clears the search state off /search.
-  return render(
+function searchPageElement() {
+  return (
     <MemoryRouter initialEntries={['/search']}>
       <SearchPage />
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+
+function renderSearchPage() {
+  // The path matters: PageContainer clears the search state off /search.
+  return render(searchPageElement());
 }
 
 describe('SearchPage App ID probe', () => {
   beforeEach(() => {
     mocks.accounts = [account];
+    mocks.accountsLoading = false;
     mocks.listVersions.mockReset();
     mocks.listVersions.mockResolvedValue({ versions: [], updatedCookies: [] });
+    mocks.fetchVersionMetadata.mockReset();
+    mocks.fetchVersionMetadata.mockResolvedValue({});
     vi.mocked(searchApps).mockReset();
     vi.mocked(searchApps).mockResolvedValue([]);
     vi.mocked(lookupAppById).mockReset();
@@ -247,6 +266,9 @@ describe('SearchPage App ID probe', () => {
     renderSearchPage();
 
     await waitFor(() => expect(screen.getByRole('link')).toBeTruthy());
+    // Let the silent metadata fill finish too: it outlives the card assertion,
+    // and a still-running lookup would land in the next test's call count.
+    await waitFor(() => expect(getVersionMetadata).toHaveBeenCalled());
     expect(screen.getByText('search.bareRecordTag')).toBeTruthy();
     expect(screen.queryByText('search.bareUnverified')).toBeNull();
   });
@@ -280,6 +302,154 @@ describe('SearchPage App ID probe', () => {
       versionSpan,
     ]);
     expect(versionSpan.closest('a')?.querySelectorAll('p')).toHaveLength(1);
+  });
+
+  it('does not label an iOS result with a cached tvOS build', async () => {
+    mocks.listVersions.mockResolvedValue({
+      versions: ['889244416', '188224622'],
+      updatedCookies: [],
+    });
+    useVersionMetadataStore.getState().putEntry('889244416', {
+      displayVersion: '1.3.19',
+      releaseDate: '2026-08-02T00:00:00Z',
+      supportedPlatforms: ['AppleTVOS'],
+      source: 'package-read',
+    });
+    useVersionMetadataStore.getState().putEntry('188224622', {
+      displayVersion: '1.3.18',
+      releaseDate: '2026-07-11T00:00:00Z',
+      supportedPlatforms: ['iPhoneOS'],
+      source: 'package-read',
+    });
+    vi.mocked(getVersionMetadata).mockRejectedValue(new Error('not needed'));
+
+    renderSearchPage();
+
+    await waitFor(() => expect(screen.getByText('1.3.18')).toBeTruthy());
+    expect(screen.queryByText('1.3.19')).toBeNull();
+  });
+
+  it('fills the platform-matching build when the newest is tvOS', async () => {
+    mocks.listVersions.mockResolvedValue({
+      versions: ['889244416', '188224622'],
+      updatedCookies: [],
+    });
+    useVersionMetadataStore.getState().putEntry('889244416', {
+      displayVersion: '1.3.19',
+      releaseDate: '2026-08-02T00:00:00Z',
+      supportedPlatforms: ['AppleTVOS'],
+      source: 'package-read',
+    });
+    vi.mocked(getVersionMetadata).mockResolvedValue({
+      metadata: {
+        displayVersion: '1.3.18',
+        releaseDate: '2026-07-11T00:00:00Z',
+      },
+      updatedCookies: [],
+    } as never);
+
+    renderSearchPage();
+
+    await waitFor(() =>
+      expect(getVersionMetadata).toHaveBeenCalledWith(
+        account,
+        bare,
+        '188224622',
+      ),
+    );
+    await waitFor(() => expect(screen.getByText('1.3.18')).toBeTruthy());
+    expect(screen.queryByText('1.3.19')).toBeNull();
+  });
+
+  it('loads package evidence before trusting a version-list display seed', async () => {
+    mocks.listVersions.mockResolvedValue({
+      versions: ['889244416', '188224622'],
+      latestExternalVersionId: '889244416',
+      latestDisplayVersion: '1.3.19',
+      updatedCookies: [],
+    });
+    // The exact shape listVersionsWithLicense writes before the card fill:
+    // a display version with no platform declaration.
+    useVersionMetadataStore.getState().putEntry('889244416', {
+      displayVersion: '1.3.19',
+      releaseDate: '',
+      source: 'client',
+    });
+    mocks.fetchVersionMetadata.mockResolvedValue({
+      '889244416': {
+        displayVersion: '1.3.19',
+        releaseDate: '2026-08-02T00:00:00Z',
+        supportedPlatforms: ['AppleTVOS'],
+        source: 'package',
+      },
+    });
+    vi.mocked(getVersionMetadata).mockResolvedValue({
+      metadata: {
+        displayVersion: '1.3.18',
+        releaseDate: '2026-07-11T00:00:00Z',
+      },
+      updatedCookies: [],
+    } as never);
+
+    renderSearchPage();
+
+    await waitFor(() => expect(screen.getByText('1.3.18')).toBeTruthy());
+    expect(mocks.fetchVersionMetadata).toHaveBeenCalledWith(6503940939);
+    expect(screen.queryByText('1.3.19')).toBeNull();
+  });
+
+  it('applies the same platform fill to an already cached version list', async () => {
+    useVersionListsStore.setState({
+      lists: {
+        '6503940939:ios:US': ['889244416', '188224622'],
+      },
+    });
+    useVersionMetadataStore.getState().putEntry('889244416', {
+      displayVersion: '1.3.19',
+      releaseDate: '',
+      source: 'client',
+    });
+    mocks.fetchVersionMetadata.mockResolvedValue({
+      '889244416': {
+        displayVersion: '1.3.19',
+        releaseDate: '2026-08-02T00:00:00Z',
+        supportedPlatforms: ['AppleTVOS'],
+        source: 'package',
+      },
+    });
+    vi.mocked(getVersionMetadata).mockResolvedValue({
+      metadata: {
+        displayVersion: '1.3.18',
+        releaseDate: '2026-07-11T00:00:00Z',
+      },
+      updatedCookies: [],
+    } as never);
+
+    renderSearchPage();
+
+    await waitFor(() => expect(screen.getByText('1.3.18')).toBeTruthy());
+    expect(mocks.listVersions).not.toHaveBeenCalled();
+    expect(mocks.fetchVersionMetadata).toHaveBeenCalledWith(6503940939);
+    expect(screen.queryByText('1.3.19')).toBeNull();
+  });
+
+  it('labels an iPad result with its iPhoneOS build', async () => {
+    useSearch.setState({ platform: 'ipad' });
+    mocks.listVersions.mockResolvedValue({
+      versions: ['188224622'],
+      updatedCookies: [],
+    });
+    useVersionMetadataStore.getState().putEntry('188224622', {
+      displayVersion: '1.3.18',
+      releaseDate: '2026-07-11T00:00:00Z',
+      supportedPlatforms: ['iPhoneOS'],
+      source: 'package-read',
+    });
+    vi.mocked(getVersionMetadata).mockRejectedValue(new Error('not needed'));
+
+    renderSearchPage();
+
+    await waitFor(() => expect(screen.getByText('1.3.18')).toBeTruthy());
   });
 
   it('shows the version a stored record already carries', async () => {
@@ -523,6 +693,30 @@ describe('SearchPage App ID probe', () => {
     const links = prompt.querySelectorAll('a');
     expect(links).toHaveLength(1);
     expect(links[0]).toHaveAttribute('href', '/accounts/add');
+  });
+
+  it('waits for the account store, then probes and shows the version', async () => {
+    mocks.accounts = [];
+    mocks.accountsLoading = true;
+    mocks.listVersions.mockResolvedValue({
+      versions: ['883003118'],
+      updatedCookies: [],
+    });
+    const view = renderSearchPage();
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mocks.listVersions).not.toHaveBeenCalled();
+    expect(screen.queryByText('accounts.empty')).toBeNull();
+
+    mocks.accounts = [account];
+    mocks.accountsLoading = false;
+    view.rerender(searchPageElement());
+
+    await waitFor(() => expect(mocks.listVersions).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText('9.9.9')).toBeTruthy());
   });
 
   it('probes with the account of the searched region', async () => {

@@ -8,6 +8,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import plist from "plist";
+import bplistCreator from "bplist-creator";
 
 const TEMP_DIR = path.join(os.tmpdir(), "sinf-injector-test");
 
@@ -35,6 +36,8 @@ function createMockIPA(
   opts?: {
     addManifest?: boolean;
     sinfPaths?: string[];
+    /** Store the manifest as the binary plist Apple actually ships. */
+    binaryManifest?: boolean;
     executableName?: string;
     /** Icon images placed at the top of the app bundle. */
     icons?: string[];
@@ -96,12 +99,12 @@ function createMockIPA(
   }
 
   if (opts?.addManifest && opts?.sinfPaths) {
-    const manifestPlistXml = plist.build({
-      SinfPaths: opts.sinfPaths,
-    });
+    const manifest = opts.binaryManifest
+      ? bplistCreator({ SinfPaths: opts.sinfPaths })
+      : Buffer.from(plist.build({ SinfPaths: opts.sinfPaths }));
     zip.addFile(
       `Payload/${bundleName}.app/SC_Info/Manifest.plist`,
-      Buffer.from(manifestPlistXml),
+      manifest,
     );
   }
 
@@ -128,6 +131,29 @@ describe("sinfInjector", () => {
     const sinfContent = resultZip.readFile(sinfEntry!);
     expect(sinfContent).not.toBeNull();
     expect(sinfContent!.toString()).toBe("fake sinf data for testing");
+  });
+
+  it("should inject through a relative IPA path", async () => {
+    const ipaPath = createMockIPA("RelativeApp");
+    const relativePath = path.relative(process.cwd(), ipaPath);
+    expect(path.isAbsolute(relativePath)).toBe(false);
+
+    await inject(
+      [
+        {
+          id: 1,
+          sinf: Buffer.from("relative sinf").toString("base64"),
+        },
+      ],
+      relativePath,
+    );
+
+    const resultZip = new AdmZip(ipaPath);
+    const sinfEntry = resultZip.getEntry(
+      "Payload/RelativeApp.app/SC_Info/RelativeApp.sinf",
+    );
+    expect(sinfEntry).not.toBeNull();
+    expect(resultZip.readFile(sinfEntry!)!.toString()).toBe("relative sinf");
   });
 
   it("should read bundle name from .app directory", async () => {
@@ -173,6 +199,36 @@ describe("sinfInjector", () => {
     );
     expect(entry2).not.toBeNull();
     expect(resultZip.readFile(entry2!)!.toString()).toBe("sinf data 2");
+  });
+
+  it("should read SinfPaths from a binary Manifest.plist", async () => {
+    const ipaPath = createMockIPA("BinaryManifest", {
+      addManifest: true,
+      binaryManifest: true,
+      sinfPaths: ["SC_Info/main.sinf", "SC_Info/extension.sinf"],
+    });
+
+    await inject(
+      [
+        { id: 1, sinf: Buffer.from("binary sinf 1").toString("base64") },
+        { id: 2, sinf: Buffer.from("binary sinf 2").toString("base64") },
+      ],
+      ipaPath,
+    );
+
+    const resultZip = new AdmZip(ipaPath);
+    expect(
+      resultZip
+        .getEntry("Payload/BinaryManifest.app/SC_Info/main.sinf")!
+        .getData()
+        .toString(),
+    ).toBe("binary sinf 1");
+    expect(
+      resultZip
+        .getEntry("Payload/BinaryManifest.app/SC_Info/extension.sinf")!
+        .getData()
+        .toString(),
+    ).toBe("binary sinf 2");
   });
 
   it("should handle empty sinfs array with no-manifest fallback", async () => {

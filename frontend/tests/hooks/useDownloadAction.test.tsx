@@ -16,6 +16,7 @@ import {
   useVersionListsStore,
   versionListKey,
 } from "../../src/store/versionLists";
+import { useVersionMetadataStore } from "../../src/store/versionMetadata";
 import { accountHash } from "../../src/utils/account";
 import type { Account, DownloadTask, Software } from "../../src/types";
 
@@ -141,6 +142,11 @@ describe("useDownloadAction", () => {
   beforeEach(() => {
     useToastStore.setState({ toasts: [] });
     useVersionListsStore.setState({ lists: {} });
+    useVersionMetadataStore.setState({
+      entries: {},
+      pending: {},
+      attempted: {},
+    });
     // The hook re-reads the session from here; no account unless a test puts
     // one back (the one the license step would have stored).
     useAccountsStore.setState({ accounts: [] });
@@ -263,6 +269,27 @@ describe("useDownloadAction", () => {
     expect(mocks.updateAccount).toHaveBeenLastCalledWith(
       expect.objectContaining({ passwordToken: "fresh-token" }),
     );
+  });
+
+  it("seeds the list reply's newest display version", async () => {
+    vi.mocked(listVersions).mockResolvedValue({
+      versions: ["883003118", "111"],
+      latestExternalVersionId: "883003118",
+      latestDisplayVersion: "1.3.18",
+      updatedCookies: [],
+    });
+
+    const { result } = renderHook(() => useDownloadAction());
+    await act(async () => {
+      await result.current.listVersionsWithLicense(account, app);
+    });
+
+    expect(
+      useVersionMetadataStore.getState().entries["883003118"],
+    ).toMatchObject({
+      displayVersion: "1.3.18",
+      source: "client",
+    });
   });
 
   it("does not renew a version list for failureType 1008", async () => {

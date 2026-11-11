@@ -156,6 +156,14 @@ backend/data/
 # build script are committed, the binary a developer builds is not
 tools/macdecrypt/macdecrypt
 tools/macdecrypt/macdecrypt.exe
+tools/macdecrypt/asspp-macdecrypt
+tools/macdecrypt/asspp-macdecrypt.exe
+
+# Anisette helper (tools/anisette) local build.
+tools/anisette/anisette
+tools/anisette/anisette.exe
+tools/anisette/asspp-anisette
+tools/anisette/asspp-anisette.exe
 
 # Local scratch (may hold account exports); never commit credentials
 .test/

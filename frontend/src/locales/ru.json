@@ -127,6 +127,8 @@
       "addSuccess": "Аккаунт успешно добавлен.",
       "preparingAssets": "Подготовка компонентов подписи {{percent}}%",
       "preparingSigner": "Инициализация модуля подписи…",
+      "preparingDevice": "Подготовка проверки устройства…",
+      "preparingDeviceHint": "При первом запуске подготавливаются компоненты проверки Apple; это может занять около минуты.",
       "signerFailed": "Не удалось подготовить компоненты подписи: {{error}}",
       "signerFirstRun": "Первый запуск: подготовка компонента подписи (~12 МБ, однократно).",
       "retrySignIn": "Повторить вход"
@@ -478,6 +480,7 @@
       "invalidSinf": "Недействительный элемент sinf",
       "noSinf": "В ответе не найден sinf",
       "tooManyRedirects": "Слишком много перенаправлений",
+      "kbsyncTimeout": "Компонент подписи загрузки не завершил работу за {{seconds}} секунд.",
       "invalidEndpoint": "Сервер указал недопустимый адрес загрузки",
       "updateMismatch": "Эндпоинт обновления вернул загрузку для другого приложения или версии"
     },
@@ -507,8 +510,14 @@
       "emptyBody": "Ошибка аутентификации: сервер вернул HTTP {{status}} с пустым телом",
       "missingAccountInfo": "В ответе отсутствует accountInfo",
       "missingAddress": "В ответе отсутствует address",
+      "missingDsid": "Apple не вернул directory services identifier",
       "unknownReason": "Аутентификация не удалась по неизвестной причине",
-      "signerTimeout": "Компонент подписи перестал отвечать."
+      "signerTimeout": "Компонент подписи перестал отвечать.",
+      "deviceVerificationUnavailable": "Apple требует проверку устройства, но помощник Anisette на этом сервере недоступен.",
+      "deviceVerificationState": "Состояние проверки устройства отсутствует. Войдите снова.",
+      "deviceVerificationLoop": "Apple повторно запрашивает проверку устройства ({{action}}).",
+      "deviceVerificationUnsupported": "Apple запросил неподдерживаемое действие проверки устройства: {{action}}.",
+      "retryExhausted": "Apple не вернул пригодный ответ после нескольких попыток (HTTP {{status}})."
     }
   },
   "toast": {

@@ -10,8 +10,11 @@ export function buildPlist(obj: Record<string, any>): string {
 
 function buildNode(value: any): string {
   if (value === null || value === undefined) return "<string></string>";
-  if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
-    const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : value;
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) {
+    const bytes =
+      value instanceof ArrayBuffer
+        ? new Uint8Array(value)
+        : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
     let binary = "";
     for (let i = 0; i < bytes.length; i++) {
       binary += String.fromCharCode(bytes[i]);

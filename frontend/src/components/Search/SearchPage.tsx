@@ -13,6 +13,7 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
 import { useToastStore } from "../../store/toast";
+import { useVersionMetadataStore } from "../../store/versionMetadata";
 import {
   ensureVersionList,
   getCachedVersionList,
@@ -30,8 +31,13 @@ import {
   isPlatformVersionUnavailable,
 } from "../../apple/errors";
 import { getErrorMessage } from "../../utils/error";
+import { dateComesFromPackage } from "../../utils/versionMetadataSource";
 import { countryCodeMap, storeIdToCountry } from "../../apple/config";
-import { PLATFORM_LABELS } from "../../apple/platform";
+import {
+  PLATFORM_LABELS,
+  packageCoversPlatform,
+} from "../../apple/platform";
+import type { Account, Platform, Software, VersionMetadata } from "../../types";
 
 /**
  * What the version exchange said about a bare App ID. `resolved`: versions came
@@ -51,6 +57,36 @@ function sameProbeState(a: ProbeState | undefined, b: ProbeState): boolean {
   return a.note === b.note;
 }
 
+/** The first version in a list whose cached package metadata does not name another platform. */
+function versionForPlatform(
+  versions: string[] | undefined,
+  metadata: Record<string, VersionMetadata | undefined>,
+  platform: Platform,
+): string {
+  return (
+    versions?.find((versionId) =>
+      packageCoversPlatform(
+        metadata[versionId]?.supportedPlatforms,
+        platform,
+      ),
+    ) ?? ""
+  );
+}
+
+/** A version-list seed carries a display version but no platform declaration. */
+function isUnplatformedClientSeed(
+  metadata: VersionMetadata | undefined,
+): boolean {
+  return Boolean(
+    metadata &&
+      !dateComesFromPackage(metadata.source) &&
+      !metadata.supportedPlatforms?.length,
+  );
+}
+
+/** Bound a probe's follow-up fills so an all-other-platform list cannot walk the whole history. */
+const CARD_VERSION_FILL_ATTEMPTS = 3;
+
 export default function SearchPage() {
   const { t } = useTranslation();
   const { listVersionsWithLicense } = useDownloadAction();
@@ -59,6 +95,8 @@ export default function SearchPage() {
   const versionIdValid =
     versionId.trim() === "" || /^\d+$/.test(versionId.trim());
   const prefetchedRef = useRef<Set<string>>(new Set());
+  /** Card/version pairs already handed to the metadata fill this page session. */
+  const cardFillsRef = useRef<Set<string>>(new Set());
   /** False once the page is gone: a settled probe must not touch state. */
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -72,7 +110,8 @@ export default function SearchPage() {
   /** Probe state per bare App ID, keyed by app id. */
   const [probes, setProbes] = useState<Record<number, ProbeState>>({});
   const { accounts, loading: accountsLoading } = useAccounts();
-  const { versionMeta, fillVersionsSilently } = useVersionMetadataMap();
+  const { versionMeta, ensureLoaded, fillVersionsSilently } =
+    useVersionMetadataMap();
   // Subscribed rather than read once: the newest version's label arrives after
   // the probe, and the cards re-render with it.
   const versionLists = useVersionListsStore((s) => s.lists);
@@ -161,17 +200,83 @@ export default function SearchPage() {
     // A search in flight means the results still belong to the *previous* dimension:
     // probing them would mark the new key as already-asked while settling nothing.
     if (loading) return;
+    // The account store starts empty while IndexedDB is read. Settling a bare
+    // record as "no account" in that window would stick even after the account
+    // arrives, so wait for the first read to finish.
+    if (accountsLoading) return;
+
+    // A record with no evidence for this platform can only be probed from an
+    // account in the searched storefront; the same account answers cached-list
+    // metadata fills.
+    const regionAccount = accounts.find(
+      (candidate) => accountStoreCountry(candidate) === activeCountry,
+    );
+    const hasRegionAccount = regionAccount !== undefined;
+
+    /**
+     * Fill the version the card will actually label, including a list reply's
+     * platform-unknown display seed. Shared by fresh exchanges and cached lists;
+     * `cardFillsRef` keeps a settled card from re-asking on every render.
+     */
+    const fillCardVersions = async (
+      app: Software,
+      account: Account,
+      region: string,
+      platform: Platform,
+      versions: string[],
+    ): Promise<void> => {
+      await ensureLoaded(app.id).catch(() => undefined);
+      if (!mountedRef.current) return;
+
+      const seen = new Set<string>();
+      for (let attempt = 0; attempt < CARD_VERSION_FILL_ATTEMPTS; attempt++) {
+        if (!mountedRef.current) return;
+        const view = viewRef.current;
+        if (view.country !== region || view.platform !== platform) return;
+
+        const entries = useVersionMetadataStore.getState().entries;
+        const selected = versionForPlatform(versions, entries, platform);
+        const entry = selected ? entries[selected] : undefined;
+        if (!selected) return;
+        // An unplatformed client seed is not evidence that it serves this
+        // platform: fill it once so package metadata (or a newer candidate)
+        // can settle the card.
+        if (entry?.displayVersion && !isUnplatformedClientSeed(entry)) {
+          return;
+        }
+        if (seen.has(selected)) return;
+        seen.add(selected);
+
+        const fillKey = `${account.email}:${region}:${platform}:${app.id}:${selected}`;
+        if (cardFillsRef.current.has(fillKey)) return;
+        cardFillsRef.current.add(fillKey);
+        await fillVersionsSilently(
+          account,
+          { ...app, platform },
+          [selected],
+          { force: true },
+        );
+      }
+    };
 
     // A region-scoped cached list needs no exchange — this region's account fetched it.
     for (const app of results) {
       if (!needsFetchVerification(app)) continue;
       if (probes[app.id]?.status === "resolved") continue;
-      if (
-        getCachedVersionList(
-          versionListKey(app.id, activePlatform, activeCountry),
-        )
-      ) {
+      const versions = getCachedVersionList(
+        versionListKey(app.id, activePlatform, activeCountry),
+      );
+      if (versions) {
         settleProbe(app.id, { status: "resolved" });
+        if (regionAccount) {
+          void fillCardVersions(
+            app,
+            regionAccount,
+            activeCountry,
+            activePlatform,
+            versions,
+          );
+        }
       }
     }
 
@@ -182,7 +287,8 @@ export default function SearchPage() {
       const key = versionListKey(app.id, activePlatform, activeCountry);
       if (getCachedVersionList(key)) return false;
       return needsFetchVerification(app)
-        ? probes[app.id] === undefined
+        ? probes[app.id] === undefined ||
+            (probes[app.id]?.status === "noAccount" && hasRegionAccount)
         : !prefetchedRef.current.has(key);
     });
     if (!fetchable) return;
@@ -196,9 +302,6 @@ export default function SearchPage() {
     const account = accounts[0];
     // A verified record must be asked from the searched storefront: another account
     // answers "Account Not In This Store". Without one there is nothing to ask with.
-    const regionAccount = accounts.find(
-      (candidate) => accountStoreCountry(candidate) === activeCountry,
-    );
     if (verify && !regionAccount) {
       // Nothing was asked, so nothing concluded: the card says what is missing.
       settleProbe(fetchable.id, { status: "noAccount" });
@@ -232,11 +335,17 @@ export default function SearchPage() {
           }
           settleProbe(fetchable.id, { status: "resolved" });
         }
-        // The newest build gets its label: shared cache first, then one lookup —
-        // `force` keeps the card honest with the switch off.
-        void fillVersionsSilently(probeAccount, target, versions.slice(0, 1), {
-          force: true,
-        });
+        // Fill the build the card will actually label. The newest build can be
+        // another platform's; versionForPlatform skips it from cached metadata.
+        // If the first fill discovers a different platform, re-evaluate once
+        // for this probe's card instead of filling the whole search page.
+        void fillCardVersions(
+          fetchable,
+          probeAccount,
+          probeRegion,
+          probePlatform,
+          versions,
+        );
       })
       .catch((error: unknown) => {
         if (!mountedRef.current || !verify) return;
@@ -271,8 +380,10 @@ export default function SearchPage() {
     activePlatform,
     activeCountry,
     accounts,
+    accountsLoading,
     listVersionsWithLicense,
     dropResult,
+    ensureLoaded,
     fillVersionsSilently,
     t,
   ]);
@@ -452,10 +563,14 @@ export default function SearchPage() {
               const verifying = needsFetchVerification(app);
               const bare = app.metadataSource === "bare";
               const probe = verifying ? probes[app.id] : undefined;
-              const open = probe === undefined || probe.status === "resolved";
-              const subtitle =
-                probe?.status === "checking"
-                  ? t(bare ? "search.bareChecking" : "search.localChecking")
+              // A verifying record stays closed until the exchange resolves it;
+              // a metadata-backed record is open from the first paint.
+              const open = !verifying || probe?.status === "resolved";
+              const checking =
+                probe?.status === "checking" ||
+                (verifying && probe === undefined);
+              const subtitle = checking
+                ? t(bare ? "search.bareChecking" : "search.localChecking")
                   : probe?.status === "unavailable"
                     ? t("search.product.noVersionForPlatform", {
                         platform: PLATFORM_LABELS[activePlatform],
@@ -467,10 +582,13 @@ export default function SearchPage() {
                     : app.artistName;
               // The version: the newest build the exchange produced, else the record's
               // own (a store result's, or the build a past download recorded).
-              const newestVersionId =
+              const newestVersionId = versionForPlatform(
                 versionLists[
                   versionListKey(app.id, activePlatform, activeCountry)
-                ]?.[0] ?? "";
+                ],
+                versionMeta,
+                activePlatform,
+              );
               const version =
                 (newestVersionId && versionMeta[newestVersionId]?.displayVersion) ||
                 app.version ||

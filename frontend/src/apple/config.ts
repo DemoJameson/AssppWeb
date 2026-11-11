@@ -1,6 +1,14 @@
 export const userAgent =
   "Configurator/2.17 (Macintosh; OS X 15.2; 24C5089c) AppleWebKit/0620.1.16.11.6";
 
+/**
+ * The current Configurator user agent Apple expects for Store authentication,
+ * purchases, and download-product requests (ipatool 2.8.0). Search and lookup
+ * keep `userAgent`; only credential-bearing Store calls use this one.
+ */
+export const storeUserAgent =
+  "Configurator/2.21 (Macintosh; OS X 27.0.1; 26A434) AppleWebKit/0625.2.5.11.6";
+
 export const countryCodeMap: Record<string, string> = {
   AE: "143481",
   AG: "143540",
@@ -198,6 +206,19 @@ const APPLE_HOST_RE = /(^|\.)apple\.com$/i;
 
 export function isAppleHost(hostname: string): boolean {
   return APPLE_HOST_RE.test(hostname);
+}
+
+/**
+ * Hosts that legitimately receive the password token on download-product
+ * requests. A redirect outside this set must not carry `X-Token`.
+ */
+export function isStoreCommerceHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return (
+    host === "buy.itunes.apple.com" ||
+    host === "downloaddispatch.itunes.apple.com" ||
+    /^p[0-9]+-buy\.itunes\.apple\.com$/.test(host)
+  );
 }
 
 export function generateDeviceId(): string {

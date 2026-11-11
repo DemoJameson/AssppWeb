@@ -57,6 +57,19 @@ export default function GlobalDownloadNotifier() {
           "success",
           t("toast.title.downloadSuccess"),
         );
+        // Mirror ipatool-cpp's songDownloadDone report. It is best-effort: the
+        // package is already downloaded, so a failure here must stay silent.
+        if (account) {
+          // Keep the Apple transport out of the entry chunk: this report runs
+          // only when a task finishes, so it must not be a static import here.
+          void import("../../apple/downloadDone")
+            .then(({ reportDownloadDone }) =>
+              reportDownloadDone(account, task.software.id),
+            )
+            .catch((error) => {
+              console.warn("[download] songDownloadDone failed", error);
+            });
+        }
       } else {
         addToast(
           t("toast.msgFailed", {

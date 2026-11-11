@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
@@ -14,6 +14,7 @@ import {
 } from "../../apple/authenticate";
 import { getErrorMessage } from "../../utils/error";
 import { generateDeviceId } from "../../apple/config";
+import { prepareAnisette } from "../../apple/anisette";
 
 export default function AddAccountForm() {
   const navigate = useNavigate();
@@ -29,8 +30,33 @@ export default function AddAccountForm() {
   const [deviceId, setDeviceId] = useState(() => generateDeviceId());
   const [needsCode, setNeedsCode] = useState(false);
   const [loading, setLoading] = useState(false);
+  // The warmup starts in the effect below. It is only a hint: the sign-in
+  // request waits for the helper itself when it needs it, so a slow first-run
+  // asset load must not take the submit button away.
+  const [devicePreparing, setDevicePreparing] = useState(true);
   const inputClassName =
     "block min-h-11 w-full min-w-0 max-w-full rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-800 dark:text-white";
+
+  // Warm the backend helper while the user types. On a release image this is
+  // a local asset load; on a fresh dev checkout it may fetch the assets once.
+  useEffect(() => {
+    let cancelled = false;
+    setDevicePreparing(true);
+    prepareAnisette()
+      .catch((error) => {
+        console.warn(
+          `[anisette] prepare failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setDevicePreparing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /**
    * Submit button label: the signer's own stage first (its first run downloads
@@ -201,7 +227,10 @@ export default function AddAccountForm() {
             <div className="grid grid-cols-1 gap-3 sm:flex sm:flex-wrap sm:items-center">
               <button
                 type="submit"
-                disabled={loading || (needsCode && code.length !== 6)}
+                disabled={
+                  loading ||
+                  (needsCode && code.length !== 6)
+                }
                 className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading && <Spinner />}
@@ -217,6 +246,15 @@ export default function AddAccountForm() {
               </button>
             </div>
             <SapStatus />
+            {devicePreparing && (
+              <p
+                role="status"
+                aria-live="polite"
+                className="text-xs text-gray-500 dark:text-gray-400"
+              >
+                {t("accounts.addForm.preparingDeviceHint")}
+              </p>
+            )}
           </div>
         </form>
       </div>

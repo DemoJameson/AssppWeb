@@ -16,9 +16,11 @@ import installRoutes from "./routes/install.js";
 import settingsRoutes from "./routes/settings.js";
 import bagRoutes from "./routes/bag.js";
 import sapAssetRoutes from "./routes/sapAssets.js";
+import anisetteRoutes from "./routes/anisette.js";
 import versionMetadataRoutes from "./routes/versionMetadata.js";
 import versionPinRoutes from "./routes/versionPins.js";
 import packageBuildRoutes from "./routes/packageBuilds.js";
+import { stopAnisetteHelper } from "./services/anisette.js";
 
 const app = express();
 
@@ -37,6 +39,7 @@ app.use(securityHeaders);
 // rest stay at 1mb.
 app.use("/api", accessAuth);
 app.use("/api/downloads", express.json({ limit: "50mb" }));
+app.use("/api/anisette", express.json({ limit: "2mb" }));
 app.use(express.json({ limit: "1mb" }));
 
 // API routes
@@ -48,6 +51,7 @@ app.use("/api", installRoutes);
 app.use("/api", settingsRoutes);
 app.use("/api", bagRoutes);
 app.use("/api", sapAssetRoutes);
+app.use("/api", anisetteRoutes);
 app.use("/api", versionMetadataRoutes);
 app.use("/api", versionPinRoutes);
 app.use("/api", packageBuildRoutes);
@@ -121,6 +125,12 @@ const server = createServer(app);
 
 // WebSocket proxy for Apple TCP connections
 setupWsProxy(server);
+
+process.once("exit", stopAnisetteHelper);
+process.once("SIGTERM", () => {
+  stopAnisetteHelper();
+  process.exit(0);
+});
 
 // Ensure data directory exists
 fs.mkdirSync(config.dataDir, { recursive: true });

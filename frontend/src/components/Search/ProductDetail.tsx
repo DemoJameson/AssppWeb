@@ -26,7 +26,6 @@ import { useSettingsStore } from "../../store/settings";
 import {
   ensureVersionList,
   getCachedVersionList,
-  rememberVersionList,
   useVersionListsStore,
   versionListKey,
 } from "../../store/versionLists";
@@ -646,17 +645,19 @@ export default function ProductDetail() {
     setFetchingVersions(true);
     setLoadingAction("versions");
     try {
-      const result = await listVersionsWithLicense(
-        account,
-        app,
-        routeVersionId || undefined,
-        setActionProgress,
-      );
-      rememberVersionList(
+      // Share the background probe's exchange when it is already running, and
+      // cache the answer for the rest of the page session.
+      const list = await ensureVersionList(
         versionListKey(app.id, app.platform, country),
-        result.versions,
+        () =>
+          listVersionsWithLicense(
+            account,
+            app,
+            routeVersionId || undefined,
+            setActionProgress,
+          ),
       );
-      applyVersionList(result.versions);
+      applyVersionList(list);
     } catch (e) {
       addToast(getErrorMessage(e, t("search.versions.loadFailed")), "error");
     } finally {

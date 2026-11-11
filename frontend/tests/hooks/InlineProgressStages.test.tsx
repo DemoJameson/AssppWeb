@@ -1,5 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
-import { generateDownloadKBSync } from "../../src/apple/sap/client";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  clearDownloadKBSyncCache,
+  generateDownloadKBSync,
+} from "../../src/apple/sap/client";
 import type { DownloadExchangeProgress } from "../../src/apple/sap/client";
 
 vi.mock("../../src/apple/sap/protocol", () => ({
@@ -43,6 +46,11 @@ class StubWorker {
 }
 
 describe("download stage observer", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    await clearDownloadKBSyncCache();
+  });
+
   it("reports preparation progress while kbsync is generated", async () => {
     vi.resetModules();
     vi.stubGlobal("Worker", StubWorker);
@@ -83,7 +91,7 @@ describe("download stage observer", () => {
       "aabbccddeeff",
       "1234567890",
     );
-    client.acceptDownloadKBSync("aabbccddeeff", "1234567890", first.blob);
+    await client.acceptDownloadKBSync("aabbccddeeff", "1234567890", first.blob);
 
     const progress: Array<DownloadExchangeProgress | null> = [];
     await client.generateDownloadKBSync("aabbccddeeff", "1234567890", (next) =>
@@ -133,6 +141,7 @@ describe("download stage observer", () => {
       "1234567890",
       (next) => second.push(next),
     );
+    await vi.waitFor(() => expect(reportBytes).toBeTypeOf("function"));
     reportBytes(0, 100);
     reportBytes(42, 100);
     reportBytes(100, 100);

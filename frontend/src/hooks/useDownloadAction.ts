@@ -25,6 +25,7 @@ import { repeatUnreachable } from "../apple/retry";
 import { listVersions } from "../apple/versionFinder";
 import { getVersionMetadata } from "../apple/versionLookup";
 import { getCachedVersionList, versionListKey } from "../store/versionLists";
+import { useVersionMetadataStore } from "../store/versionMetadata";
 import { apiPost, apiGet } from "../api/client";
 import {
   accountHash,
@@ -423,6 +424,20 @@ export function useDownloadAction() {
       }
 
       await updateAccount({ ...currentAccount, cookies: result.updatedCookies });
+      // The list reply already names the newest build's display version. Seed it
+      // before the separate pinned metadata lookup: that lookup can fail for a
+      // delisted app even though the list exchange answered, and the card should
+      // still show the version Apple just named.
+      if (result.latestExternalVersionId && result.latestDisplayVersion) {
+        useVersionMetadataStore.getState().putEntry(
+          result.latestExternalVersionId,
+          {
+            displayVersion: result.latestDisplayVersion,
+            releaseDate: "",
+            source: "client",
+          },
+        );
+      }
       return result;
     },
     [acquireLicenseFor, addToast, retryWithRenewedSession, t, updateAccount],

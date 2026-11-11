@@ -7,7 +7,7 @@ import type { Account, Software, Cookie } from "../types";
 import { appleRequest, type AppleRequestOptions, type AppleResponse } from "./request";
 import { buildPlist, parsePlist } from "./plist";
 import { extractAndMergeCookies } from "./cookies";
-import { fetchBag } from "./bag";
+import { fetchBag, type BagOutput } from "./bag";
 import {
   AppleUnreachableError,
   DownloadError,
@@ -25,11 +25,14 @@ import { needsVersionExchange } from "../utils/software";
 import {
   ENT_DOWNLOAD_PATH,
   FAILURE_LICENSE_NOT_FOUND,
+  FAILURE_SIGN_IN_REQUIRED,
   REDOWNLOAD_PRODUCT_PATH,
   UPDATE_PRODUCT_PATH,
   downloadDispatchEndpoint,
   isAppleHost,
+  isStoreCommerceHost,
   storeIdToCountry,
+  storeUserAgent,
   volumeStoreEndpoint,
   type StoreDownloadEndpoint,
 } from "./config";
@@ -39,6 +42,7 @@ import {
   invalidateDownloadKBSync,
   type DownloadStageObserver,
 } from "./sap/client";
+import { sendMachineValidatedRequest } from "./machineValidation";
 import i18n from "../i18n";
 
 // Error types live in `errors.ts` (importable without the libcurl graph) and are
@@ -52,12 +56,16 @@ export interface DownloadSession {
   account: Account;
   app: Software;
   cookies: Cookie[];
+  /** The public bag, retained so machine actions can use its finish URLs. */
+  bag?: BagOutput;
 }
 
 export interface DownloadRequestOptions {
   /**
    * Skip the preferred ent/download endpoint. Version-pin guessing probes use
-   * this so an unpinned probe cannot recursively ask for another pin.
+   * this so an unpinned probe cannot recursively ask for another pin, and an
+   * iOS/iPad record without storefront metadata takes the same path because it
+   * has no catalogue pin for ent/download.
    */
   legacyOnly?: boolean;
   /** Optional, user-friendly progress stages for the exchange. */
@@ -91,8 +99,11 @@ export function createDownloadSession(
 
 /**
  * Apple now points the bag's volumeStoreDownloadProduct key at ent/download,
- * which requires a StoreAgent-generated kbsync. Prefer it when a pin is known;
- * an unpinned iOS request first resolves the current build. It is only a fast
+ * which requires a StoreAgent-generated kbsync. Every operation that shares
+ * this exchange — Download, ListVersions and GetVersionMetadata — prefers it,
+ * exactly as ipatool's `sendDownloadProduct` does. An unpinned iOS request
+ * first resolves the current build, while a bare iOS/iPad record (no storefront
+ * metadata to pin it with) goes directly to the legacy chain. It is only a fast
  * path: any failure falls through to the legacy volumeStore -> redownload ->
  * updateProduct chain, whose reply is the answer (as in ipatool).
  */
@@ -103,6 +114,19 @@ export async function requestDownloadProduct(
 ): Promise<DownloadReply> {
   const { account } = session;
   const guid = account.deviceIdentifier;
+  // A bare iOS/iPad record has no storefront metadata to ask ent/download
+  // with, so take the legacy volumeStore exchange directly. A local record is
+  // still asked through the catalogue/recorded pin: if that fails, the ent
+  // attempt falls through to the same legacy chain. A caller-provided or
+  // package-index pin is enough for ent/download, whose downloaddispatch host
+  // is often reachable when the storefront pod is not.
+  const hasPinnedVersion = Boolean(pinnedVersionId?.trim());
+  const legacyOnly =
+    options.legacyOnly ??
+    (session.app.platform !== undefined &&
+      (session.app.platform === "ios" || session.app.platform === "ipad") &&
+      session.app.metadataSource === "bare" &&
+      !hasPinnedVersion);
 
   let externalVersionId = pinnedVersionId;
   // volumeStore answers by the account's device class (iOS by default), not the
@@ -111,16 +135,17 @@ export async function requestDownloadProduct(
   // from the storefront before the preferred request too.
   if (!externalVersionId && needsPlatformPin(session.app.platform)) {
     externalVersionId = await pinnedLatestVersionId(session, {
-      allowGuess: !options.legacyOnly,
+      allowGuess: !legacyOnly,
     });
   }
 
   // fetchBag already degrades to the default auth URL on failure; a thrown
   // error here means its mocked/transport contract changed, so leave the bag
   // unset and let the legacy chain make its own attempt.
-  let bag: Awaited<ReturnType<typeof fetchBag>> | null = options.legacyOnly
+  let bag: Awaited<ReturnType<typeof fetchBag>> | null = legacyOnly
     ? null
     : await fetchBag(guid).catch(() => null);
+  if (bag) session.bag = bag;
   let volumeStoreReply: DownloadReply | null = null;
 
   if (bag?.entDownloadEndpoint) {
@@ -128,7 +153,7 @@ export async function requestDownloadProduct(
     if (!preferredVersionId) {
       try {
         preferredVersionId = await pinnedLatestVersionId(session, {
-          allowGuess: !options.legacyOnly,
+          allowGuess: !legacyOnly,
         });
       } catch {
         // Preserve the legacy volumeStore path when the catalogue cannot pin.
@@ -155,14 +180,16 @@ export async function requestDownloadProduct(
           throw new UnexpectedAppleResponseError(reply.status, bodySnippet(reply.body));
         }
         return reply;
-      } catch {
+      } catch (error) {
         options.onStage?.(null);
         // Match ipatool: generation, transport, endpoint validation and reply
         // shape failures all fall through to the legacy chain, which answers
         // for the app. ent/download is an optional fast path, so its error must
         // not outrank a working legacy download or mask the legacy failure.
         console.warn(
-          `[download] ent/download unavailable, trying legacy endpoints for ${session.app.id}`,
+          `[download] ent/download unavailable for ${session.app.id}, trying legacy endpoints: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         );
       }
     }
@@ -209,6 +236,7 @@ export async function requestDownloadProduct(
   }
 
   bag ??= await fetchBag(guid);
+  session.bag = bag;
   // Nothing advertised to fall back to: report what volumeStore said — or, when
   // it never got through, the transport failure itself.
   if (!bag.redownloadEndpoint) {
@@ -228,7 +256,7 @@ export async function requestDownloadProduct(
   if (!externalVersionId) {
     try {
       externalVersionId = await pinnedLatestVersionId(session, {
-        allowGuess: !options.legacyOnly,
+        allowGuess: !legacyOnly,
       });
     } catch (error) {
       // Reached only while recovering: if volumeStore never answered, the pin
@@ -315,6 +343,7 @@ async function sendEntDownload(
   onStage?: DownloadStageObserver,
 ): Promise<DownloadReply> {
   const { account, app } = session;
+  const storeFront = account.storeFront || `${account.store}-1`;
   const hardwareId = hexBytes(account.deviceIdentifier);
   if (!hardwareId || hardwareId.length !== 6) {
     throw new DownloadError("ent/download requires a six-byte device GUID");
@@ -331,51 +360,88 @@ async function sendEntDownload(
     account.directoryServicesIdentifier,
     onStage,
   );
+  // Action responses can carry cookies that the replay needs. Keep them local
+  // to the ent attempt so a failed fast path cannot rotate the shared session.
+  let requestCookies = [...session.cookies];
   let freshBlobRetried = false;
+  let authDialogRetried = false;
 
   while (true) {
     try {
       onStage?.({ stage: "connecting", percent: null });
-      const response = await appleRequest({
-        method: "POST",
-        host: endpoint.host,
-        path: endpoint.path,
+      const startedAt = Date.now();
+      const response = await sendMachineValidatedRequest({
+        deviceIdentifier: account.deviceIdentifier,
+        endpoint: `https://${endpoint.host}${endpoint.path}`,
+        bag: session.bag,
         headers: {
           // ipatool mirrors Store's XMLPayload here: the header is the
           // framework's form type even though the bytes are a plist.
           "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
-          "User-Agent":
-            "Configurator/2.18 (Macintosh; OS X 15.3.2; 24D81) AppleWebKit/0620.2.4.11.6",
-          "X-Apple-Store-Front": account.store,
+          "User-Agent": storeUserAgent,
+          "X-Apple-Store-Front": storeFront,
           "X-Token": account.passwordToken,
           "iCloud-DSID": account.directoryServicesIdentifier,
           "X-Dsid": account.directoryServicesIdentifier,
         },
-        body: buildPlist({
-          creditDisplay: "",
-          guid: account.deviceIdentifier,
-          kbsync: kbsync.blob,
-          salableAdamId: String(app.id),
-          serialNumber,
-          externalVersionId,
-        }),
-        cookies: [...session.cookies],
+        send: (headers) =>
+          appleRequest({
+            method: "POST",
+            host: endpoint.host,
+            path: endpoint.path,
+            headers,
+            body: buildPlist({
+              creditDisplay: "",
+              guid: account.deviceIdentifier,
+              kbsync: kbsync.blob,
+              salableAdamId: String(app.id),
+              serialNumber,
+              externalVersionId,
+              ...(authDialogRetried
+                ? { hasBeenAuthedForBuy: "true" }
+                : {}),
+            }),
+            cookies: [...requestCookies],
+          }),
+        onResponse: (response) => {
+          requestCookies = extractAndMergeCookies(
+            response.rawHeaders,
+            requestCookies,
+          );
+        },
       });
 
       const reply = toReply(response, endpoint);
       onStage?.({ stage: "confirming", percent: null });
+      const failureType = failureTypeOf(reply);
+      const customerMessage = customerMessageOf(reply);
+
+      // 2042 AuthTokenResumeFreeBuy is Apple's "click Download in the
+      // authorization dialog" step. Replay the same request once with
+      // hasBeenAuthedForBuy=true before treating it as a failure.
+      if (
+        failureType === FAILURE_SIGN_IN_REQUIRED &&
+        !authDialogRetried &&
+        isAuthorizationDialog(reply)
+      ) {
+        authDialogRetried = true;
+        console.info(
+          `[download] ent/download authorization dialog for ${session.app.id}; replaying with hasBeenAuthedForBuy`,
+        );
+        continue;
+      }
 
       // A structured failure is Apple's answer about the account or app, not
       // evidence that the kbsync blob is stale. Leave ent/download and let the
       // legacy chain surface that answer without speculatively rebuilding the
       // StoreAgent session.
-      if (failureTypeOf(reply) !== "" || customerMessageOf(reply) !== "") {
+      if (failureType !== "" || customerMessage !== "") {
         throw new DownloadError(
-          customerMessageOf(reply) ||
+          customerMessage ||
             i18n.t("errors.download.downloadFailed", {
-              failureType: failureTypeOf(reply),
+              failureType,
             }),
-          failureTypeOf(reply) || undefined,
+          failureType || undefined,
         );
       }
 
@@ -387,7 +453,7 @@ async function sendEntDownload(
         reply.status !== 200 ||
         !entDownloadReplyMatches(reply, session.app, externalVersionId)
       ) {
-        invalidateDownloadKBSync(
+        await invalidateDownloadKBSync(
           account.deviceIdentifier,
           account.directoryServicesIdentifier,
           kbsync.blob,
@@ -400,22 +466,22 @@ async function sendEntDownload(
 
       // Only a blob Apple accepted is reused; a generated but rejected blob must
       // be regenerated on the next attempt.
-      acceptDownloadKBSync(
+      await acceptDownloadKBSync(
         account.deviceIdentifier,
         account.directoryServicesIdentifier,
         kbsync.blob,
       );
       // Only an accepted ent/download reply may rotate the shared session. A
       // failed fast path must leave the legacy chain the cookies it started with.
-      session.cookies = extractAndMergeCookies(
-        response.rawHeaders,
-        session.cookies,
+      session.cookies = requestCookies;
+      console.info(
+        `[download] ent/download served ${session.app.id} in ${Date.now() - startedAt}ms`,
       );
       return reply;
     } catch (error) {
       if (!(error instanceof UnexpectedAppleResponseError)) throw error;
 
-      invalidateDownloadKBSync(
+      await invalidateDownloadKBSync(
         account.deviceIdentifier,
         account.directoryServicesIdentifier,
         kbsync.blob,
@@ -530,6 +596,7 @@ async function sendDownloadRequest(
   externalVersionId: string,
 ): Promise<DownloadReply> {
   const { account, app } = session;
+  const storeFront = account.storeFront || `${account.store}-1`;
 
   const payload: Record<string, any> = {
     creditDisplay: "",
@@ -548,6 +615,9 @@ async function sendDownloadRequest(
     path: endpoint.path,
     headers: {
       "Content-Type": "application/x-apple-plist",
+      "User-Agent": storeUserAgent,
+      "X-Apple-Store-Front": storeFront,
+      "X-Token": account.passwordToken,
       "iCloud-DSID": account.directoryServicesIdentifier,
       "X-Dsid": account.directoryServicesIdentifier,
     },
@@ -570,9 +640,29 @@ async function followRedirects(
 ): Promise<AppleResponse> {
   let host = request.host;
   let path = request.path;
+  let headers = { ...(request.headers ?? {}) };
 
   for (let hop = 0; ; hop++) {
-    const response = await appleRequest({ ...request, host, path, cookies: session.cookies });
+    const response = await sendMachineValidatedRequest({
+      deviceIdentifier: session.account.deviceIdentifier,
+      endpoint: `https://${host}${path}`,
+      bag: session.bag,
+      headers,
+      send: (finalHeaders) =>
+        appleRequest({
+          ...request,
+          host,
+          path,
+          headers: finalHeaders,
+          cookies: session.cookies,
+        }),
+      onResponse: (response) => {
+        session.cookies = extractAndMergeCookies(
+          response.rawHeaders,
+          session.cookies,
+        );
+      },
+    });
 
     if (response.status < 300 || response.status >= 400) return response;
 
@@ -593,9 +683,27 @@ async function followRedirects(
       );
       return response;
     }
+    if (!isStoreCommerceHost(url.hostname)) {
+      // X-Token is a password token. Only the commerce hosts Apple uses for
+      // this exchange may receive it; a redirect to another Apple service must
+      // not carry it along with the body and session cookies.
+      headers = stripHeader(headers, "X-Token");
+    }
     host = url.hostname;
     path = url.pathname + url.search;
   }
+}
+
+function stripHeader(
+  headers: Record<string, string>,
+  name: string,
+): Record<string, string> {
+  const out = { ...headers };
+  const wanted = name.toLowerCase();
+  for (const key of Object.keys(out)) {
+    if (key.toLowerCase() === wanted) delete out[key];
+  }
+  return out;
 }
 
 function toReply(
@@ -637,12 +745,47 @@ function toReply(
   return reply;
 }
 
+/**
+ * Apple's failure code, preferring the top-level field and falling back to
+ * `metrics.messageCode` only when it carries the 2042 authorization signal
+ * (the same fallback ipatool-cpp uses). Other metrics codes are analytics,
+ * not failures.
+ */
 export function failureTypeOf(reply: DownloadReply): string {
-  return String(reply.data?.failureType ?? "");
+  const direct = reply.data?.failureType;
+  if (direct !== undefined && direct !== null && String(direct) !== "") {
+    return String(direct);
+  }
+
+  const metrics = reply.data?.metrics;
+  if (metrics && typeof metrics === "object" && !Array.isArray(metrics)) {
+    const messageCode = (metrics as Record<string, any>).messageCode;
+    if (
+      messageCode !== undefined &&
+      messageCode !== null &&
+      String(messageCode) === FAILURE_SIGN_IN_REQUIRED
+    ) {
+      return FAILURE_SIGN_IN_REQUIRED;
+    }
+  }
+
+  return "";
 }
 
 export function customerMessageOf(reply: DownloadReply): string {
   return String(reply.data?.customerMessage ?? "");
+}
+
+/** Apple's 2042 authorization dialog: the "Download" confirmation step. */
+function isAuthorizationDialog(reply: DownloadReply): boolean {
+  const dialog = reply.data?.dialog;
+  return (
+    !!dialog &&
+    typeof dialog === "object" &&
+    !Array.isArray(dialog) &&
+    String((dialog as Record<string, any>).kind ?? "").toLowerCase() ===
+      "authorization"
+  );
 }
 
 export function itemsOf(reply: DownloadReply): Record<string, any>[] {
@@ -796,11 +939,18 @@ async function pinnedLatestVersionId(
   );
 
   if (!versionId) {
-    // No catalogue offer and no recorded pin names this platform, but a
-    // `local`/`bare` record is a real app, so guess a neighbour id from the iOS
-    // list (as `listVersions` does) — else a delisted tvOS/watchOS/visionOS/macOS direct
-    // download fails where 「选择版本」 succeeds.
-    if (options.allowGuess !== false && needsVersionExchange(session.app)) {
+    // No catalogue offer and no recorded pin names this platform. A
+    // `local`/`bare` record is still a real app, so a non-iOS platform may
+    // guess a neighbour id from the iOS list (as `listVersions` does) — else a
+    // delisted tvOS/watchOS/visionOS/macOS direct download fails where
+    // 「选择版本」 succeeds. iOS/iPad are the exception: an unpinned legacy
+    // exchange is already the iOS list, and a neighbour there is another
+    // platform's build (Forward's 1.3.19 tvOS id was picked this way).
+    if (
+      options.allowGuess !== false &&
+      needsPlatformPin(platform) &&
+      needsVersionExchange(session.app)
+    ) {
       // Dynamic import breaks the cycle (`versionPinGuess` imports this module) and
       // keeps the test mock that intercepts the guess's probes working.
       const { guessPlatformPinFromIOSList } = await import("./versionPinGuess");

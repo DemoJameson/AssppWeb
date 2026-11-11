@@ -9,10 +9,14 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
-import { config } from "../config.js";
 // The one reader of archive magic: a package already recognised as such must
 // not be handed to StoreAgent; the pipeline checks the same before calling this.
 import { readArchiveMagic } from "./packagePlatform.js";
+import {
+  ensureAppleCache,
+  helperCacheEnv,
+  helperProcessEnv,
+} from "./appleCache.js";
 
 /**
  * This side's own deadline for the helper (which has its own 30-minute internal
@@ -69,6 +73,8 @@ export async function decryptMacOSPackage(
   options: MacDecryptOptions,
 ): Promise<void> {
   if ((await readArchiveMagic(options.filePath)) === "xar!") return;
+
+  await ensureAppleCache();
 
   const helper =
     options.helperPath ?? HELPER_CANDIDATES.find((c) => fs.existsSync(c));
@@ -168,12 +174,11 @@ function runDecrypter(
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
       env: {
-        ...process.env,
+        ...helperProcessEnv(),
         // The helper caches Apple's assets and the Unicorn runtime under the
-        // user cache dir (XDG_CACHE_HOME on the Linux container); anchoring it
-        // inside DATA_DIR keeps them across a container replacement instead of
-        // re-downloading on every fresh container's first macOS package.
-        XDG_CACHE_HOME: path.join(config.dataDir, "cache"),
+        // OS user cache dir; helperCacheEnv anchors that inside DATA_DIR so a
+        // fresh container does not re-download them.
+        ...helperCacheEnv(),
       },
     });
 

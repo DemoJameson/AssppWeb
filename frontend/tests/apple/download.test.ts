@@ -10,6 +10,16 @@ import {
   generateDownloadKBSync,
   invalidateDownloadKBSync,
 } from "../../src/apple/sap/client";
+import { failureTypeOf } from "../../src/apple/downloadProduct";
+import {
+  fetchStoreProof,
+  handleAuthAction,
+} from "../../src/apple/anisette";
+import {
+  getAnisetteState,
+  setAnisetteState,
+} from "../../src/apple/anisetteStore";
+import { clearStoreProofCache } from "../../src/apple/machineValidation";
 import i18n from "../../src/i18n";
 import type { Account, Software } from "../../src/types";
 
@@ -29,6 +39,19 @@ vi.mock("../../src/apple/sap/client", () => ({
   acceptDownloadKBSync: vi.fn(),
   generateDownloadKBSync: vi.fn(),
   invalidateDownloadKBSync: vi.fn(),
+}));
+
+vi.mock("../../src/apple/anisette", () => ({
+  fetchStoreProof: vi.fn(),
+  handleAuthAction: vi.fn(),
+  runAnisetteTask: vi.fn(
+    async (_device: string, task: () => Promise<unknown>) => task(),
+  ),
+}));
+
+vi.mock("../../src/apple/anisetteStore", () => ({
+  getAnisetteState: vi.fn(),
+  setAnisetteState: vi.fn(),
 }));
 
 const LOOKUP_HOST = "uclient-api.itunes.apple.com";
@@ -94,6 +117,20 @@ const failureDoc = (failureType: string, customerMessage?: string) =>
   buildPlist({
     failureType,
     ...(customerMessage ? { customerMessage } : {}),
+  });
+
+/** 2042 with the authorization dialog Apple uses for a free-download confirm. */
+const authDialogDoc = () =>
+  buildPlist({
+    failureType: "2042",
+    dialog: { kind: "authorization" },
+  });
+
+/** The same signal wrapped in metrics.messageCode, as ipatool-cpp handles it. */
+const metricsAuthDialogDoc = () =>
+  buildPlist({
+    metrics: { messageCode: "2042" },
+    dialog: { kind: "authorization" },
   });
 
 /** Apple's availability message, which is not a failureType. */
@@ -217,6 +254,11 @@ const entDownloadEndpoint = () =>
 describe("apple/download", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearStoreProofCache();
+    vi.mocked(getAnisetteState).mockResolvedValue(undefined);
+    vi.mocked(fetchStoreProof).mockReset();
+    vi.mocked(handleAuthAction).mockReset();
+    vi.mocked(setAnisetteState).mockReset();
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -270,6 +312,237 @@ describe("apple/download", () => {
     expect(calls[0].path).toContain("/volumeStoreDownloadProduct?guid=aabbccddeeff");
   });
 
+  it("attaches the Store AMD proof and current Store headers", async () => {
+    vi.mocked(getAnisetteState).mockResolvedValue("state-1");
+    vi.mocked(fetchStoreProof).mockResolvedValue({
+      state: "state-2",
+      headers: {
+        "X-Apple-AMD": "otp",
+        "X-Apple-AMD-M": "machine",
+      },
+    });
+    downloadReplies = [reply(downloadDoc())];
+
+    await getDownloadInfo(account, app);
+
+    const request = downloadCalls()[0];
+    expect(request.headers?.["X-Apple-AMD"]).toBe("otp");
+    expect(request.headers?.["X-Apple-AMD-M"]).toBe("machine");
+    expect(request.headers?.["X-Token"]).toBe("token");
+    expect(request.headers?.["X-Apple-Store-Front"]).toBe("143441-1");
+    expect(request.headers?.["User-Agent"]).toContain("Configurator/2.21");
+    expect(fetchStoreProof).toHaveBeenCalledWith(
+      "aabbccddeeff",
+      "state-1",
+      "https://p25-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/volumeStoreDownloadProduct?guid=aabbccddeeff",
+    );
+    expect(setAnisetteState).toHaveBeenCalledWith("aabbccddeeff", "state-2");
+  });
+
+  it("reuses a recent proof for the same endpoint", async () => {
+    vi.mocked(getAnisetteState).mockResolvedValue("state-1");
+    vi.mocked(fetchStoreProof).mockResolvedValue({
+      state: "state-2",
+      headers: {
+        "X-Apple-AMD": "otp",
+        "X-Apple-AMD-M": "machine",
+      },
+    });
+    downloadReplies = [reply(downloadDoc()), reply(downloadDoc())];
+
+    await getDownloadInfo(account, app);
+    await getDownloadInfo(account, app);
+
+    expect(fetchStoreProof).toHaveBeenCalledTimes(1);
+    expect(downloadCalls()[1].headers?.["X-Apple-AMD"]).toBe("otp");
+  });
+
+  it("sends the full storefront header captured at sign-in", async () => {
+    downloadReplies = [reply(downloadDoc())];
+
+    await getDownloadInfo({ ...account, storeFront: "143441-1,29" }, app);
+
+    expect(downloadCalls()[0].headers?.["X-Apple-Store-Front"]).toBe(
+      "143441-1,29",
+    );
+  });
+
+  it("provisions and retries when volumeStore asks for SP", async () => {
+    vi.mocked(getAnisetteState).mockResolvedValue("state-1");
+    vi.mocked(fetchStoreProof).mockResolvedValueOnce({
+      state: "state-2",
+      headers: {
+        "X-Apple-AMD": "otp",
+        "X-Apple-AMD-M": "machine",
+      },
+    });
+    vi.mocked(handleAuthAction).mockResolvedValueOnce({
+      state: "state-2",
+      headers: {
+        "X-Apple-AMD": "otp2",
+        "X-Apple-AMD-M": "machine2",
+      },
+    });
+    downloadReplies = [
+      {
+        ...reply("", 204, {
+          "x-apple-amd-action": "SP",
+          "x-apple-amd-data": "challenge",
+        }),
+        rawHeaders: [["Set-Cookie", "action=abc; Path=/"]],
+      },
+      reply(downloadDoc()),
+    ];
+
+    await getDownloadInfo(account, app);
+
+    expect(handleAuthAction).toHaveBeenCalledWith(
+      "aabbccddeeff",
+      "state-1",
+      "SP",
+      "challenge",
+      expect.stringContaining("/volumeStoreDownloadProduct?guid=aabbccddeeff"),
+      expect.any(Object),
+      expect.objectContaining({ family: "amd" }),
+    );
+    const helperIdentity = vi.mocked(handleAuthAction).mock.calls[0][5];
+    expect(helperIdentity).not.toHaveProperty("X-Token");
+    expect(helperIdentity).not.toHaveProperty("X-Dsid");
+    expect(helperIdentity).not.toHaveProperty("iCloud-DSID");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[1].headers?.["X-Apple-AMD"]).toBe("otp2");
+    expect(calls[1].headers?.["X-Apple-AMD-M"]).toBe("machine2");
+    expect(
+      calls[1].cookies?.some(
+        (cookie) => cookie.name === "action" && cookie.value === "abc",
+      ),
+    ).toBe(true);
+    expect(fetchStoreProof).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes MD machine headers when a commerce request answers RP", async () => {
+    vi.mocked(getAnisetteState).mockResolvedValue("state-md");
+    vi.mocked(fetchStoreProof).mockResolvedValueOnce({
+      state: "state-md",
+      headers: {
+        "X-Apple-MD": "otp",
+        "X-Apple-MD-M": "machine",
+      },
+    });
+    downloadReplies = [
+      reply("", 204, { "x-apple-md-action": "RP" }),
+      reply(downloadDoc()),
+    ];
+
+    await getDownloadInfo(account, app);
+
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[1].headers?.["X-Apple-MD"]).toBeUndefined();
+    expect(calls[1].headers?.["X-Apple-MD-M"]).toBeUndefined();
+  });
+
+  it("mints a fresh proof after Apple rejects one with RP", async () => {
+    vi.mocked(getAnisetteState).mockResolvedValue("state-md");
+    vi.mocked(fetchStoreProof).mockResolvedValue({
+      state: "state-md",
+      headers: {
+        "X-Apple-MD": "otp",
+        "X-Apple-MD-M": "machine",
+      },
+    });
+    downloadReplies = [
+      reply("", 204, { "x-apple-md-action": "RP" }),
+      reply(downloadDoc()),
+      reply(downloadDoc()),
+    ];
+
+    await getDownloadInfo(account, app);
+    await getDownloadInfo(account, app);
+
+    expect(fetchStoreProof).toHaveBeenCalledTimes(2);
+  });
+
+  it("continues without machine headers when Apple asks for SM", async () => {
+    withBag({ entDownloadEndpoint: entDownloadEndpoint() });
+    vi.mocked(getAnisetteState).mockResolvedValue("state-md");
+    vi.mocked(fetchStoreProof).mockResolvedValue({
+      state: "state-md",
+      headers: {
+        "X-Apple-MD": "otp",
+        "X-Apple-MD-M": "machine",
+      },
+    });
+    downloadReplies = [
+      reply("", 204, { "x-apple-md-action": "SM" }),
+      reply(entDownloadDoc()),
+    ];
+
+    const { output } = await getDownloadInfo(account, app, "891042628");
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[0].headers?.["X-Apple-MD"]).toBe("otp");
+    expect(calls[1].headers?.["X-Apple-MD"]).toBeUndefined();
+  });
+
+  it("handles SM after RP and SP instead of treating it as a provisioning loop", async () => {
+    withBag({ entDownloadEndpoint: entDownloadEndpoint() });
+    vi.mocked(getAnisetteState).mockResolvedValue("state-md");
+    vi.mocked(fetchStoreProof).mockResolvedValue({
+      state: "state-md",
+      headers: {
+        "X-Apple-MD": "otp",
+        "X-Apple-MD-M": "machine",
+      },
+    });
+    vi.mocked(handleAuthAction).mockResolvedValue({
+      state: "state-md",
+      headers: {
+        "X-Apple-MD": "otp2",
+        "X-Apple-MD-M": "machine2",
+      },
+    });
+    downloadReplies = [
+      reply("", 204, { "x-apple-md-action": "RP" }),
+      reply("", 204, {
+        "x-apple-md-action": "SP",
+        "x-apple-md-data": "challenge",
+      }),
+      reply("", 204, { "x-apple-md-action": "SM" }),
+      reply(entDownloadDoc()),
+    ];
+
+    const { output } = await getDownloadInfo(account, app, "891042628");
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(4);
+    expect(calls[2].headers?.["X-Apple-MD"]).toBe("otp2");
+    expect(calls[3].headers?.["X-Apple-MD"]).toBeUndefined();
+  });
+
+  it("ignores metrics codes that are not the 2042 authorization signal", () => {
+    const reply = {
+      status: 200,
+      data: { metrics: { messageCode: "0" } },
+      body: "",
+      headers: {},
+      rawHeaders: [],
+      endpoint: "",
+    };
+
+    expect(failureTypeOf(reply)).toBe("");
+    expect(
+      failureTypeOf({
+        ...reply,
+        data: { metrics: { messageCode: "2042" } },
+      }),
+    ).toBe("2042");
+  });
+
   it("prefers the bag's kbsync-backed ent/download endpoint", async () => {
     withBag({
       entDownloadEndpoint: entDownloadEndpoint(),
@@ -309,6 +582,116 @@ describe("apple/download", () => {
       { stage: "connecting", percent: null },
       { stage: "confirming", percent: null },
     ]);
+  });
+
+  it("keeps ent/download for a pinned delisted iOS app", async () => {
+    withBag({
+      entDownloadEndpoint: entDownloadEndpoint(),
+      redownloadEndpoint: `https://${DISPATCH_HOST}/r/redownload`,
+      updateEndpoint: `https://${DISPATCH_HOST}/up/updateProduct`,
+    });
+    const bare = {
+      ...app,
+      platform: "ios",
+      metadataSource: "bare",
+    } as Software;
+    downloadReplies = [reply(entDownloadDoc())];
+
+    const { output } = await getDownloadInfo(account, bare, "891042628");
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].host).toBe(DISPATCH_HOST);
+    expect(calls[0].path).toContain("/ent/download");
+    expect(calls[0].body).toContain(
+      "<key>externalVersionId</key><string>891042628</string>",
+    );
+  });
+
+  it("tries ent/download for an unpinned local iOS record", async () => {
+    withBag({ entDownloadEndpoint: entDownloadEndpoint() });
+    const local = {
+      ...app,
+      platform: "ios",
+      metadataSource: "local",
+    } as Software;
+    downloadReplies = [reply(entDownloadDoc())];
+
+    const { output } = await getDownloadInfo(account, local);
+
+    expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].host).toBe(DISPATCH_HOST);
+    expect(calls[0].path).toContain("/ent/download");
+  });
+
+  it.each([
+    ["failureType", authDialogDoc],
+    ["metrics.messageCode", metricsAuthDialogDoc],
+  ])(
+    "replays a 2042 authorization dialog from %s with hasBeenAuthedForBuy",
+    async (_source, makeDoc) => {
+      withBag({ entDownloadEndpoint: entDownloadEndpoint() });
+      vi.mocked(generateDownloadKBSync).mockResolvedValue({
+        blob: "kb",
+        fromAcceptedCache: false,
+      });
+      downloadReplies = [reply(makeDoc()), reply(entDownloadDoc())];
+
+      const { output } = await getDownloadInfo(account, app, "891042628");
+
+      expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
+      const calls = downloadCalls();
+      expect(calls).toHaveLength(2);
+      expect(calls[0].body).not.toContain("hasBeenAuthedForBuy");
+      expect(calls[1].body).toContain(
+        "<key>hasBeenAuthedForBuy</key><string>true</string>",
+      );
+      expect(generateDownloadKBSync).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("carries ent/download action cookies into the replay", async () => {
+    withBag({ entDownloadEndpoint: entDownloadEndpoint() });
+    vi.mocked(getAnisetteState).mockResolvedValue("state-1");
+    vi.mocked(fetchStoreProof).mockResolvedValueOnce({
+      state: "state-2",
+      headers: {
+        "X-Apple-AMD": "otp",
+        "X-Apple-AMD-M": "machine",
+      },
+    });
+    vi.mocked(handleAuthAction).mockResolvedValueOnce({
+      state: "state-2",
+      headers: {
+        "X-Apple-AMD": "otp2",
+        "X-Apple-AMD-M": "machine2",
+      },
+    });
+    downloadReplies = [
+      {
+        ...reply("", 204, {
+          "x-apple-amd-action": "SP",
+          "x-apple-amd-data": "challenge",
+        }),
+        rawHeaders: [["Set-Cookie", "action=abc; Path=/"]],
+      },
+      reply(entDownloadDoc()),
+    ];
+
+    await getDownloadInfo(account, app);
+
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[1].headers?.["X-Apple-AMD"]).toBe("otp2");
+    expect(
+      calls[1].cookies?.some(
+        (cookie) => cookie.name === "action" && cookie.value === "abc",
+      ),
+    ).toBe(true);
+    expect(fetchStoreProof).toHaveBeenCalledTimes(1);
   });
 
   it("falls back from ent/download when its item has no download material", async () => {
@@ -1206,6 +1589,48 @@ describe("apple/download", () => {
 
     expect(output.downloadURL).toBe("https://iosapps.example.com/app.ipa");
     expect(downloadCalls()[1].host).toBe("p30-buy.itunes.apple.com");
+    expect(downloadCalls()[1].headers?.["X-Token"]).toBe("token");
+  });
+
+  it("requests a fresh proof for a pod redirect with a routing query", async () => {
+    vi.mocked(getAnisetteState).mockResolvedValue("state-1");
+    vi.mocked(fetchStoreProof).mockImplementation(
+      async (_deviceIdentifier, _state, endpoint) => ({
+        state: endpoint.includes("Pod=30") ? "state-2" : "state-1",
+        headers: {
+          "X-Apple-AMD": endpoint.includes("Pod=30") ? "pod-otp" : "initial-otp",
+        },
+      }),
+    );
+    downloadReplies = [
+      reply("", 302, {
+        location: `https://p30-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/volumeStoreDownloadProduct?guid=aabbccddeeff&Pod=30`,
+      }),
+      reply(downloadDoc()),
+    ];
+
+    await getDownloadInfo(account, app);
+
+    expect(fetchStoreProof).toHaveBeenCalledWith(
+      "aabbccddeeff",
+      "state-1",
+      "https://p30-buy.itunes.apple.com/WebObjects/MZFinance.woa/wa/volumeStoreDownloadProduct?guid=aabbccddeeff&Pod=30",
+    );
+    expect(downloadCalls()[1].headers?.["X-Apple-AMD"]).toBe("pod-otp");
+  });
+
+  it("strips X-Token when a redirect leaves the commerce hosts", async () => {
+    downloadReplies = [
+      reply("", 302, { location: "https://www.apple.com/elsewhere" }),
+      reply(downloadDoc()),
+    ];
+
+    await getDownloadInfo(account, app);
+
+    const calls = downloadCalls();
+    expect(calls[0].headers?.["X-Token"]).toBe("token");
+    expect(calls[1].host).toBe("www.apple.com");
+    expect(calls[1].headers?.["X-Token"]).toBeUndefined();
   });
 
   it("refuses a redownload host the bag does not legitimately advertise", async () => {

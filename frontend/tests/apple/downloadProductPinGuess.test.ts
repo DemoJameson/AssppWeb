@@ -175,9 +175,12 @@ describe("downloadProduct direct-download pin guess", () => {
       entDownloadEndpoint:
         "https://downloaddispatch.itunes.apple.com/WebObjects/DownloadDispatch.woa/wa/ent/download",
     });
-    const calls: Array<{ path: string }> = [];
+    const calls: Array<{ path: string; pinned: boolean }> = [];
     vi.mocked(appleRequest).mockImplementation(async (opts) => {
-      calls.push({ path: opts.path });
+      calls.push({
+        path: opts.path,
+        pinned: opts.body?.includes("externalVersionId") ?? false,
+      });
       return plistResponse(["10", "11", "12"]);
     });
 
@@ -186,6 +189,9 @@ describe("downloadProduct direct-download pin guess", () => {
 
     // No catalogue offer leaves no ent pin. The request goes straight to the
     // legacy chain instead of recursively asking for another pin.
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path).toContain("/volumeStoreDownloadProduct");
+    expect(calls[0].pinned).toBe(false);
     expect(calls.some((call) => call.path.includes("/ent/download"))).toBe(false);
     expect(calls.some((call) => call.path.includes("/volumeStoreDownloadProduct"))).toBe(true);
   });

@@ -37,13 +37,26 @@ export const useVersionMetadataStore = create<VersionMetadataState>((set) => ({
 
   mergeEntries: (entries) =>
     set((state) => {
-      // Cached-first: a merge only ever *adds*, so every known id keeps its value.
-      // Returning a fresh `entries` object when there is nothing to add would wake
-      // every subscriber — and the pages that fold the cache in are among them:
+      // Cached-first: a merge never lets the exchange's app-level date displace
+      // a build's own package-read date. A package-read entry may, however,
+      // replace a client-only seed written by a version-list exchange. Returning
+      // a fresh `entries` object when nothing changes would wake every
+      // subscriber — and the pages that fold the cache in are among them:
       // read → merge → re-render → read is a request loop.
-      const fresh = Object.keys(entries).some((id) => !state.entries[id]);
-      if (!fresh) return state;
-      return { entries: { ...entries, ...state.entries } };
+      let merged: Record<string, VersionMetadata> | undefined;
+      for (const [id, metadata] of Object.entries(entries)) {
+        const existing = (merged ?? state.entries)[id];
+        const replacesClient =
+          !existing ||
+          (!dateComesFromPackage(existing.source) &&
+            dateComesFromPackage(metadata.source));
+        if (!replacesClient) continue;
+
+        merged ??= { ...state.entries };
+        merged[id] = metadata;
+      }
+
+      return merged ? { entries: merged } : state;
     }),
 
   putEntry: (versionId, metadata) =>

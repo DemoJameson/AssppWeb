@@ -127,6 +127,8 @@
       "addSuccess": "账号添加成功。",
       "preparingAssets": "正在准备签名组件 {{percent}}%",
       "preparingSigner": "正在初始化签名器…",
+      "preparingDevice": "正在准备设备校验…",
+      "preparingDeviceHint": "首次使用需准备 Apple 设备校验组件，可能需要一分钟。",
       "signerFailed": "签名组件准备失败：{{error}}",
       "signerFirstRun": "首次使用需准备签名组件（约 12 MB），仅此一次。",
       "retrySignIn": "重试登录"
@@ -478,6 +480,7 @@
       "invalidSinf": "无效的 sinf 项目",
       "noSinf": "响应中未找到 sinf",
       "tooManyRedirects": "重定向次数过多",
+      "kbsyncTimeout": "下载签名组件在 {{seconds}} 秒内没有完成。",
       "invalidEndpoint": "服务端下发的下载地址无效",
       "updateMismatch": "更新接口返回的下载与请求的应用不匹配"
     },
@@ -507,8 +510,14 @@
       "emptyBody": "认证失败：服务器返回 HTTP {{status}} 且响应体为空",
       "missingAccountInfo": "响应中缺少 accountInfo",
       "missingAddress": "响应中缺少 address",
+      "missingDsid": "Apple 未返回 directory services identifier",
       "unknownReason": "未知原因导致认证失败",
-      "signerTimeout": "签名组件已停止响应。"
+      "signerTimeout": "签名组件已停止响应。",
+      "deviceVerificationUnavailable": "Apple 要求设备校验，但服务器上的 Anisette helper 不可用。",
+      "deviceVerificationState": "设备校验状态缺失，请重新登录。",
+      "deviceVerificationLoop": "Apple 反复要求设备校验（{{action}}）。",
+      "deviceVerificationUnsupported": "Apple 请求了不支持的设备校验动作：{{action}}。",
+      "retryExhausted": "Apple 多次尝试后仍未返回可用响应（HTTP {{status}}）。"
     }
   },
   "toast": {

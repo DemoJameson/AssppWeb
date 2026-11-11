@@ -6,7 +6,7 @@ A web-based tool for acquiring and installing iOS, iPadOS, tvOS, watchOS, vision
 
 ## Zero-Trust Architecture
 
-AssppWeb uses a zero-trust design where the server **never sees your Apple credentials**. All Apple API communication happens directly in your browser via WebAssembly (libcurl.js with Mbed TLS 1.3). The server only acts as a blind TCP relay (Wisp protocol) and handles IPA compilation from public CDN downloads.
+AssppWeb uses a zero-trust design where the server **never sees your Apple credentials**. All credential-bearing Apple API communication happens directly in your browser via WebAssembly (libcurl.js with Mbed TLS 1.3). The server acts as a blind TCP relay (Wisp protocol), handles IPA compilation from public CDN downloads, and runs a local Anisette helper that only performs credential-free device/machine provisioning. The first sign-in may spend a moment preparing Apple's device-verification components.
 
 > **⚠️ Important Security Notice:** There are no official Asspp Web instances. Use any public instance at your own risk. While the backend cannot read your encrypted traffic, a malicious host could serve a modified frontend to capture your credentials before encryption. Therefore, **do not blindly trust public instances**. We strongly recommend self-hosting your own instance or using one provided by a trusted partner. Always verify the SSL certificate and ensure you are connecting to a secure, authentic endpoint.
 
@@ -72,6 +72,8 @@ docker compose up -d
 | ------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------- |
 | `PORT`                                      | `8080`          | Server listen port                                                                          |
 | `DATA_DIR`                                  | `./data`        | Data directory: compiled IPAs plus the SQLite database (`asspp.db` with `-wal`/`-shm` sidecars) |
+| `BUNDLED_APPLE_CACHE`                       | `/opt/asspp/apple-cache` | Release-image copy of the macOS 27 Anisette/StoreAgent assets; seeded into the helper cache under `DATA_DIR` when present |
+| `ANISETTE_HELPER_PATH`                      | _(auto)_        | Override the Anisette helper binary; the image uses `/opt/asspp/anisette`, dev checkouts use `tools/anisette/anisette` |
 | `PUBLIC_BASE_URL`                           | _(auto-detect)_ | Public origin(s) install links are built from. Comma-separated for several hostnames, most preferred first — the entry whose hostname matches the request is used, any other host gets the first (e.g. `https://asspp.example.com,https://asspp-v6.example.net`). Entries are canonicalised (hostname lowercased, a `:80`/`:443` dropped); a value holding no absolute URL is reported at startup and ignored |
 | `UNSAFE_DANGEROUSLY_DISABLE_HTTPS_REDIRECT` | `false`         | Disable HTTPS redirect (see warning below)                                                  |
 | `AUTO_CLEANUP_DAYS`                         | `0`             | Automatically delete cached IPA files older than specified days (0 to disable)              |

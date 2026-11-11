@@ -960,6 +960,40 @@ describe('ProductDetail download action', () => {
     expect(mocks.listVersions).toHaveBeenCalledTimes(1);
   });
 
+  it('opens from a version exchange that is still in flight', async () => {
+    let resolveList!: (value: {
+      versions: string[];
+      updatedCookies: [];
+    }) => void;
+    mocks.listVersions.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+    renderProductDetail(undefined, { metadataSource: 'local' });
+
+    // The background probe owns the exchange…
+    await waitFor(() => expect(mocks.listVersions).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'search.product.selectVersion' }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // …and the click waits on that same exchange instead of starting another.
+    expect(mocks.listVersions).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveList({ versions: ['890964826'], updatedCookies: [] });
+    });
+
+    await screen.findByRole('combobox', { name: 'search.product.version' });
+    expect(mocks.listVersions).toHaveBeenCalledTimes(1);
+  });
+
   it('downloads the route-supplied version id when nothing else is picked', async () => {
     renderProductDetail(undefined, {}, '818970197');
 

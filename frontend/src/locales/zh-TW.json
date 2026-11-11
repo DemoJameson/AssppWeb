@@ -127,6 +127,8 @@
       "addSuccess": "帳號新增成功。",
       "preparingAssets": "正在準備簽署元件 {{percent}}%",
       "preparingSigner": "正在初始化簽署器…",
+      "preparingDevice": "正在準備裝置驗證…",
+      "preparingDeviceHint": "首次使用需準備 Apple 裝置驗證元件，可能需要一分鐘。",
       "signerFailed": "簽署元件準備失敗：{{error}}",
       "signerFirstRun": "首次使用需準備簽名元件（約 12 MB），僅此一次。",
       "retrySignIn": "重試登入"
@@ -478,6 +480,7 @@
       "invalidSinf": "無效的 sinf 項目",
       "noSinf": "回應中找不到 sinf",
       "tooManyRedirects": "重新導向次數過多",
+      "kbsyncTimeout": "下載簽名元件在 {{seconds}} 秒內沒有完成。",
       "invalidEndpoint": "伺服器下發的下載位址無效",
       "updateMismatch": "更新介面回傳的下載與請求的 App 不符"
     },
@@ -507,8 +510,14 @@
       "emptyBody": "認證失敗：伺服器傳回 HTTP {{status}} 且回應主體為空",
       "missingAccountInfo": "回應中缺少 accountInfo",
       "missingAddress": "回應中缺少 address",
+      "missingDsid": "Apple 未回傳 directory services identifier",
       "unknownReason": "未知原因導致認證失敗",
-      "signerTimeout": "簽名組件已停止回應。"
+      "signerTimeout": "簽名組件已停止回應。",
+      "deviceVerificationUnavailable": "Apple 要求裝置驗證，但伺服器上的 Anisette helper 無法使用。",
+      "deviceVerificationState": "裝置驗證狀態缺失，請重新登入。",
+      "deviceVerificationLoop": "Apple 反覆要求裝置驗證（{{action}}）。",
+      "deviceVerificationUnsupported": "Apple 要求不支援的裝置驗證動作：{{action}}。",
+      "retryExhausted": "Apple 多次嘗試後仍未回傳可用回應（HTTP {{status}}）。"
     }
   },
   "toast": {

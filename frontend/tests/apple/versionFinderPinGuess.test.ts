@@ -175,6 +175,25 @@ describe("apple/versionFinder pin guess", () => {
     expect(maxActive).toBeLessThanOrEqual(6);
   });
 
+  it("returns as soon as the nearest serving candidate answers", async () => {
+    const iosIds = ["12"];
+    let secondProbeStarted = false;
+    vi.mocked(requestDownloadProduct).mockImplementation(async (_session, pin) => {
+      if (!pin) return replyWithVersions(iosIds);
+      if (pin === "13") return replyWithVersions(["40", "41"]);
+      if (pin === "11") {
+        secondProbeStarted = true;
+        return new Promise(() => {});
+      }
+      throw new Error("not served");
+    });
+
+    const result = await listVersions(account, bareTvosApp);
+
+    expect(result.versions).toEqual(["41", "40"]);
+    expect(secondProbeStarted).toBe(true);
+  });
+
   it("probes nothing when the iOS list already covers every neighbour", async () => {
     const calls: string[] = [];
     // A list whose anchor (newest id) sits in the middle: 12 first, then 2…11 and

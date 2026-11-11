@@ -6,7 +6,9 @@ import {
   lookupEntityFor,
   metadataPlatformFor,
   needsPlatformPin,
+  packageCoversPlatform,
   parsePlatform,
+  samePlatformFamily,
   searchEntityFor,
 } from "../../src/apple/platform";
 
@@ -103,6 +105,18 @@ describe("platformsFromSupported", () => {
     ).toEqual(["ios", "tvos", "watchos", "visionos"]);
     expect(platformsFromSupported(["macOS"])).toEqual(["macos"]);
     expect(platformsFromSupported(undefined)).toEqual([]);
+  });
+});
+
+describe("platform families", () => {
+  it("treats iPhoneOS as one family for iOS and iPad", () => {
+    expect(packageCoversPlatform(["iPhoneOS"], "ios")).toBe(true);
+    expect(packageCoversPlatform(["iPhoneOS"], "ipad")).toBe(true);
+    expect(packageCoversPlatform(["AppleTVOS"], "ios")).toBe(false);
+    // A legacy/unknown declaration is unconstrained, not a rejection.
+    expect(packageCoversPlatform(undefined, "ipad")).toBe(true);
+    expect(samePlatformFamily("ios", "ipad")).toBe(true);
+    expect(samePlatformFamily("ios", "tvos")).toBe(false);
   });
 });
 

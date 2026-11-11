@@ -37,14 +37,36 @@ export async function apiGet<T>(
   return res.json();
 }
 
-export async function apiPost<T>(path: string, body?: any): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) throw await toError(res);
-  return res.json();
+export async function apiPost<T>(
+  path: string,
+  body?: any,
+  options?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = options?.timeoutMs
+    ? setTimeout(() => controller.abort(), options.timeoutMs)
+    : undefined;
+  const onAbort = () => controller.abort();
+  options?.signal?.addEventListener("abort", onAbort, { once: true });
+  if (options?.signal?.aborted) controller.abort();
+
+  try {
+    const init: RequestInit = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: body ? JSON.stringify(body) : undefined,
+    };
+    if (options?.timeoutMs || options?.signal) {
+      init.signal = controller.signal;
+    }
+
+    const res = await fetch(`${BASE_URL}${path}`, init);
+    if (!res.ok) throw await toError(res);
+    return res.json();
+  } finally {
+    if (timer) clearTimeout(timer);
+    options?.signal?.removeEventListener("abort", onAbort);
+  }
 }
 
 export async function apiPut<T>(

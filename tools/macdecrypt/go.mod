@@ -2,7 +2,7 @@ module github.com/majd/ipatool/v2/asspp-macdecrypt
 
 go 1.26.5
 
-require github.com/majd/ipatool/v2 v2.7.1-0.20261018162214-5dc4c8058db3
+require github.com/majd/ipatool/v2 v2.8.1-0.20261108173927-536d7bacc1c5
 
 require (
 	github.com/VividCortex/ewma v1.2.0 // indirect
@@ -21,7 +21,7 @@ require (
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/go-compressions/lzfse v0.3.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
-	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/majd/go-apfs v1.0.29 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect

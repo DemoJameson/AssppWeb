@@ -127,6 +127,8 @@
       "addSuccess": "アカウントが正常に追加されました。",
       "preparingAssets": "署名コンポーネントを準備中 {{percent}}%",
       "preparingSigner": "署名器を初期化中…",
+      "preparingDevice": "デバイス検証を準備中…",
+      "preparingDeviceHint": "初回は Apple のデバイス検証コンポーネントを準備します。1分ほどかかる場合があります。",
       "signerFailed": "署名コンポーネントの準備に失敗しました：{{error}}",
       "signerFirstRun": "初回のみ署名コンポーネントを準備します（約 12 MB）。",
       "retrySignIn": "サインインを再試行"
@@ -478,6 +480,7 @@
       "invalidSinf": "無効な sinf 項目です",
       "noSinf": "レスポンスに sinf が見つかりません",
       "tooManyRedirects": "リダイレクトが多すぎます",
+      "kbsyncTimeout": "ダウンロード署名コンポーネントが {{seconds}} 秒以内に完了しませんでした。",
       "invalidEndpoint": "サーバーが通知したダウンロード先が不正です",
       "updateMismatch": "更新エンドポイントが、要求したアプリまたはバージョンと一致しないダウンロードを返しました"
     },
@@ -507,8 +510,14 @@
       "emptyBody": "認証失敗: サーバーが空のボディでHTTP {{status}}を返しました",
       "missingAccountInfo": "レスポンスに accountInfo がありません",
       "missingAddress": "レスポンスに address がありません",
+      "missingDsid": "Apple が directory services identifier を返しませんでした",
       "unknownReason": "不明な理由により認証に失敗しました",
-      "signerTimeout": "署名コンポーネントが応答しなくなりました。"
+      "signerTimeout": "署名コンポーネントが応答しなくなりました。",
+      "deviceVerificationUnavailable": "Apple はデバイス検証を要求していますが、このサーバーの Anisette ヘルパーは利用できません。",
+      "deviceVerificationState": "デバイス検証の状態がありません。もう一度サインインしてください。",
+      "deviceVerificationLoop": "Apple がデバイス検証を繰り返し要求しています（{{action}}）。",
+      "deviceVerificationUnsupported": "Apple が未対応のデバイス検証アクションを要求しました：{{action}}。",
+      "retryExhausted": "Apple が複数回の試行後も有効な応答を返しませんでした（HTTP {{status}}）。"
     }
   },
   "toast": {

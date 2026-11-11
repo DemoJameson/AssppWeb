@@ -5,6 +5,7 @@ import { listVersions } from "../../src/apple/versionFinder";
 import { appleRequest } from "../../src/apple/request";
 import { fetchBag } from "../../src/apple/bag";
 import { apiGet } from "../../src/api/client";
+import { generateDownloadKBSync } from "../../src/apple/sap/client";
 import i18n from "../../src/i18n";
 import type { Account, Software } from "../../src/types";
 
@@ -22,6 +23,8 @@ vi.mock("../../src/api/client", () => ({
 
 vi.mock("../../src/apple/sap/client", () => ({
   generateDownloadKBSync: vi.fn(),
+  acceptDownloadKBSync: vi.fn(),
+  invalidateDownloadKBSync: vi.fn(),
 }));
 
 const LOOKUP_HOST = "uclient-api.itunes.apple.com";
@@ -64,7 +67,11 @@ const reply = (body: string, status = 200, headers: Record<string, string> = {})
   body,
 });
 
-const versionsDoc = (identifiers: number[], latest: number | string = identifiers[identifiers.length - 1]) =>
+const versionsDoc = (
+  identifiers: number[],
+  latest: number | string = identifiers[identifiers.length - 1],
+  displayVersion?: string,
+) =>
   buildPlist({
     pings: [],
     songList: [
@@ -72,6 +79,27 @@ const versionsDoc = (identifiers: number[], latest: number | string = identifier
         URL: "https://iosapps.example.com/app.ipa",
         sinfs: [{ id: 0, sinf: "AAAA" }],
         metadata: {
+          softwareVersionExternalIdentifiers: identifiers,
+          softwareVersionExternalIdentifier: latest,
+          ...(displayVersion ? { bundleShortVersionString: displayVersion } : {}),
+        },
+      },
+    ],
+  });
+
+const entVersionsDoc = (
+  identifiers: number[],
+  latest: number | string = identifiers[identifiers.length - 1],
+) =>
+  buildPlist({
+    pings: [],
+    songList: [
+      {
+        URL: "https://iosapps.example.com/app.ipa",
+        sinfs: [{ id: 0, sinf: "AAAA" }],
+        metadata: {
+          itemId: 1492142120,
+          softwareVersionBundleId: "com.example.app",
           softwareVersionExternalIdentifiers: identifiers,
           softwareVersionExternalIdentifier: latest,
         },
@@ -136,6 +164,14 @@ describe("apple/versionFinder", () => {
     expect(downloadCalls()).toHaveLength(1);
   });
 
+  it("returns the newest build's display version from the list reply", async () => {
+    downloadReplies = [reply(versionsDoc([111, 222, 333], "333", "1.3.18"))];
+
+    const result = await listVersions(account, app);
+
+    expect(result.latestDisplayVersion).toBe("1.3.18");
+  });
+
   it("uses the same download-product exchange as the download flow", async () => {
     downloadReplies = [reply(emptyDoc()), reply(versionsDoc([111, 222]))];
 
@@ -150,6 +186,34 @@ describe("apple/versionFinder", () => {
     // The fallback hop carries a pinned version resolved from the catalogue.
     expect(calls[1].path).toContain("/r/redownload");
     expect(calls[1].body).toContain("<key>appExtVrsId</key><string>891042628</string>");
+  });
+
+  it("prefers the StoreAgent ent/download endpoint for version lists", async () => {
+    // ipatool's ListVersions goes through sendDownloadProduct, which prefers
+    // ent/download whenever a kbsync generator is available.
+    vi.mocked(fetchBag).mockResolvedValue({
+      authURL: "https://auth.example",
+      entDownloadEndpoint: `https://${DISPATCH_HOST}/WebObjects/DownloadDispatch.woa/wa/ent/download`,
+      redownloadEndpoint: `https://${DISPATCH_HOST}/r/redownload`,
+      updateEndpoint: `https://${DISPATCH_HOST}/up/updateProduct`,
+    });
+    vi.mocked(generateDownloadKBSync).mockResolvedValue({
+      blob: "kb",
+      fromAcceptedCache: false,
+    });
+    downloadReplies = [reply(entVersionsDoc([111, 222], "891042628"))];
+
+    const result = await listVersions(account, app);
+
+    expect(result.versions).toEqual(["222", "111"]);
+    expect(generateDownloadKBSync).toHaveBeenCalledWith(
+      "aabbccddeeff",
+      "1234567890",
+      undefined,
+    );
+    const calls = downloadCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path).toContain("/ent/download");
   });
 
   it("bubbles the cookies the exchange refreshed", async () => {
@@ -340,6 +404,53 @@ describe("apple/versionFinder", () => {
     expect(downloadCalls()).toHaveLength(1);
     expect(downloadCalls()[0].body).toContain(
       "<key>externalVersionId</key><string>777888999</string>",
+    );
+  });
+
+  it("pins a delisted iOS app to its package-index build", async () => {
+    const iosBare = {
+      ...app,
+      platform: "ios",
+      metadataSource: "bare",
+    } as Software;
+    vi.mocked(apiGet).mockResolvedValue({
+      builds: [{ platform: "ios", versionId: "188224622" }],
+    } as never);
+    downloadReplies = [reply(versionsDoc([188224622, 111]))];
+
+    const result = await listVersions(account, iosBare);
+
+    expect(result.versions).toEqual(["111", "188224622"]);
+    expect(downloadCalls()[0].body).toContain(
+      "<key>externalVersionId</key><string>188224622</string>",
+    );
+    expect(apiGet).toHaveBeenCalledWith("/api/package-builds/1492142120");
+  });
+
+  it("uses a universal build the index recorded under another platform", async () => {
+    const iosBare = {
+      ...app,
+      platform: "ios",
+      metadataSource: "bare",
+    } as Software;
+    vi.mocked(apiGet).mockImplementation((async (path: string) => {
+      if (path.startsWith("/api/package-builds/")) {
+        return { builds: [{ platform: "tvos", versionId: "188224622" }] };
+      }
+      if (path.endsWith("/platforms")) {
+        return {
+          platforms: { "188224622": ["iPhoneOS", "AppleTVOS"] },
+        };
+      }
+      return {};
+    }) as never);
+    downloadReplies = [reply(versionsDoc([188224622, 111]))];
+
+    const result = await listVersions(account, iosBare);
+
+    expect(result.versions).toEqual(["111", "188224622"]);
+    expect(downloadCalls()[0].body).toContain(
+      "<key>externalVersionId</key><string>188224622</string>",
     );
   });
 
