@@ -44,7 +44,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS apple-cache
 WORKDIR /src
 COPY tools/anisette/go.mod tools/anisette/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
-COPY tools/anisette/*.go ./
+COPY tools/anisette/*.go tools/anisette/apple-root-ca.cer ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/anisette .
 RUN --mount=type=cache,target=/root/.cache/asspp-apple,sharing=locked \
@@ -61,7 +61,7 @@ FROM golang:1.26-alpine AS anisette
 WORKDIR /src
 COPY tools/anisette/go.mod tools/anisette/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
-COPY tools/anisette/*.go ./
+COPY tools/anisette/*.go tools/anisette/apple-root-ca.cer ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/anisette .
 RUN sh -c 'out="$(/out/anisette 2>&1 || true)"; case "$out" in \

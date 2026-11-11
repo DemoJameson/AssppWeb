@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -45,6 +46,12 @@ const (
 	familyAMD = "amd"
 	familyMD  = "md"
 )
+
+// Apple's root certificate is public data. Shipping it avoids a runtime
+// dependency on www.apple.com, which can answer 403 from some networks.
+//
+//go:embed apple-root-ca.cer
+var appleRootCertificate []byte
 
 type anisetteState struct {
 	Identifier, Provisioning []byte
@@ -555,47 +562,12 @@ func isUnknownAuthority(err error) bool {
 }
 
 func installAppleRoot(ctx context.Context, client *http.Client) error {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, appleRootURL, nil)
+	certificate, err := embeddedAppleRoot()
 	if err != nil {
-		return fmt.Errorf("create Apple root request: %w", err)
-	}
-
-	downloader := &http.Client{
-		Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}},
-		Timeout:   15 * time.Second,
-		CheckRedirect: func(request *http.Request, _ []*http.Request) error {
-			if request.URL.Scheme != "https" || request.URL.Hostname() != "www.apple.com" {
-				return errors.New("apple root redirect is not trusted")
-			}
-
-			return nil
-		},
-	}
-
-	response, err := downloader.Do(request)
-	if err != nil {
-		return fmt.Errorf("download Apple root: %w", err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("download Apple root: HTTP %d", response.StatusCode)
-	}
-
-	data, err := io.ReadAll(io.LimitReader(response.Body, rootSizeLimit+1))
-	if err != nil {
-		return fmt.Errorf("read Apple root: %w", err)
-	}
-	if len(data) > rootSizeLimit {
-		return errors.New("apple root exceeds size limit")
-	}
-
-	certificate, err := x509.ParseCertificate(data)
-	if err != nil {
-		return fmt.Errorf("parse Apple root: %w", err)
-	}
-	if !validAppleRoot(certificate, time.Now()) {
-		return errors.New("downloaded Apple root is invalid")
+		certificate, err = downloadAppleRoot(ctx)
+		if err != nil {
+			return err
+		}
 	}
 
 	roots, _ := x509.SystemCertPool()
@@ -616,6 +588,65 @@ func installAppleRoot(ctx context.Context, client *http.Client) error {
 	client.Transport = updated
 
 	return nil
+}
+
+func embeddedAppleRoot() (*x509.Certificate, error) {
+	certificate, err := x509.ParseCertificate(appleRootCertificate)
+	if err != nil {
+		return nil, fmt.Errorf("parse embedded Apple root: %w", err)
+	}
+	if !validAppleRoot(certificate, time.Now()) {
+		return nil, errors.New("embedded Apple root is invalid")
+	}
+
+	return certificate, nil
+}
+
+func downloadAppleRoot(ctx context.Context) (*x509.Certificate, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, appleRootURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create Apple root request: %w", err)
+	}
+
+	downloader := &http.Client{
+		Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}},
+		Timeout:   15 * time.Second,
+		CheckRedirect: func(request *http.Request, _ []*http.Request) error {
+			if request.URL.Scheme != "https" || request.URL.Hostname() != "www.apple.com" {
+				return errors.New("apple root redirect is not trusted")
+			}
+
+			return nil
+		},
+	}
+
+	response, err := downloader.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("download Apple root: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download Apple root: HTTP %d", response.StatusCode)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(response.Body, rootSizeLimit+1))
+	if err != nil {
+		return nil, fmt.Errorf("read Apple root: %w", err)
+	}
+	if len(data) > rootSizeLimit {
+		return nil, errors.New("apple root exceeds size limit")
+	}
+
+	certificate, err := x509.ParseCertificate(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse Apple root: %w", err)
+	}
+	if !validAppleRoot(certificate, time.Now()) {
+		return nil, errors.New("downloaded Apple root is invalid")
+	}
+
+	return certificate, nil
 }
 
 func validAppleRoot(certificate *x509.Certificate, now time.Time) bool {

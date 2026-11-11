@@ -38,6 +38,16 @@ func TestHealthReportsBundleReadiness(t *testing.T) {
 	}
 }
 
+func TestEmbeddedAppleRoot(t *testing.T) {
+	certificate, err := embeddedAppleRoot()
+	if err != nil {
+		t.Fatalf("embedded Apple root: %v", err)
+	}
+	if certificate.Subject.CommonName != "Apple Root CA" {
+		t.Fatalf("embedded root CN = %q, want Apple Root CA", certificate.Subject.CommonName)
+	}
+}
+
 func TestBundleLoadOutlivesRequestContext(t *testing.T) {
 	previousLoad := loadAppleAssets
 	defer func() { loadAppleAssets = previousLoad }()
