@@ -46,6 +46,7 @@
     "label": "Поиск",
     "placeholder": "Название, ссылка на App Store, Bundle ID или App ID",
     "button": "Найти",
+    "resultsCount": "Результатов: {{count}}",
     "empty": "Ищите приложения, чтобы начать.",
     "emptyDesc": "Имя, ссылка, Bundle ID или App ID — поиск приложений и лицензий.",
     "noResults": "Приложение не найдено.",

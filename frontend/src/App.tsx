@@ -1,6 +1,6 @@
-import { Suspense, useEffect } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import MobileHeader from './components/Layout/MobileHeader';
 import MobileNav from './components/Layout/MobileNav';
 import Sidebar from './components/Layout/Sidebar';
@@ -64,6 +64,9 @@ function AnisetteWarmup() {
 
 export default function App() {
   const theme = useSettingsStore((s) => s.theme);
+  const location = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
+  const lastPathRef = useRef(location.pathname);
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -86,6 +89,18 @@ export default function App() {
     return () => mediaQuery.removeEventListener('change', applyTheme);
   }, [theme]);
 
+  useEffect(() => {
+    if (lastPathRef.current === location.pathname) return;
+    lastPathRef.current = location.pathname;
+
+    const frame = window.requestAnimationFrame(() => {
+      const main = mainRef.current;
+      const heading = main?.querySelector<HTMLElement>('h1');
+      (heading ?? main)?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [location.pathname]);
+
   return (
     <PasswordGate>
       <div className="flex h-screen h-[100dvh] overflow-hidden bg-gray-50 text-gray-900 selection:bg-blue-200 dark:bg-gray-950 dark:text-gray-100 dark:selection:bg-blue-800">
@@ -94,7 +109,11 @@ export default function App() {
         <AnisetteWarmup />
 
         <Sidebar />
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden md:pt-[env(safe-area-inset-top)]">
+        <main
+          ref={mainRef}
+          tabIndex={-1}
+          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden focus:outline-none md:pt-[env(safe-area-inset-top)]"
+        >
           <MobileHeader />
           {/* Inline variant: a tab whose chunk failed to load is replaced by the
               recovery panel while the sidebar and tabs stay live. */}

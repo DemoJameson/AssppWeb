@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import Select from "../../src/components/common/Select";
 
 const options = [
@@ -109,6 +110,17 @@ describe("Select keyboard support", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("selects an option with a real pointer click", async () => {
+    const user = userEvent.setup();
+    const { onChange, trigger } = renderSelect();
+
+    await user.click(trigger);
+    await user.click(screen.getByRole("option", { name: "Charlie" }));
+
+    expect(onChange).toHaveBeenCalledWith("c");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
   it("keeps the full label available when the text is truncated", () => {
     const { trigger } = renderSelect({
       options: [
@@ -132,16 +144,74 @@ describe("Select keyboard support", () => {
     );
   });
 
-  it("ignores Enter on a disabled option and keeps the menu open", () => {
+  it("skips disabled options while arrowing", () => {
     const { onChange, trigger } = renderSelect({
       options: [options[0], { ...options[1], disabled: true }, options[2]],
     });
 
     fireEvent.keyDown(trigger, { key: "ArrowDown" }); // open at Alpha
-    fireEvent.keyDown(trigger, { key: "ArrowDown" }); // Bravo (disabled)
-    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.keyDown(trigger, { key: "ArrowDown" }); // Bravo is disabled, so Charlie
+    const activeId = trigger.getAttribute("aria-activedescendant");
+    expect(document.getElementById(activeId as string)?.textContent).toBe(
+      "Charlie",
+    );
 
-    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith("c");
+  });
+
+  it("jumps to an option by typing", () => {
+    const { onChange, trigger } = renderSelect();
+
+    fireEvent.keyDown(trigger, { key: "c" });
     expect(screen.getByRole("listbox")).toBeTruthy();
+    const activeId = trigger.getAttribute("aria-activedescendant");
+    expect(document.getElementById(activeId as string)?.textContent).toBe(
+      "Charlie",
+    );
+
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith("c");
+  });
+
+  it("leaves no active option when every option is disabled", () => {
+    const { trigger } = renderSelect({
+      options: options.map((option) => ({ ...option, disabled: true })),
+    });
+
+    fireEvent.click(trigger);
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    expect(trigger.getAttribute("aria-activedescendant")).toBeNull();
+  });
+
+  it("keeps option actions outside the listbox but in the tab order", async () => {
+    const user = userEvent.setup();
+    const action = vi.fn();
+    const { trigger } = renderSelect({
+      options: [
+        options[0],
+        {
+          ...options[1],
+          disabled: true,
+          trailing: <span>Downloaded</span>,
+          action: { label: "Open", onActivate: action },
+        },
+      ],
+    });
+
+    await user.click(trigger);
+    await user.tab();
+
+    expect(
+      screen.getByRole("option", { name: /Bravo.*Downloaded/ }),
+    ).toBeTruthy();
+    const actionButton = screen.getByRole("button", { name: "Open: Bravo" });
+    const listbox = screen.getByRole("listbox");
+    expect(actionButton).toHaveFocus();
+    expect(listbox).not.toContainElement(actionButton);
+
+    await user.click(actionButton);
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("listbox")).toBeNull();
   });
 });

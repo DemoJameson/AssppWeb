@@ -38,8 +38,16 @@ interface SearchState {
 // Guards against out-of-order responses: flipping the platform/region fires
 // searches in quick succession, and only the newest one may land.
 let searchSeq = 0;
+let searchController: AbortController | null = null;
 // Six or more digits are treated as App IDs; shorter numbers are keywords.
 const NUMERIC_APP_ID_RE = /^\d{6,}$/;
+
+function beginSearchRequest(): AbortController {
+  searchController?.abort();
+  const controller = new AbortController();
+  searchController = controller;
+  return controller;
+}
 
 export const useSearch = create<SearchState>()(
   persist(
@@ -54,6 +62,8 @@ export const useSearch = create<SearchState>()(
       setSearchParam: (param) => set((state) => ({ ...state, ...param })),
       search: async (term, country, platform) => {
         const seq = ++searchSeq;
+        const controller = beginSearchRequest();
+        const { signal } = controller;
         set({ loading: true, error: null, term, country, platform });
         try {
           const trimmed = term.trim();
@@ -67,17 +77,27 @@ export const useSearch = create<SearchState>()(
             // A resolved id is used as-is; a missed one stays usable as a bare
             // record the version exchange can still fetch directly, and its answer
             // decides whether the record survives (see the search page's probe).
-            const app = await lookupAppById(storeId, country, platform);
+            const app = await lookupAppById(
+              storeId,
+              country,
+              platform,
+              signal,
+            );
             next = app ? [app] : [bareSoftwareById(storeId, platform)];
           } else if (looksLikeBundleId(term)) {
-            const app = await lookupApp(term.trim(), country, platform);
+            const app = await lookupApp(
+              term.trim(),
+              country,
+              platform,
+              signal,
+            );
             next = app ? [app] : [];
           } else {
-            next = await searchApps(term, country, platform);
+            next = await searchApps(term, country, platform, 25, signal);
           }
           if (seq === searchSeq) set({ results: next, searched: true });
         } catch (e) {
-          if (seq === searchSeq) {
+          if (!signal.aborted && seq === searchSeq) {
             set({
               error: e instanceof Error ? e.message : "Search failed",
               results: [],
@@ -86,25 +106,45 @@ export const useSearch = create<SearchState>()(
           }
         } finally {
           if (seq === searchSeq) set({ loading: false });
+          if (searchController === controller) searchController = null;
         }
       },
       lookup: async (bundleId, country) => {
+        const seq = ++searchSeq;
+        const controller = beginSearchRequest();
+        const { signal } = controller;
         set({ loading: true, error: null });
         try {
-          const app = await lookupApp(bundleId, country);
-          set({ results: app ? [app] : [], searched: true });
+          const app = await lookupApp(bundleId, country, undefined, signal);
+          if (seq === searchSeq) {
+            set({ results: app ? [app] : [], searched: true });
+          }
         } catch (e) {
-          set({
-            error: e instanceof Error ? e.message : "Lookup failed",
-            results: [],
-            searched: true,
-          });
+          if (!signal.aborted && seq === searchSeq) {
+            set({
+              error: e instanceof Error ? e.message : "Lookup failed",
+              results: [],
+              searched: true,
+            });
+          }
         } finally {
-          set({ loading: false });
+          if (seq === searchSeq) set({ loading: false });
+          if (searchController === controller) searchController = null;
         }
       },
       // Clears keyword, results and error, but keeps country/platform preferences.
-      clear: () => set({ term: "", results: [], error: null, searched: false }),
+      clear: () => {
+        searchSeq += 1;
+        searchController?.abort();
+        searchController = null;
+        set({
+          term: "",
+          results: [],
+          error: null,
+          searched: false,
+          loading: false,
+        });
+      },
       dropResult: (id) =>
         set((state) => {
           const results = state.results.filter((app) => app.id !== id);

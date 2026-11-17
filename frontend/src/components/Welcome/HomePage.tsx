@@ -90,7 +90,7 @@ export default function HomePage() {
         };
 
   return (
-    <PageContainer>
+    <PageContainer documentTitle={t('nav.home')}>
       <div className="space-y-8 pb-4">
         <section className="relative isolate min-h-80 overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 via-blue-500 to-indigo-500 px-6 py-8 sm:min-h-96 sm:px-10 sm:py-10 dark:from-blue-700 dark:via-blue-600 dark:to-indigo-700">
           <div
@@ -107,10 +107,13 @@ export default function HomePage() {
               <span className="h-2 w-2 rounded-full bg-white" />
               App Store
             </div>
-            <h1 className="max-w-full whitespace-nowrap text-[clamp(1.5rem,7vw,1.875rem)] font-semibold tracking-tight text-white sm:text-4xl lg:text-5xl">
+            <h1
+              tabIndex={-1}
+              className="max-w-full text-balance text-[clamp(1.5rem,7vw,1.875rem)] font-semibold tracking-tight text-white focus:outline-none sm:text-4xl lg:text-5xl"
+            >
               {t('home.welcome')}
             </h1>
-            <p className="mt-4 max-w-full whitespace-nowrap text-[clamp(0.625rem,3.1vw,1rem)] leading-relaxed tracking-[-0.015em] text-blue-50 sm:max-w-lg sm:text-lg sm:leading-7">
+            <p className="mt-4 max-w-full text-pretty text-sm leading-relaxed tracking-[-0.015em] text-blue-50 sm:max-w-lg sm:text-lg sm:leading-7">
               {t('home.subtitle')}
             </p>
             <Link

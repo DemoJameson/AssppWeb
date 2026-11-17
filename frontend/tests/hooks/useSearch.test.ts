@@ -56,6 +56,7 @@ describe("useSearch.search", () => {
       "flux.inchmade.app",
       "US",
       "ios",
+      expect.any(AbortSignal),
     );
     expect(mockedSearchApps).not.toHaveBeenCalled();
     expect(useSearch.getState().results).toEqual([app()]);
@@ -66,7 +67,13 @@ describe("useSearch.search", () => {
 
     await useSearch.getState().search("forward", "US", "ios");
 
-    expect(mockedSearchApps).toHaveBeenCalledWith("forward", "US", "ios");
+    expect(mockedSearchApps).toHaveBeenCalledWith(
+      "forward",
+      "US",
+      "ios",
+      25,
+      expect.any(AbortSignal),
+    );
     expect(mockedLookupApp).not.toHaveBeenCalled();
     expect(useSearch.getState().results).toHaveLength(1);
   });
@@ -76,7 +83,13 @@ describe("useSearch.search", () => {
 
     await useSearch.getState().search("115", "CN", "ios");
 
-    expect(mockedSearchApps).toHaveBeenCalledWith("115", "CN", "ios");
+    expect(mockedSearchApps).toHaveBeenCalledWith(
+      "115",
+      "CN",
+      "ios",
+      25,
+      expect.any(AbortSignal),
+    );
     expect(mockedLookupAppById).not.toHaveBeenCalled();
     expect(useSearch.getState().results).toEqual([
       expect.objectContaining({ name: "115网盘" }),
@@ -88,7 +101,13 @@ describe("useSearch.search", () => {
 
     await useSearch.getState().search("12345", "US", "ios");
 
-    expect(mockedSearchApps).toHaveBeenCalledWith("12345", "US", "ios");
+    expect(mockedSearchApps).toHaveBeenCalledWith(
+      "12345",
+      "US",
+      "ios",
+      25,
+      expect.any(AbortSignal),
+    );
     expect(mockedLookupAppById).not.toHaveBeenCalled();
   });
 
@@ -97,7 +116,12 @@ describe("useSearch.search", () => {
 
     await useSearch.getState().search("123456", "US", "ios");
 
-    expect(mockedLookupAppById).toHaveBeenCalledWith("123456", "US", "ios");
+    expect(mockedLookupAppById).toHaveBeenCalledWith(
+      "123456",
+      "US",
+      "ios",
+      expect.any(AbortSignal),
+    );
     expect(mockedSearchApps).not.toHaveBeenCalled();
   });
 
@@ -117,7 +141,12 @@ describe("useSearch.search", () => {
       .getState()
       .search("https://apps.apple.com/cn/app/id6503940939", "US", "ios");
 
-    expect(mockedLookupAppById).toHaveBeenCalledWith("6503940939", "US", "ios");
+    expect(mockedLookupAppById).toHaveBeenCalledWith(
+      "6503940939",
+      "US",
+      "ios",
+      expect.any(AbortSignal),
+    );
     expect(mockedSearchApps).not.toHaveBeenCalled();
     expect(useSearch.getState().results).toEqual([app()]);
   });
@@ -129,23 +158,37 @@ describe("useSearch.search", () => {
       .getState()
       .search("https://apps.apple.com/cn/app/id12345", "US", "ios");
 
-    expect(mockedLookupAppById).toHaveBeenCalledWith("12345", "US", "ios");
+    expect(mockedLookupAppById).toHaveBeenCalledWith(
+      "12345",
+      "US",
+      "ios",
+      expect.any(AbortSignal),
+    );
     expect(mockedSearchApps).not.toHaveBeenCalled();
   });
 
   it("keeps the newest search's results when an older one resolves late", async () => {
     let resolveFirst!: (apps: Software[]) => void;
+    let firstSignal: AbortSignal | undefined;
+    let secondSignal: AbortSignal | undefined;
     mockedSearchApps
       .mockImplementationOnce(
-        () =>
-          new Promise<Software[]>((resolve) => {
+        (_term, _country, _platform, _limit, signal) => {
+          firstSignal = signal;
+          return new Promise<Software[]>((resolve) => {
             resolveFirst = resolve;
-          }),
+          });
+        },
       )
-      .mockResolvedValueOnce([app({ name: "Second" })]);
+      .mockImplementationOnce((_term, _country, _platform, _limit, signal) => {
+        secondSignal = signal;
+        return Promise.resolve([app({ name: "Second" })]);
+      });
 
     const first = useSearch.getState().search("first", "US", "ios");
     const second = useSearch.getState().search("second", "US", "ios");
+    expect(firstSignal?.aborted).toBe(true);
+    expect(secondSignal?.aborted).toBe(false);
     await second;
     expect(useSearch.getState().results).toEqual([app({ name: "Second" })]);
 
@@ -163,7 +206,12 @@ describe("useSearch.search", () => {
 
     await useSearch.getState().search("6503940939", "US", "ios");
 
-    expect(mockedLookupAppById).toHaveBeenCalledWith("6503940939", "US", "ios");
+    expect(mockedLookupAppById).toHaveBeenCalledWith(
+      "6503940939",
+      "US",
+      "ios",
+      expect.any(AbortSignal),
+    );
     expect(mockedSearchApps).not.toHaveBeenCalled();
     expect(useSearch.getState().results).toEqual([
       expect.objectContaining({

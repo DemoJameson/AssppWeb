@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { taskIconUrl } from '../../src/utils/icon';
+import {
+  appleImageSize,
+  resizeAppleImage,
+  taskIconUrl,
+} from '../../src/utils/icon';
 import type { DownloadTask, Software } from '../../src/types';
 
 function software(overrides: Partial<Software> = {}): Software {
@@ -57,5 +61,35 @@ describe('taskIconUrl', () => {
   it('returns nothing when neither source has an icon', () => {
     expect(taskIconUrl(task({ hasIcon: false }))).toBeUndefined();
     expect(taskIconUrl(task())).toBeUndefined();
+  });
+});
+
+describe('Apple image URLs', () => {
+  const url = 'https://is1-ssl.mzstatic.com/image/thumb/example/512x512bb.jpg';
+
+  it('reads the dimensions Apple encodes in the URL', () => {
+    expect(appleImageSize(url)).toEqual({ width: 512, height: 512 });
+    expect(appleImageSize('https://example.com/icon.png')).toBeUndefined();
+  });
+
+  it('asks for a smaller rendition without changing the format or query', () => {
+    expect(resizeAppleImage(url, 56, 56)).toBe(
+      'https://is1-ssl.mzstatic.com/image/thumb/example/56x56bb.jpg',
+    );
+    expect(
+      resizeAppleImage(
+        'https://is1-ssl.mzstatic.com/image/thumb/example/392x696bb.jpg?foo=1',
+        196,
+        348,
+      ),
+    ).toBe(
+      'https://is1-ssl.mzstatic.com/image/thumb/example/196x348bb.jpg?foo=1',
+    );
+  });
+
+  it('leaves non-Apple URLs untouched', () => {
+    expect(resizeAppleImage('https://example.com/icon.png', 56, 56)).toBe(
+      'https://example.com/icon.png',
+    );
   });
 });

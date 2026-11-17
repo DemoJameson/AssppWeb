@@ -73,6 +73,18 @@ export default function SettingsPage() {
     }
   };
 
+  const closeExportModal = () => {
+    setExportModalOpen(false);
+    setExportPassword("");
+    setExportConfirmPassword("");
+  };
+
+  const closeImportModal = () => {
+    setImportModalOpen(false);
+    setImportPassword("");
+    setImportFileData("");
+  };
+
   const handleExport = async () => {
     if (exportPassword !== exportConfirmPassword) {
       addToast(t("settings.data.passwordMismatch"), "error");
@@ -88,9 +100,7 @@ export default function SettingsPage() {
       a.click();
       URL.revokeObjectURL(url);
 
-      setExportModalOpen(false);
-      setExportPassword("");
-      setExportConfirmPassword("");
+      closeExportModal();
       addToast(t("settings.data.exportSuccess"), "success");
     } catch {
       addToast(t("settings.data.exportFailed"), "error");
@@ -141,8 +151,7 @@ export default function SettingsPage() {
           await addAccount(acc);
         }
         addToast(t("settings.data.importSuccess"), "success");
-        setImportModalOpen(false);
-        setImportPassword("");
+        closeImportModal();
       } else {
         let conflictCount = 0;
         let newCount = 0;
@@ -154,16 +163,14 @@ export default function SettingsPage() {
         if (conflictCount > 0) {
           setConflictStats({ conflict: conflictCount, new: newCount });
           setPendingAccounts(valid);
-          setImportModalOpen(false);
-          setImportPassword("");
+          closeImportModal();
           setConflictModalOpen(true);
         } else {
           for (const acc of valid) {
             await addAccount(acc);
           }
           addToast(t("settings.data.importSuccess"), "success");
-          setImportModalOpen(false);
-          setImportPassword("");
+          closeImportModal();
         }
       }
     } catch {
@@ -302,7 +309,7 @@ export default function SettingsPage() {
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             {t("settings.data.title")}
           </h2>
-          <p className="mb-4 max-w-full whitespace-nowrap text-[clamp(0.5625rem,2.8vw,0.875rem)] leading-relaxed tracking-[-0.015em] text-gray-600 dark:text-gray-400">
+          <p className="mb-4 max-w-full text-pretty text-sm leading-relaxed tracking-[-0.015em] text-gray-600 dark:text-gray-400">
             {t("settings.data.description")}
           </p>
 
@@ -339,7 +346,7 @@ export default function SettingsPage() {
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             {t("settings.about.title")}
           </h2>
-          <p className="max-w-full whitespace-nowrap text-[clamp(0.5625rem,2.8vw,0.875rem)] leading-relaxed tracking-[-0.015em] text-gray-600 dark:text-gray-400">
+          <p className="max-w-full text-pretty text-sm leading-relaxed tracking-[-0.015em] text-gray-600 dark:text-gray-400">
             {t("settings.about.description")}
           </p>
           {serverInfo && (
@@ -420,83 +427,119 @@ export default function SettingsPage() {
 
       <Modal
         open={exportModalOpen}
-        onClose={() => setExportModalOpen(false)}
+        onClose={closeExportModal}
         title={t("settings.data.exportBtn")}
       >
-        <div className="min-w-0 space-y-4">
-          <div className="min-w-0">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3">
-              {t("settings.data.passwordPrompt")}
-            </label>
-            <input
-              type="password"
-              value={exportPassword}
-              onChange={(e) => setExportPassword(e.target.value)}
-              className="block min-w-0 max-w-full w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-            />
+        <form
+          className="min-w-0"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleExport();
+          }}
+        >
+          <div className="min-w-0 space-y-4">
+            <div className="min-w-0">
+              <label
+                htmlFor="export-password"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3"
+              >
+                {t("settings.data.passwordPrompt")}
+              </label>
+              <input
+                id="export-password"
+                name="exportPassword"
+                type="password"
+                spellCheck={false}
+                value={exportPassword}
+                onChange={(e) => setExportPassword(e.target.value)}
+                className="block min-w-0 max-w-full w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+              />
+            </div>
+            <div className="min-w-0">
+              <label
+                htmlFor="export-password-confirm"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3"
+              >
+                {t("settings.data.passwordConfirm")}
+              </label>
+              <input
+                id="export-password-confirm"
+                name="exportPasswordConfirm"
+                type="password"
+                spellCheck={false}
+                value={exportConfirmPassword}
+                onChange={(e) => setExportConfirmPassword(e.target.value)}
+                className="block min-w-0 max-w-full w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+              />
+            </div>
           </div>
-          <div className="min-w-0">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3">
-              {t("settings.data.passwordConfirm")}
-            </label>
-            <input
-              type="password"
-              value={exportConfirmPassword}
-              onChange={(e) => setExportConfirmPassword(e.target.value)}
-              className="block min-w-0 max-w-full w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-            />
+          <div className="mt-6 flex min-w-0 flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
+            <button
+              type="button"
+              onClick={closeExportModal}
+              className="min-h-11 min-w-0 whitespace-normal break-words rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 sm:w-auto dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              {t("settings.data.cancel")}
+            </button>
+            <button
+              type="submit"
+              disabled={!exportPassword || !exportConfirmPassword}
+              className="min-h-11 min-w-0 whitespace-normal break-words rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
+            >
+              {t("settings.data.confirmBtn")}
+            </button>
           </div>
-        </div>
-        <div className="mt-6 flex min-w-0 flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
-          <button
-            onClick={() => setExportModalOpen(false)}
-            className="min-h-11 min-w-0 whitespace-normal break-words rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 sm:w-auto dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-          >
-            {t("settings.data.cancel")}
-          </button>
-          <button
-            onClick={handleExport}
-            disabled={!exportPassword || !exportConfirmPassword}
-            className="min-h-11 min-w-0 whitespace-normal break-words rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
-          >
-            {t("settings.data.confirmBtn")}
-          </button>
-        </div>
+        </form>
       </Modal>
 
       <Modal
         open={importModalOpen}
-        onClose={() => setImportModalOpen(false)}
+        onClose={closeImportModal}
         title={t("settings.data.importBtn")}
       >
-        <div className="min-w-0 space-y-4">
-          <div className="min-w-0">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3">
-              {t("settings.data.passwordPrompt")}
-            </label>
-            <input
-              type="password"
-              value={importPassword}
-              onChange={(e) => setImportPassword(e.target.value)}
-              className="block min-w-0 max-w-full w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-            />
+        <form
+          className="min-w-0"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleImport();
+          }}
+        >
+          <div className="min-w-0 space-y-4">
+            <div className="min-w-0">
+              <label
+                htmlFor="import-password"
+                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 pl-3"
+              >
+                {t("settings.data.passwordPrompt")}
+              </label>
+              <input
+                id="import-password"
+                name="importPassword"
+                type="password"
+                spellCheck={false}
+                value={importPassword}
+                onChange={(e) => setImportPassword(e.target.value)}
+                className="block min-w-0 max-w-full w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-base text-gray-900 dark:text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+              />
+            </div>
           </div>
-        </div>
-        <div className="mt-6 flex min-w-0 flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
-          <button
-            onClick={() => setImportModalOpen(false)}
-            className="min-h-11 min-w-0 whitespace-normal break-words rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 sm:w-auto dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
-          >
-            {t("settings.data.cancel")}
-          </button>
-          <button
-            onClick={handleImport}
-            disabled={!importPassword}
-            className="min-h-11 min-w-0 whitespace-normal break-words rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
-          >
-            {t("settings.data.confirmBtn")}
-          </button>
-        </div>
+          <div className="mt-6 flex min-w-0 flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
+            <button
+              type="button"
+              onClick={closeImportModal}
+              className="min-h-11 min-w-0 whitespace-normal break-words rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 sm:w-auto dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              {t("settings.data.cancel")}
+            </button>
+            <button
+              type="submit"
+              disabled={!importPassword}
+              className="min-h-11 min-w-0 whitespace-normal break-words rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
+            >
+              {t("settings.data.confirmBtn")}
+            </button>
+          </div>
+        </form>
       </Modal>
 
       <Modal

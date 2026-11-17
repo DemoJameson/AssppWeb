@@ -15,9 +15,9 @@ export default function MobileHeader() {
             alt=""
             className="h-7 w-7 rounded-[8px] shadow-sm ring-1 ring-black/5 dark:ring-white/10"
           />
-          <h1 className="truncate text-center text-[17px] font-semibold tracking-[-0.015em] text-gray-900 dark:text-white">
+          <span className="truncate text-center text-[17px] font-semibold tracking-[-0.015em] text-gray-900 dark:text-white">
             Asspp Web
-          </h1>
+          </span>
           <ThemeToggle />
         </div>
       </header>
@@ -45,6 +45,7 @@ function ThemeToggle() {
       onClick={cycleTheme}
       className="flex h-9 w-9 items-center justify-center rounded-full bg-white/75 text-blue-600 shadow-sm ring-1 ring-gray-200/70 transition-colors hover:bg-white active:bg-gray-100 dark:bg-gray-800/75 dark:text-blue-400 dark:ring-gray-700/80 dark:hover:bg-gray-800 dark:active:bg-gray-700"
       title={t(`theme.${theme}`)}
+      aria-label={t(`theme.${theme}`)}
     >
       {theme === 'light' && <SunIcon className="h-[18px] w-[18px]" />}
       {theme === 'dark' && <MoonIcon className="h-[18px] w-[18px]" />}

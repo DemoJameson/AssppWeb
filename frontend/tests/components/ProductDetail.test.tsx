@@ -1219,7 +1219,9 @@ describe('ProductDetail download action', () => {
     fireEvent.click(combo);
     const heldOption = screen.getByRole('option', { name: /890657720/ });
     expect(heldOption).toHaveAttribute('aria-disabled', 'true');
-    expect(heldOption.textContent).toContain('search.product.downloaded');
+    expect(
+      screen.getByRole('button', { name: /search\.product\.downloaded/ }),
+    ).toBeTruthy();
     // Picking it does nothing — the selection stays where it was.
     fireEvent.click(heldOption);
     expect(combo).toHaveTextContent('818970197');
@@ -1520,9 +1522,7 @@ describe('ProductDetail download action', () => {
     expect(screen.queryByTestId('downloads-probe')).toBeNull();
 
     fireEvent.click(
-      within(heldOption).getByRole('button', {
-        name: 'search.product.downloaded',
-      }),
+      screen.getByRole('button', { name: /search\.product\.downloaded/ }),
     );
     expect(screen.getByTestId('downloads-probe').textContent).toBe(
       JSON.stringify({ highlightTaskId: 'held-888' }),

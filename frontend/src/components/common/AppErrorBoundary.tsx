@@ -76,7 +76,12 @@ function Fallback({
       role="alert"
     >
       <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-7 text-center shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <h1 className="text-lg font-semibold">{t('errors.ui.loadFailed')}</h1>
+        <h1
+          tabIndex={-1}
+          className="text-lg font-semibold focus:outline-none"
+        >
+          {t('errors.ui.loadFailed')}
+        </h1>
         <p className="mt-2.5 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
           {t('errors.ui.loadFailedHint')}
         </p>

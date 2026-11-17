@@ -234,6 +234,20 @@ describe('SearchPage App ID probe', () => {
     await waitFor(() => expect(lookupAppById).toHaveBeenCalledTimes(1));
   });
 
+  it('keeps a failed search visible and out of the no-results announcement', async () => {
+    vi.mocked(searchApps).mockRejectedValue(new Error('backend down'));
+    renderSearchPage();
+
+    fireEvent.submit(document.querySelector('form') as HTMLFormElement);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('backend down');
+    expect(screen.getByRole('status')).toHaveTextContent('');
+    expect(
+      screen.queryByRole('heading', { name: 'search.noResults' }),
+    ).toBeNull();
+  });
+
   it('says it is checking while the version exchange runs, and is not walkable yet', async () => {
     const pending = deferred<{ versions: string[]; updatedCookies: [] }>();
     mocks.listVersions.mockReturnValue(pending.promise);
@@ -472,7 +486,11 @@ describe('SearchPage App ID probe', () => {
 
     renderSearchPage();
 
-    await waitFor(() => expect(screen.getByText('search.noResults')).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'search.noResults' }),
+      ).toBeTruthy(),
+    );
     expect(screen.queryByText('search.bareRecordTag')).toBeNull();
     expect(useSearch.getState().results).toEqual([]);
     expect(useSearch.getState().searched).toBe(true);
@@ -487,7 +505,11 @@ describe('SearchPage App ID probe', () => {
 
     renderSearchPage();
 
-    await waitFor(() => expect(screen.getByText('search.noResults')).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'search.noResults' }),
+      ).toBeTruthy(),
+    );
     expect(screen.queryByText('search.bareRecordTag')).toBeNull();
   });
 
@@ -502,7 +524,7 @@ describe('SearchPage App ID probe', () => {
 
     await waitFor(() => expect(mocks.listVersions).toHaveBeenCalledTimes(1));
     expect(screen.getByText('search.bareRecordTag')).toBeTruthy();
-    expect(screen.queryByText('search.noResults')).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'search.noResults' })).toBeNull();
     expect(screen.getByText('search.bareUnverified')).toBeTruthy();
     expect(screen.queryByRole('link')).toBeNull();
   });
@@ -654,7 +676,7 @@ describe('SearchPage App ID probe', () => {
     await waitFor(() =>
       expect(screen.getByText('search.localUnverified')).toBeTruthy(),
     );
-    expect(screen.queryByText('search.noResults')).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'search.noResults' })).toBeNull();
     expect(useSearch.getState().results).toHaveLength(1);
     expect(screen.queryByRole('link')).toBeNull();
   });

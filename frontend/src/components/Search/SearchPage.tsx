@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import PageContainer from "../Layout/PageContainer";
+import Alert from "../common/Alert";
 import AppIcon from "../common/AppIcon";
 import CountrySelect from "../common/CountrySelect";
 import PlatformSelect from "../common/PlatformSelect";
@@ -12,7 +13,6 @@ import { useSearch } from "../../hooks/useSearch";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useDownloadAction } from "../../hooks/useDownloadAction";
 import { useVersionMetadataMap } from "../../hooks/useVersionMetadata";
-import { useToastStore } from "../../store/toast";
 import { useVersionMetadataStore } from "../../store/versionMetadata";
 import {
   ensureVersionList,
@@ -119,7 +119,6 @@ export default function SearchPage() {
   // the first account's storefront (China with no account), platform defaulting to iOS.
   const fallbackCountry = firstAccountCountry(accounts) ?? "CN";
   const fallbackPlatform = "ios" as const;
-  const addToast = useToastStore((s) => s.addToast);
 
   const {
     term,
@@ -133,12 +132,6 @@ export default function SearchPage() {
     setSearchParam,
     dropResult,
   } = useSearch();
-
-  useEffect(() => {
-    if (error) {
-      addToast(error, "error");
-    }
-  }, [error, addToast]);
 
   useEffect(() => {
     // Wait for the account store's first read: committing while it loads would pin
@@ -410,10 +403,12 @@ export default function SearchPage() {
 
   return (
     <PageContainer title={t("search.title")}>
-      <form
-        onSubmit={handleSubmit}
-        className="mb-8 space-y-3 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-4"
-      >
+      <search aria-label={t("search.title")}>
+        <form
+          onSubmit={handleSubmit}
+          aria-busy={loading}
+          className="mb-8 space-y-3 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-4"
+        >
         <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_170px_auto] sm:items-start">
           <div className="min-w-0">
             <label
@@ -424,10 +419,16 @@ export default function SearchPage() {
             </label>
             <input
               id="search-term"
-              type="text"
+              name="term"
+              type="search"
               value={term}
               onChange={(e) => setSearchParam({ term: e.target.value })}
               placeholder={t("search.placeholder")}
+              autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="search"
               className="min-h-11 w-full rounded-2xl border-0 bg-gray-100 px-4 py-2.5 text-base text-gray-900 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500/40 dark:bg-gray-800 dark:text-white dark:placeholder:text-gray-400"
             />
           </div>
@@ -440,6 +441,7 @@ export default function SearchPage() {
             </label>
             <input
               id="search-version-id"
+              name="versionId"
               type="text"
               inputMode="numeric"
               value={versionId}
@@ -448,18 +450,33 @@ export default function SearchPage() {
                 versionIdRef.current = e.target.value;
               }}
               placeholder={t("downloads.add.versionIdPlaceholder")}
+              autoComplete="off"
+              spellCheck={false}
+              enterKeyHint="search"
+              aria-invalid={versionId.trim() !== "" && !versionIdValid}
+              aria-describedby={
+                versionId.trim() !== "" && !versionIdValid
+                  ? "search-version-id-error"
+                  : undefined
+              }
               className="min-h-11 w-full rounded-2xl border-0 bg-gray-100 px-4 py-2.5 text-base text-gray-900 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500/40 dark:bg-gray-800 dark:text-white dark:placeholder:text-gray-400"
             />
             {versionId.trim() !== "" && !versionIdValid && (
-              <p className="mt-1 min-w-0 break-words text-xs text-red-600 [overflow-wrap:anywhere] dark:text-red-400">
+              <p
+                id="search-version-id-error"
+                className="mt-1 min-w-0 break-words text-xs text-red-600 [overflow-wrap:anywhere] dark:text-red-400"
+              >
                 {t("downloads.add.invalidVersionId")}
               </p>
             )}
           </div>
           <div className="min-w-0">
-            <label className="mb-1 hidden text-sm font-medium sm:block sm:invisible">
+            <span
+              aria-hidden="true"
+              className="mb-1 hidden text-sm font-medium sm:block sm:invisible"
+            >
               {t("search.button")}
-            </label>
+            </span>
             <button
               type="submit"
               disabled={loading || !term.trim()}
@@ -500,7 +517,31 @@ export default function SearchPage() {
             className="truncate border-0 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white"
           />
         </div>
-      </form>
+        </form>
+      </search>
+
+      <p
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {error
+          ? ""
+          : loading
+            ? t("loading")
+            : searched
+              ? results.length > 0
+                ? t("search.resultsCount", { count: results.length })
+                : t("search.noResults")
+              : ""}
+      </p>
+
+      {error && (
+        <div role="alert" className="mb-5">
+          <Alert type="error">{error}</Alert>
+        </div>
+      )}
 
       {results.length === 0 && !loading && !error && !searched && (
         <div className="flex flex-col items-center justify-center rounded-3xl bg-white px-6 py-16 text-center shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10">
@@ -522,7 +563,7 @@ export default function SearchPage() {
           <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
             {t("search.empty")}
           </h3>
-          <p className="max-w-full whitespace-nowrap text-[clamp(0.5625rem,2.8vw,0.875rem)] leading-relaxed tracking-[-0.015em] text-gray-500 dark:text-gray-400">
+          <p className="max-w-full text-pretty text-sm leading-relaxed tracking-[-0.015em] text-gray-500 dark:text-gray-400">
             {t("search.emptyDesc")}
           </p>
         </div>
@@ -548,7 +589,7 @@ export default function SearchPage() {
           <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
             {t("search.noResults")}
           </h3>
-          <p className="max-w-full text-[clamp(0.5625rem,2.8vw,0.875rem)] leading-relaxed tracking-[-0.015em] text-gray-500 dark:text-gray-400">
+          <p className="max-w-full text-pretty text-sm leading-relaxed tracking-[-0.015em] text-gray-500 dark:text-gray-400">
             {t("search.noResultsDesc")}
           </p>
         </div>
@@ -556,7 +597,10 @@ export default function SearchPage() {
 
       {results.length > 0 && (
         <div className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10">
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          <ul
+            role="list"
+            className="divide-y divide-gray-100 dark:divide-gray-800"
+          >
             {results.map((app) => {
               // A record with no evidence for this platform is walkable only once the
               // exchange produced versions; every other record came with metadata.
@@ -608,7 +652,12 @@ export default function SearchPage() {
               ];
               const body = (
                 <>
-                  <AppIcon url={app.artworkUrl} name={app.name} size="md" />
+                  <AppIcon
+                    url={app.artworkUrl}
+                    name={app.name}
+                    size="md"
+                    decorative
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold text-gray-900 dark:text-white">
                       {app.name}
@@ -674,31 +723,32 @@ export default function SearchPage() {
 
               if (!open) {
                 return (
-                  <div key={app.id} className="flex items-center gap-4 p-4">
-                    {body}
-                  </div>
+                  <li key={app.id}>
+                    <div className="flex items-center gap-4 p-4">{body}</div>
+                  </li>
                 );
               }
 
               return (
-                <Link
-                  key={app.id}
-                  to={`/search/${app.id}?platform=${activePlatform}`}
-                  state={{
-                    app,
-                    country: activeCountry,
-                    versionId:
-                      versionIdValid && versionId.trim()
-                        ? versionId.trim()
-                        : undefined,
-                  }}
-                  className="flex items-center gap-4 p-4 transition-colors hover:bg-gray-50 active:bg-gray-100 dark:hover:bg-gray-800/70 dark:active:bg-gray-800"
-                >
-                  {body}
-                </Link>
+                <li key={app.id}>
+                  <Link
+                    to={`/search/${app.id}?platform=${activePlatform}`}
+                    state={{
+                      app,
+                      country: activeCountry,
+                      versionId:
+                        versionIdValid && versionId.trim()
+                          ? versionId.trim()
+                          : undefined,
+                    }}
+                    className="flex items-center gap-4 p-4 transition-colors hover:bg-gray-50 active:bg-gray-100 dark:hover:bg-gray-800/70 dark:active:bg-gray-800"
+                  >
+                    {body}
+                  </Link>
+                </li>
               );
             })}
-          </div>
+          </ul>
         </div>
       )}
     </PageContainer>

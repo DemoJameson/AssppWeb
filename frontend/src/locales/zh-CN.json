@@ -46,6 +46,7 @@
     "label": "搜索",
     "placeholder": "名称、商店链接、Bundle ID 或 App ID",
     "button": "搜索",
+    "resultsCount": "结果：{{count}} 个",
     "empty": "搜索应用以开始。",
     "emptyDesc": "输入名称、链接、Bundle ID 或 App ID，查找应用与许可证。",
     "noResults": "未找到相关应用。",

@@ -29,7 +29,15 @@ const resources = {
   },
 };
 
-i18n
+function syncDocumentLanguage(language?: string) {
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = language || 'en-US';
+  }
+}
+
+i18n.on('languageChanged', syncDocumentLanguage);
+
+void i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
@@ -40,6 +48,9 @@ i18n
     interpolation: {
       escapeValue: false,
     },
+  })
+  .then(() => {
+    syncDocumentLanguage(i18n.resolvedLanguage || i18n.language);
   });
 
 export default i18n;

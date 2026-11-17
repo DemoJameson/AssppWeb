@@ -174,11 +174,13 @@ export default function DownloadItem({
             to={appDetailHref}
             state={appDetailState ?? undefined}
             className="min-w-0 shrink-0"
+            aria-label={task.software.name}
           >
             <AppIcon
               url={taskIconUrl(task)}
               name={task.software.name}
               size="sm"
+              decorative
             />
           </Link>
         ) : (
@@ -187,6 +189,7 @@ export default function DownloadItem({
               url={taskIconUrl(task)}
               name={task.software.name}
               size="sm"
+              decorative
             />
           </div>
         )}

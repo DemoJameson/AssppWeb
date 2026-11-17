@@ -21,6 +21,20 @@ const localStorageMock = {
 };
 Object.defineProperty(globalThis, "localStorage", { value: localStorageMock });
 
+if (!HTMLDialogElement.prototype.showModal) {
+  HTMLDialogElement.prototype.showModal = function showModal() {
+    this.open = true;
+  };
+}
+
+if (!HTMLDialogElement.prototype.close) {
+  HTMLDialogElement.prototype.close = function close(returnValue?: string) {
+    this.returnValue = returnValue ?? "";
+    this.open = false;
+    this.dispatchEvent(new Event("close"));
+  };
+}
+
 // Mock crypto.getRandomValues
 if (!globalThis.crypto) {
   Object.defineProperty(globalThis, "crypto", {

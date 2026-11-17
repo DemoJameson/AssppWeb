@@ -7,6 +7,7 @@ export async function searchApps(
   country: string,
   platform: Platform = "ios",
   limit: number = 25,
+  signal?: AbortSignal,
 ): Promise<Software[]> {
   const params = new URLSearchParams({
     term,
@@ -15,7 +16,7 @@ export async function searchApps(
     platform,
     limit: String(limit),
   });
-  return apiGet<Software[]>(`/api/search?${params}`);
+  return apiGet<Software[]>(`/api/search?${params}`, { signal });
 }
 
 /**
@@ -26,8 +27,9 @@ export async function lookupApp(
   bundleId: string,
   country: string,
   platform?: Platform,
+  signal?: AbortSignal,
 ): Promise<Software | null> {
-  return lookup({ bundleId, country }, platform);
+  return lookup({ bundleId, country }, platform, signal);
 }
 
 /**
@@ -38,8 +40,9 @@ export async function lookupAppById(
   id: string | number,
   country: string,
   platform?: Platform,
+  signal?: AbortSignal,
 ): Promise<Software | null> {
-  return lookup({ id: String(id), country }, platform);
+  return lookup({ id: String(id), country }, platform, signal);
 }
 
 /**
@@ -50,11 +53,12 @@ export async function lookupAppById(
 async function lookup(
   base: Record<string, string>,
   platform?: Platform,
+  signal?: AbortSignal,
 ): Promise<Software | null> {
   const params = new URLSearchParams(base);
   if (platform) {
     params.set("entity", lookupEntityFor(platform));
     params.set("platform", platform);
   }
-  return apiGet<Software | null>(`/api/lookup?${params}`);
+  return apiGet<Software | null>(`/api/lookup?${params}`, { signal });
 }

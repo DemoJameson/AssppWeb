@@ -135,12 +135,18 @@ export default function AddAccountForm() {
               </label>
               <input
                 id="appleId"
+                name="appleId"
                 type="text"
                 required
                 value={appleId}
                 onChange={(e) => setAppleId(e.target.value)}
                 disabled={loading}
                 placeholder={t("accounts.addForm.appleIdPlaceholder")}
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="next"
                 className={inputClassName}
               />
             </div>
@@ -154,11 +160,16 @@ export default function AddAccountForm() {
               </label>
               <input
                 id="password"
+                name="password"
                 type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
+                autoComplete="current-password"
+                autoCapitalize="none"
+                spellCheck={false}
+                enterKeyHint="done"
                 className={inputClassName}
               />
             </div>
@@ -173,11 +184,17 @@ export default function AddAccountForm() {
               <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
                 <input
                   id="deviceId"
+                  name="deviceIdentifier"
                   type="text"
                   required
                   value={deviceId}
                   onChange={(e) => setDeviceId(e.target.value)}
                   disabled={loading || needsCode}
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  aria-describedby="deviceIdHelp"
                   className={`${inputClassName} min-w-0 flex-1 font-mono`}
                 />
                 <button
@@ -189,7 +206,10 @@ export default function AddAccountForm() {
                   {t("accounts.addForm.randomize")}
                 </button>
               </div>
-              <p className="mt-1 pl-3 text-xs text-gray-500 dark:text-gray-400">
+              <p
+                id="deviceIdHelp"
+                className="mt-1 pl-3 text-xs text-gray-500 dark:text-gray-400"
+              >
                 {t("accounts.addForm.deviceIdHelp")}
               </p>
             </div>
@@ -204,6 +224,7 @@ export default function AddAccountForm() {
                 </label>
                 <input
                   id="code"
+                  name="code"
                   type="text"
                   inputMode="numeric"
                   pattern="[0-9]*"
@@ -214,9 +235,17 @@ export default function AddAccountForm() {
                   disabled={loading}
                   placeholder={t("accounts.addForm.codePlaceholder")}
                   className={inputClassName}
+                  autoComplete="one-time-code"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  aria-describedby="codeHelp"
+                  enterKeyHint="done"
                   autoFocus
                 />
-                <p className="mt-1 pl-3 text-xs text-gray-500 dark:text-gray-400">
+                <p
+                  id="codeHelp"
+                  className="mt-1 pl-3 text-xs text-gray-500 dark:text-gray-400"
+                >
                   {t("accounts.addForm.codeHelp")}
                 </p>
               </div>

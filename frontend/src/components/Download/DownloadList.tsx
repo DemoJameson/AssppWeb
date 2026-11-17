@@ -577,15 +577,18 @@ export default function DownloadList() {
   }
 
   return (
-    <PageContainer>
+    <PageContainer documentTitle={t("downloads.title")}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 sm:mb-7">
-        <h1 className="min-w-0 text-[2rem] font-semibold leading-[1.12] tracking-[-0.035em] text-gray-900 sm:text-[2.125rem] dark:text-white">
+        <h1
+          tabIndex={-1}
+          className="min-w-0 text-[2rem] font-semibold leading-[1.12] tracking-[-0.035em] text-gray-900 focus:outline-none sm:text-[2.125rem] dark:text-white"
+        >
           {t("downloads.title")}
         </h1>
         <button
           onClick={handleCheckAllUpdates}
           disabled={checkingAll}
-          className="flex h-9 shrink-0 items-center justify-center rounded-full bg-blue-600 px-4 text-center text-[clamp(0.75rem,3.6vw,0.875rem)] font-semibold leading-tight text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-600"
+          className="flex h-9 shrink-0 items-center justify-center rounded-full bg-blue-600 px-4 text-center text-sm font-semibold leading-tight text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:bg-blue-600 dark:text-white dark:hover:bg-blue-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-600"
         >
           {checkingAll
             ? t("downloads.checkingUpdates")
@@ -611,13 +614,13 @@ export default function DownloadList() {
       >
         <span
           aria-hidden="true"
-          className="block whitespace-nowrap text-[clamp(0.625rem,3.1vw,0.75rem)] xl:hidden"
+          className="block text-xs xl:hidden"
         >
           {t("downloads.warningShort")}
         </span>
         <span
           aria-hidden="true"
-          className="hidden whitespace-nowrap text-xs xl:block"
+          className="hidden text-xs xl:block"
         >
           {t("downloads.warning")}
         </span>
@@ -680,19 +683,19 @@ export default function DownloadList() {
               <>
                 <span
                   aria-hidden="true"
-                  className="block whitespace-nowrap text-[clamp(0.625rem,3vw,0.875rem)] xl:hidden"
+                  className="block text-sm xl:hidden"
                 >
                   {t("downloads.emptyAllDescShort")}
                 </span>
                 <span
                   aria-hidden="true"
-                  className="hidden whitespace-nowrap text-sm xl:block"
+                  className="hidden text-sm xl:block"
                 >
                   {t("downloads.emptyAllDesc")}
                 </span>
               </>
             ) : (
-              <span className="block whitespace-nowrap text-[clamp(0.625rem,3vw,0.875rem)]">
+              <span className="block text-sm">
                 {t("downloads.emptyFilterDesc")}
               </span>
             )}
@@ -804,10 +807,14 @@ export default function DownloadList() {
           </p>
           {updateTarget && updateTarget.versions.length > 0 && (
             <div className="min-w-0">
-              <label className="mb-1 block pl-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label
+                htmlFor="update-version-select"
+                className="mb-1 block pl-3 text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
                 {t("downloads.package.selectVersion")}
               </label>
               <Select
+                id="update-version-select"
                 value={updateTarget.selected}
                 onChange={(next) =>
                   setUpdateTarget((current) =>

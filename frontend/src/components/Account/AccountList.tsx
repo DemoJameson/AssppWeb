@@ -52,7 +52,7 @@ export default function AccountList() {
           <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
             {t("accounts.empty")}
           </h3>
-          <p className="mb-6 max-w-full whitespace-nowrap text-[clamp(0.5625rem,2.8vw,0.875rem)] leading-relaxed tracking-[-0.015em] text-gray-500 dark:text-gray-400">
+          <p className="mb-6 max-w-full text-pretty text-sm leading-relaxed tracking-[-0.015em] text-gray-500 dark:text-gray-400">
             {t("accounts.emptyDesc")}
           </p>
           <Link

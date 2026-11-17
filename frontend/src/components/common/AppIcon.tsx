@@ -1,10 +1,15 @@
 import { useState } from 'react';
 import { isPlaceholderAppName } from '../../utils/software';
+import { appleImageSize, resizeAppleImage } from '../../utils/icon';
 
 interface AppIconProps {
   url?: string;
   name: string;
   size?: 'sm' | 'md' | 'lg';
+  /** The name is rendered next to the icon, so assistive tech should ignore it. */
+  decorative?: boolean;
+  /** Load immediately and at high priority, for an above-the-fold icon. */
+  priority?: boolean;
 }
 
 const sizeClasses = {
@@ -13,18 +18,37 @@ const sizeClasses = {
   lg: 'h-20 w-20',
 };
 
+const pixelSizes = {
+  sm: 40,
+  md: 56,
+  lg: 80,
+};
+
+const remSizes = {
+  sm: '2.5rem',
+  md: '3.5rem',
+  lg: '5rem',
+};
+
 const surfaceClassName =
   'shrink-0 rounded-[22%] ring-1 ring-black/5 shadow-sm shadow-gray-950/10 dark:ring-white/10 dark:shadow-black/30';
 
-export default function AppIcon({ url, name, size = 'md' }: AppIconProps) {
+export default function AppIcon({
+  url,
+  name,
+  size = 'md',
+  decorative = false,
+  priority = false,
+}: AppIconProps) {
   const [failed, setFailed] = useState(false);
 
   if (!url || failed) {
     return (
       <div
         className={`${sizeClasses[size]} ${surfaceClassName} flex items-center justify-center bg-gradient-to-br from-blue-500 to-blue-700 text-white`}
-        role="img"
-        aria-label={name}
+        role={decorative ? undefined : 'img'}
+        aria-label={decorative ? undefined : name}
+        aria-hidden={decorative ? 'true' : undefined}
       >
         {isPlaceholderAppName(name) ? (
           <AppleMark className="h-[52%] w-[52%]" />
@@ -37,10 +61,42 @@ export default function AppIcon({ url, name, size = 'md' }: AppIconProps) {
     );
   }
 
+  const pixelSize = pixelSizes[size];
+  const original = appleImageSize(url);
+  const canResize = original !== undefined;
+  const sourceSize = original
+    ? Math.max(original.width, original.height)
+    : pixelSize;
+  const srcSize = Math.min(pixelSize, sourceSize);
+  const src = canResize
+    ? resizeAppleImage(url, srcSize, srcSize)
+    : url;
+  const srcSet = canResize
+    ? Array.from(
+        new Set(
+          [1, 2, 3, 4].map((density) =>
+            Math.min(pixelSize * density, sourceSize),
+          ),
+        ),
+      )
+        .map(
+          (candidate) =>
+            `${resizeAppleImage(url, candidate, candidate)} ${candidate}w`,
+        )
+        .join(', ')
+    : undefined;
+
   return (
     <img
-      src={url}
-      alt={name}
+      src={src}
+      srcSet={srcSet}
+      sizes={canResize ? remSizes[size] : undefined}
+      width={pixelSize}
+      height={pixelSize}
+      loading={priority ? 'eager' : 'lazy'}
+      fetchPriority={priority ? 'high' : 'auto'}
+      decoding="async"
+      alt={decorative ? '' : name}
       className={`${sizeClasses[size]} ${surfaceClassName} object-cover`}
       onError={() => setFailed(true)}
       draggable={false}

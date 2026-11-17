@@ -43,6 +43,7 @@
 :root {
   font-family: var(--font-sans);
   font-synthesis: none;
+  color-scheme: light;
   color: var(--color-gray-900);
   background: var(--color-gray-50);
   text-rendering: optimizeLegibility;
@@ -67,8 +68,19 @@ body {
 
 html.dark,
 html.dark body {
+  color-scheme: dark;
   color: white;
   background: var(--color-gray-950);
+}
+
+dialog::backdrop {
+  background: rgb(3 7 18 / 0.45);
+  backdrop-filter: blur(4px);
+  overscroll-behavior: contain;
+}
+
+html.dark dialog::backdrop {
+  background: rgb(0 0 0 / 0.62);
 }
 
 button,

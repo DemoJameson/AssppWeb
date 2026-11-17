@@ -46,6 +46,7 @@
     "label": "検索",
     "placeholder": "名前、ストアリンク、Bundle ID、または App ID",
     "button": "検索",
+    "resultsCount": "検索結果：{{count}} 件",
     "empty": "検索して開始してください。",
     "emptyDesc": "名前 / リンク / Bundle ID / App ID でアプリ・ライセンス検索。",
     "noResults": "該当するアプリが見つかりません。",

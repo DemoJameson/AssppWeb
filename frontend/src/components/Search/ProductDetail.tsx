@@ -37,6 +37,7 @@ import {
   needsFetchVerification,
   needsVersionExchange,
 } from "../../utils/software";
+import { appleImageSize, resizeAppleImage } from "../../utils/icon";
 import {
   appPresenceFromProbeError,
   isPlatformVersionUnavailable,
@@ -710,7 +711,7 @@ export default function ProductDetail() {
   }
 
   return (
-    <PageContainer>
+    <PageContainer documentTitle={app.name}>
       <div className="min-w-0 space-y-5 [overflow-wrap:anywhere]">
         {previewEnabled && (
           <Alert type="warning">
@@ -723,10 +724,19 @@ export default function ProductDetail() {
 
         <section className="flex min-w-0 items-start gap-4 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:gap-5 sm:p-6">
           <div className="shrink-0">
-            <AppIcon url={app.artworkUrl} name={app.name} size="lg" />
+            <AppIcon
+              url={app.artworkUrl}
+              name={app.name}
+              size="lg"
+              decorative
+              priority
+            />
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-3xl">
+            <h1
+              tabIndex={-1}
+              className="text-2xl font-bold tracking-tight text-gray-900 focus:outline-none dark:text-white sm:text-3xl"
+            >
               {app.name}
               {app.metadataSource === "bare" && (
                 <span className="ml-2 inline-block rounded-full bg-orange-50 px-2 py-0.5 align-middle text-xs font-medium text-orange-600 dark:bg-orange-950/60 dark:text-orange-400">
@@ -843,22 +853,24 @@ export default function ProductDetail() {
                       versionMeta[v],
                       pendingMeta[v],
                     );
-                    // A held build refuses the pick; its 已下载 mark is a chip leading
-                    // to the package on the downloads page.
+                    // A held build refuses the pick; its 已下载 mark is a status
+                    // here, with the hop offered outside the listbox.
                     const heldTask = heldTaskFor(v);
                     return {
                       value: v,
                       label,
                       disabled: !!heldTask,
                       trailing: heldTask ? (
-                        <button
-                          type="button"
-                          onClick={() => goToDownloadTask(heldTask.id)}
-                          className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/70 dark:text-blue-300 dark:hover:bg-blue-800"
-                        >
+                        <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/70 dark:text-blue-300">
                           {t("search.product.downloaded")}
-                        </button>
+                        </span>
                       ) : undefined,
+                      action: heldTask
+                        ? {
+                            label: t("search.product.downloaded"),
+                            onActivate: () => goToDownloadTask(heldTask.id),
+                          }
+                        : undefined,
                       group: t("search.product.version"),
                     };
                   })}
@@ -1088,19 +1100,45 @@ export default function ProductDetail() {
 
         {app.screenshotUrls && app.screenshotUrls.length > 0 && (
           <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10 sm:p-6">
-            <h2 className="font-semibold text-gray-900 dark:text-white mb-2">
+            <h2
+              id="product-screenshots-heading"
+              className="font-semibold text-gray-900 dark:text-white mb-2"
+            >
               {t("search.product.screenshots")}
             </h2>
-            <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {app.screenshotUrls.map((url, i) => (
-                <img
-                  key={i}
-                  src={url}
-                  alt={`Screenshot ${i + 1}`}
-                  className="h-64 shrink-0 snap-start snap-always rounded-3xl object-contain sm:h-80"
-                  loading="lazy"
-                />
-              ))}
+            <div
+              role="region"
+              aria-labelledby="product-screenshots-heading"
+              tabIndex={0}
+              className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain rounded-xl pb-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {app.screenshotUrls.map((url, i) => {
+                const original = appleImageSize(url);
+                const targetHeight = original
+                  ? Math.min(original.height, 640)
+                  : undefined;
+                const targetWidth =
+                  original && targetHeight
+                    ? Math.round((original.width * targetHeight) / original.height)
+                    : undefined;
+                const src =
+                  targetWidth && targetHeight
+                    ? resizeAppleImage(url, targetWidth, targetHeight)
+                    : url;
+                return (
+                  <img
+                    key={`${url}-${i}`}
+                    src={src}
+                    width={original?.width}
+                    height={original?.height}
+                    alt={`${app.name} — ${t("search.product.screenshots")} ${i + 1}`}
+                    className="h-64 shrink-0 snap-start snap-always rounded-3xl object-contain sm:h-80"
+                    loading="lazy"
+                    decoding="async"
+                    fetchPriority="low"
+                  />
+                );
+              })}
             </div>
           </section>
         )}

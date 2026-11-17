@@ -126,6 +126,8 @@ export default function PasswordGate({ children }: { children: ReactNode }) {
               <LockIcon />
             </div>
             <input
+              id="access-password"
+              name="password"
               type="password"
               value={password}
               onChange={(e) => {
@@ -137,6 +139,8 @@ export default function PasswordGate({ children }: { children: ReactNode }) {
               aria-invalid={Boolean(error)}
               aria-describedby={error ? 'access-password-error' : undefined}
               autoComplete="current-password"
+              autoCapitalize="none"
+              spellCheck={false}
               autoFocus
               className="min-h-12 w-full rounded-2xl border border-gray-200 bg-gray-100/80 py-3 pl-11 pr-4 text-base text-gray-900 outline-none transition-colors placeholder:text-gray-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10 dark:border-gray-700 dark:bg-gray-800/80 dark:text-white dark:placeholder:text-gray-500 dark:focus:border-blue-400 dark:focus:bg-gray-800"
             />

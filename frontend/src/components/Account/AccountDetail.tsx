@@ -147,6 +147,7 @@ export default function AccountDetail() {
             <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
               <input
                 id="reauth-code"
+                name="code"
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
@@ -156,6 +157,10 @@ export default function AccountDetail() {
                 }
                 disabled={reauthing}
                 placeholder="000000"
+                autoComplete="one-time-code"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="done"
                 className="min-h-11 w-full min-w-0 flex-1 rounded-xl border-0 bg-gray-100 px-3 py-2 text-base text-gray-900 focus:ring-2 focus:ring-blue-500/40 disabled:opacity-60 dark:bg-gray-800 dark:text-white"
                 autoFocus
               />
