@@ -98,6 +98,15 @@ const infoPlist = (version: string, extra = '') =>
 const readerOver = (archive: Buffer) => async (start: number, end: number) =>
   archive.subarray(start, end + 1);
 
+function requestedRange(init?: RequestInit): { start: number; end: number } {
+  const range = String(
+    (init?.headers as Record<string, string> | undefined)?.Range ?? '',
+  );
+  const match = /bytes=(\d+)-(\d+)/.exec(range);
+  if (!match) throw new Error(`unexpected range request: ${range}`);
+  return { start: Number(match[1]), end: Number(match[2]) };
+}
+
 function buildPreflightXar(distribution: string): Buffer {
   const data = Buffer.from(distribution, 'utf8');
   const extractedChecksum = createHash('sha1').update(data).digest('hex');
@@ -389,5 +398,113 @@ describe('versionMetadataFromDownloadURL', () => {
       minimumOsVersion: '15.7',
       supportedPlatforms: ['macOS'],
     });
+  });
+
+  it('rejects a range response that ignored the Range request', async () => {
+    const archive = buildZip([
+      { name: 'Payload/Sample.app/Info.plist', data: infoPlist('1.0.0') },
+    ]);
+    vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        return new Response(null, {
+          status: 200,
+          headers: { 'content-length': String(archive.length) },
+        });
+      }
+      return new Response(archive, { status: 200 });
+    });
+
+    await expect(
+      versionMetadataFromDownloadURL('https://example.apple.com/app.ipa'),
+    ).rejects.toThrow('range request failed (HTTP 200)');
+  });
+
+  it('rejects a Content-Range that does not match the requested range', async () => {
+    const archive = buildZip([
+      { name: 'Payload/Sample.app/Info.plist', data: infoPlist('1.0.0') },
+    ]);
+    vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        return new Response(null, {
+          status: 200,
+          headers: { 'content-length': String(archive.length) },
+        });
+      }
+      const { start, end } = requestedRange(init);
+      return new Response(archive.subarray(start, end + 1), {
+        status: 206,
+        headers: {
+          'content-range': `bytes ${start}-${end}/${archive.length + 1}`,
+        },
+      });
+    });
+
+    await expect(
+      versionMetadataFromDownloadURL('https://example.apple.com/app.ipa'),
+    ).rejects.toThrow('unexpected Content-Range');
+  });
+
+  it('rejects a range body shorter than its Content-Range', async () => {
+    const archive = buildZip([
+      { name: 'Payload/Sample.app/Info.plist', data: infoPlist('1.0.0') },
+    ]);
+    vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        return new Response(null, {
+          status: 200,
+          headers: { 'content-length': String(archive.length) },
+        });
+      }
+      const { start, end } = requestedRange(init);
+      return new Response(archive.subarray(start, end), {
+        status: 206,
+        headers: {
+          'content-range': `bytes ${start}-${end}/${archive.length}`,
+        },
+      });
+    });
+
+    await expect(
+      versionMetadataFromDownloadURL('https://example.apple.com/app.ipa'),
+    ).rejects.toThrow('range response has 27 bytes, expected 28');
+  });
+
+  it('falls back to a one-byte range when HEAD has no length', async () => {
+    const archive = buildZip([
+      { name: 'Payload/Sample.app/Info.plist', data: infoPlist('1.0.0') },
+    ]);
+    vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        return new Response(null, { status: 200 });
+      }
+      const { start, end } = requestedRange(init);
+      const last = Math.min(end, archive.length - 1);
+      return new Response(archive.subarray(start, last + 1), {
+        status: 206,
+        headers: {
+          'content-range': `bytes ${start}-${last}/${archive.length}`,
+        },
+      });
+    });
+
+    await expect(
+      versionMetadataFromDownloadURL('https://example.apple.com/app.ipa'),
+    ).resolves.toMatchObject({ displayVersion: '1.0.0' });
+  });
+
+  it('rejects a size probe that ignored the one-byte Range', async () => {
+    const archive = buildZip([
+      { name: 'Payload/Sample.app/Info.plist', data: infoPlist('1.0.0') },
+    ]);
+    vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'HEAD') {
+        return new Response(null, { status: 200 });
+      }
+      return new Response(archive, { status: 200 });
+    });
+
+    await expect(
+      versionMetadataFromDownloadURL('https://example.apple.com/app.ipa'),
+    ).rejects.toThrow('range probe failed (HTTP 200)');
   });
 });

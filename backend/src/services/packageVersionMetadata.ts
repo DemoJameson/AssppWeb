@@ -114,18 +114,51 @@ export async function versionMetadataFromDownloadURL(
 
   const size = await readContentLength(downloadURL);
   const read: RangeReader = async (start, end) => {
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start < 0 ||
+      end < start ||
+      end >= size
+    ) {
+      throw new Error(`invalid package range ${start}-${end} for ${size} bytes`);
+    }
+
     const response = await fetch(downloadURL, {
-      headers: { Range: `bytes=${start}-${end}` },
+      headers: {
+        Range: `bytes=${start}-${end}`,
+        "Accept-Encoding": "identity",
+      },
       redirect: "error",
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-    if (!response.ok) {
+    if (response.status !== 206) {
       throw new Error(`range request failed (HTTP ${response.status})`);
     }
-    return Buffer.from(await response.arrayBuffer());
+
+    const range = parseContentRange(response.headers.get("content-range"));
+    if (range.start !== start || range.end !== end || range.total !== size) {
+      throw new Error(
+        `unexpected Content-Range bytes ${range.start}-${range.end}/${range.total}, ` +
+          `expected bytes ${start}-${end}/${size}`,
+      );
+    }
+
+    const data = Buffer.from(await response.arrayBuffer());
+    const expected = end - start + 1;
+    if (data.length !== expected) {
+      throw new Error(
+        `range response has ${data.length} bytes, expected ${expected}`,
+      );
+    }
+
+    return data;
   };
 
-  const header = await read(0, XAR_HEADER_SIZE - 1);
+  const header =
+    size >= XAR_HEADER_SIZE
+      ? await read(0, XAR_HEADER_SIZE - 1)
+      : Buffer.alloc(0);
   if (header.toString("latin1", 0, 4) === "xar!") {
     return readVersionMetadataFromXarRanges(read, size, bundleId);
   }
@@ -541,24 +574,66 @@ async function readEntry(
 async function readContentLength(url: string): Promise<number> {
   const response = await fetch(url, {
     method: "HEAD",
+    headers: { "Accept-Encoding": "identity" },
     redirect: "error",
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (response.ok) {
     const value = Number(response.headers.get("content-length"));
-    if (Number.isFinite(value) && value > 0) return value;
+    if (Number.isSafeInteger(value) && value > 0) return value;
   }
   // Some CDNs answer HEAD with nothing useful: a one-byte range returns the total in
   // `Content-Range`.
   const ranged = await fetch(url, {
-    headers: { Range: "bytes=0-0" },
+    headers: { Range: "bytes=0-0", "Accept-Encoding": "identity" },
     redirect: "error",
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
-  const range = ranged.headers.get("content-range");
-  const total = range?.match(/\/(\d+)$/)?.[1];
-  if (!total) throw new Error("unknown archive size");
-  return Number(total);
+  if (ranged.status !== 206) {
+    throw new Error(`range probe failed (HTTP ${ranged.status})`);
+  }
+
+  const range = parseContentRange(ranged.headers.get("content-range"));
+  if (range.start !== 0 || range.end !== 0) {
+    throw new Error(
+      `unexpected range probe bytes ${range.start}-${range.end}/${range.total}`,
+    );
+  }
+
+  const probe = Buffer.from(await ranged.arrayBuffer());
+  if (probe.length !== 1) {
+    throw new Error("range probe returned an unexpected body");
+  }
+
+  return range.total;
+}
+
+type ContentRange = {
+  start: number;
+  end: number;
+  total: number;
+};
+
+function parseContentRange(header: string | null): ContentRange {
+  const value = header?.trim() ?? "";
+  const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(value);
+  if (!match) throw new Error(`invalid Content-Range: ${value || "missing"}`);
+
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  const total = Number(match[3]);
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    !Number.isSafeInteger(total) ||
+    start < 0 ||
+    end < start ||
+    total <= end
+  ) {
+    throw new Error(`invalid Content-Range: ${value}`);
+  }
+
+  return { start, end, total };
 }
 
 function parsePlist(data: Buffer): Record<string, unknown> | null {
