@@ -13,8 +13,8 @@
 - `frontend/` — React SPA (TypeScript, Vite, Tailwind CSS); tests in `frontend/tests/` (not collocated with src)
 - `cloudflare/` + `wrangler.jsonc` — Cloudflare Workers + Containers deployment wrapper around the Docker image
 - `Dockerfile` / `compose.yml` — single container serves both backend and SPA
-- `tools/anisette/` — Go helper that generates Apple's Anisette/AMD machine-validation headers (ipatool `536d7ba` internals); it never sees Apple credentials
-- `tools/macdecrypt/` — Go helper that decrypts FairPlay-encrypted macOS packages with Apple StoreAgent; pinned to the same ipatool `536d7ba` stack
+- `tools/anisette/` — Go helper that generates Apple's Anisette/AMD machine-validation headers (ipatool `b352566` internals); it never sees Apple credentials
+- `tools/macdecrypt/` — Go helper that decrypts FairPlay-encrypted macOS packages with Apple StoreAgent; pinned to the same ipatool `b352566` stack
 - `frontend/scripts/unicorn-wasm-patch/` — patches + glue + build script for the Unicorn TCI WASM engine (see SAP section)
 - `references/` is gitignored personal infrastructure (never commit); a local ApplePackage checkout may or may not exist
 
@@ -119,7 +119,7 @@ On startup `ensureSapAssets` prefers `DATA_DIR/sap-assets`, then seeds from the 
 
 ### Container image
 
-The Dockerfile prebakes the stripped SAP assets and their Brotli sidecars at build time (a `sap-assets` stage runs `backend/scripts/extract-sap-assets.mts`; Docker layer caching makes it a no-op on rebuilds). Release images ship both, so a fresh VPS serves Brotli with zero network use. The `apple-cache` stage prebakes the seven macOS 27 Anisette/StoreAgent files (~167 MiB) into `/opt/asspp/apple-cache`; `backend/src/services/appleCache.ts` seeds the helper cache under `DATA_DIR` from that copy, so the first Anisette proof and the first macOS decryption do not download Apple's restore image. The `anisette` and `macdecrypt` stages build natively per target platform (purego links the runtime's own libc); the asset stages run on `$BUILDPLATFORM` because their files are platform-independent. The runtime image installs production deps per target platform because `yauzl-promise` → `@node-rs/crc32` ships prebuilt napi binaries per arch. Published platforms: `linux/amd64`, `linux/arm64`. **linux/386 is out**: official node images dropped it and `@node-rs/crc32` has no linux-ia32 build.
+The Dockerfile prebakes the stripped SAP assets and their Brotli sidecars at build time (a `sap-assets` stage runs `backend/scripts/extract-sap-assets.mts`; Docker layer caching makes it a no-op on rebuilds). Release images ship both, so a fresh VPS serves Brotli with zero network use. The `apple-cache` stage prebakes the seven macOS 27 Anisette/StoreAgent files (~75 MiB of arm64e slices, compacted from ~167 MiB) into `/opt/asspp/apple-cache`; `backend/src/services/appleCache.ts` seeds the helper cache under `DATA_DIR` from that copy, so the first Anisette proof and the first macOS decryption do not download Apple's restore image. The `anisette` and `macdecrypt` stages build natively per target platform (purego links the runtime's own libc); the asset stages run on `$BUILDPLATFORM` because their files are platform-independent. The runtime image installs production deps per target platform because `yauzl-promise` → `@node-rs/crc32` ships prebuilt napi binaries per arch. Published platforms: `linux/amd64`, `linux/arm64`. **linux/386 is out**: official node images dropped it and `@node-rs/crc32` has no linux-ia32 build.
 
 ### SAP invariants
 
@@ -133,7 +133,7 @@ The Dockerfile prebakes the stripped SAP assets and their Brotli sidecars at bui
 
 ## Architecture — Anisette / MD / AMD Machine Validation
 
-Apple's Store authentication now expects a machine-validation proof alongside the SAP signature. ipatool generates it locally by running Apple's macOS 27 ADI, FairPlay, and AppleMediaServices frameworks under Unicorn; this project does the same in a separate Go helper (`tools/anisette/`, pinned to ipatool `536d7ba`). The pin includes the latest three upstream commits: dynamic storefront discovery, authentication server dialogs, and percent-encoded URL query support.
+Apple's Store authentication now expects a machine-validation proof alongside the SAP signature. ipatool generates it locally by running Apple's macOS 27 ADI, FairPlay, and AppleMediaServices frameworks under Unicorn; this project does the same in a separate Go helper (`tools/anisette/`, pinned to ipatool `b352566`). The pin includes dynamic storefront discovery, authentication server dialogs, percent-encoded URL query support, compacted arm64e asset caching, shared Mach-O image preparation, a bounded Unicorn translation buffer, and the Unicorn initialization clock fix.
 
 ```
 Browser                         Backend helper                    Apple
@@ -159,7 +159,7 @@ Browser                         Backend helper                    Apple
 - Apple can also answer `SM` (machine sync), which ipatool-cpp logs but does not implement. The commerce loop retries once without machine headers and then returns Apple's response; it must not turn `SM` into an "unsupported action" failure that aborts the whole download.
 - When a backend download task transitions to completed, `GlobalDownloadNotifier` calls `apple/downloadDone.ts`: a best-effort `songDownloadDone` GET using the bag endpoint, account pod, device GUID, cookies and DSID (mirroring ipatool-cpp). It never changes the task's success state.
 - The helper only accepts loopback connections, a bearer token, and allowlisted Apple auth/commerce URLs. The backend also applies per-IP rate limits because these endpoints are expensive and `accessAuth` is optional. It serializes proofs because each opens several emulated machines; a timed-out helper is killed and replaced rather than left holding `proofMu`. The one exception is a cold helper still loading Apple's bundle: every proof handler calls `loadBundle` before it locks `proofMu`, and the helper runs that first load on its own ten-minute budget, so a proof that gives up waiting leaves the load running and leaves the helper alone — killing it would abort an extraction that cannot resume. The supervisor reads `bundleReady` from the helper's `/health`; a load still incomplete after the 12-minute cold-start grace is killed as a stall. The supervisor gives the helper only its runtime/cache/proxy environment, never the backend's secrets (`ACCESS_PASSWORD` included). `prepare` warms the asset bundle and Unicorn runtime; the authenticated app fires it in the background once an account exists, and the add-account page also warms it while the user types.
-- The helper loads the 167 MB `assets.Bundle` once and passes it into the copied storeauth provisioning flow; it does not re-read and re-hash the asset set for every proof.
+- The helper loads the ~75 MB compacted `assets.Bundle` once and passes it into the copied storeauth provisioning flow; it does not re-read and re-hash the asset set for every proof.
 - First use on a fresh data volume costs the prebaked cache copy (or, in dev, a one-time Apple restore-image extraction). The image prebakes the seven assets but not the Unicorn runtime; a first proof downloads that ~15 MB library into the helper cache under `DATA_DIR` if it is absent. The helper retries idempotent asset range reads on 403/429/5xx because Apple's CDN throttles bursts.
 
 ## Reference Implementation
@@ -439,7 +439,7 @@ that, tens or hundreds of megabytes would be fetched for a package nothing could
 open. Neither is ever persisted or returned to a client (`sanitizeTaskForResponse`,
 and they are cleared together with the other per-attempt material on completion).
 
-`tools/macdecrypt/` is that decrypter. It is pinned at ipatool `536d7ba`'s
+`tools/macdecrypt/` is that decrypter. It is pinned at ipatool `b352566`'s
 macOS 27 stack: the guest is the arm64e
 `AppleMediaServices`, `commerce`, `CoreFP` and `CoreFP.icxs` images the helper
 resolves itself from Apple's public macOS 27.0.1 (26A434) restore image, and

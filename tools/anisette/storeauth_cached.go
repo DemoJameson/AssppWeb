@@ -1,8 +1,8 @@
-// The provisioning flow below is adapted from ipatool v2.8.0's
+// The provisioning flow below is adapted from ipatool v2.8.2's
 // internal/storeauth (MIT, Copyright (c) 2021 Majd Alfhaily). The functional
 // change is that the caller supplies an already-loaded assets.Bundle: a
-// long-lived helper must not re-read and SHA-256-verify the 167 MB asset set
-// for every proof.
+// long-lived helper keeps the compacted asset set in memory and hands each
+// proof the same bundle.
 package main
 
 import (

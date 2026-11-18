@@ -3,7 +3,7 @@ module github.com/majd/ipatool/v2/asspp-anisette
 go 1.26.5
 
 require (
-	github.com/majd/ipatool/v2 v2.8.1-0.20261108173927-536d7bacc1c5
+	github.com/majd/ipatool/v2 v2.8.2-0.20261112230755-b352566155a6
 	howett.net/plist v1.0.1
 )
 
